@@ -124,6 +124,49 @@ def _create_problem_version(admin_token: str, *, suffix: str) -> tuple[int, int]
     return problem_id, version_id
 
 
+def _create_skill(admin_token: str, *, name: str) -> int:
+    skill_response = requests.post(
+        f"{API_BASE_URL}/admin/skills",
+        headers={**_auth_headers(admin_token), "Content-Type": "application/json"},
+        json={"name": name, "description": "e2e"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert skill_response.status_code == 200, skill_response.text
+    return int(skill_response.json()["id"])
+
+
+def _create_problem_and_version_with_skills(
+    admin_token: str,
+    *,
+    suffix: str,
+    skill_weights: list[dict[str, int]],
+) -> tuple[int, int]:
+    problem_response = requests.post(
+        f"{API_BASE_URL}/admin/problems",
+        headers={**_auth_headers(admin_token), "Content-Type": "application/json"},
+        json={"title": f"problem-{suffix}"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert problem_response.status_code == 200, problem_response.text
+    problem_id = int(problem_response.json()["id"])
+
+    version_response = requests.post(
+        f"{API_BASE_URL}/admin/problems/{problem_id}/versions",
+        headers={**_auth_headers(admin_token), "Content-Type": "application/json"},
+        json={
+            "type": "coding",
+            "difficulty": "easy",
+            "max_score": 100,
+            "statement_md": "# E2E",
+            "skills": skill_weights,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert version_response.status_code == 200, version_response.text
+    version_id = int(version_response.json()["id"])
+    return problem_id, version_id
+
+
 def _upload_bundle(admin_token: str, version_id: int, bundle_bytes: bytes) -> dict[str, Any]:
     response = requests.post(
         f"{API_BASE_URL}/admin/problem-versions/{version_id}/bundle",
@@ -289,3 +332,74 @@ def test_d_zip_slip_is_blocked_during_grading(tokens: tuple[str, str]) -> None:
 
     final = _poll_submission(student_token, submission_id)
     assert final["status"] == "FAILED", final
+
+
+def test_e_mastery_model_weighted_formula(tokens: tuple[str, str]) -> None:
+    admin_token, student_token = tokens
+    suffix = f"m-{uuid.uuid4().hex[:8]}"
+    skill_a_name = f"skill-a-{suffix}"
+    skill_b_name = f"skill-b-{suffix}"
+    skill_a_id = _create_skill(admin_token, name=skill_a_name)
+    skill_b_id = _create_skill(admin_token, name=skill_b_name)
+
+    bundle_sum, _ = _create_bundle_zip("sum")
+
+    # Submission 1: skill A only, full score expected.
+    _, version_id_1 = _create_problem_and_version_with_skills(
+        admin_token,
+        suffix=f"{suffix}-1",
+        skill_weights=[{"skill_id": skill_a_id, "weight": 100}],
+    )
+    _upload_bundle(admin_token, version_id_1, bundle_sum)
+    submit_1 = requests.post(
+        f"{API_BASE_URL}/submissions",
+        headers={**_auth_headers(student_token), "Content-Type": "application/json"},
+        json={"problem_version_id": version_id_1, "code_text": "def solve(a, b):\n    return a + b\n"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert submit_1.status_code == 200, submit_1.text
+    final_1 = _poll_submission(student_token, int(submit_1.json()["id"]))
+    assert final_1["status"] == "GRADED", final_1
+    assert int(final_1["grade"]["score"]) == 100
+
+    # Submission 2: skill A/B split, zero score expected.
+    _, version_id_2 = _create_problem_and_version_with_skills(
+        admin_token,
+        suffix=f"{suffix}-2",
+        skill_weights=[{"skill_id": skill_a_id, "weight": 50}, {"skill_id": skill_b_id, "weight": 50}],
+    )
+    _upload_bundle(admin_token, version_id_2, bundle_sum)
+    submit_2 = requests.post(
+        f"{API_BASE_URL}/submissions",
+        headers={**_auth_headers(student_token), "Content-Type": "application/json"},
+        json={"problem_version_id": version_id_2, "code_text": "def solve(a, b):\n    return a - b\n"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert submit_2.status_code == 200, submit_2.text
+    final_2 = _poll_submission(student_token, int(submit_2.json()["id"]))
+    assert final_2["status"] == "GRADED", final_2
+    assert int(final_2["grade"]["score"]) == 0
+
+    progress = requests.get(
+        f"{API_BASE_URL}/me/progress",
+        headers=_auth_headers(student_token),
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert progress.status_code == 200, progress.text
+    items = progress.json()["skills"]
+    by_name = {item["skill_name"]: item for item in items}
+    assert skill_a_name in by_name, items
+    assert skill_b_name in by_name, items
+
+    skill_a = by_name[skill_a_name]
+    skill_b = by_name[skill_b_name]
+
+    # skill A: (100*100 + 0*50) / (100*100 + 100*50) * 100 = 66.67
+    assert float(skill_a["earned_points"]) == pytest.approx(10000.0, abs=0.01)
+    assert float(skill_a["possible_points"]) == pytest.approx(15000.0, abs=0.01)
+    assert float(skill_a["mastery"]) == pytest.approx(66.67, abs=0.01)
+
+    # skill B: (0*50) / (100*50) * 100 = 0
+    assert float(skill_b["earned_points"]) == pytest.approx(0.0, abs=0.01)
+    assert float(skill_b["possible_points"]) == pytest.approx(5000.0, abs=0.01)
+    assert float(skill_b["mastery"]) == pytest.approx(0.0, abs=0.01)
