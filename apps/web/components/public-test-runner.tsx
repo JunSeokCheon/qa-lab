@@ -3,6 +3,8 @@
 import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 type RunPublicResponse = {
   status: string;
@@ -64,25 +66,23 @@ export function PublicTestRunner() {
   };
 
   return (
-    <section className="mt-8 rounded-xl border p-4">
+    <section className="qa-card mt-0">
       <h2 className="text-xl font-semibold">Run public tests</h2>
       <form onSubmit={onRunPublic} className="mt-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input
-            className="rounded border px-3 py-2"
+          <Input
             placeholder="Problem ID"
             value={problemId}
             onChange={(e) => setProblemId(e.target.value)}
           />
-          <input
-            className="rounded border px-3 py-2"
+          <Input
             placeholder="Problem Version (optional)"
             value={problemVersion}
             onChange={(e) => setProblemVersion(e.target.value)}
           />
         </div>
-        <textarea
-          className="min-h-44 w-full rounded border px-3 py-2 font-mono text-sm"
+        <Textarea
+          className="min-h-44"
           value={codeText}
           onChange={(e) => setCodeText(e.target.value)}
         />
@@ -94,7 +94,7 @@ export function PublicTestRunner() {
       {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
 
       {result ? (
-        <div className="mt-4 space-y-3 rounded-lg bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
+        <div className="mt-4 space-y-3 rounded-2xl bg-surface-muted p-4 text-sm">
           <p>
             status: <b>{result.status}</b>
           </p>
@@ -115,7 +115,7 @@ export function PublicTestRunner() {
             </div>
           ) : null}
           {result.summary.stderr ? (
-            <pre className="max-h-44 overflow-auto rounded border bg-white p-2 text-xs dark:bg-zinc-950">
+            <pre className="max-h-44 overflow-auto rounded-xl border border-border/70 bg-background/70 p-2 text-xs">
               {result.summary.stderr}
             </pre>
           ) : null}

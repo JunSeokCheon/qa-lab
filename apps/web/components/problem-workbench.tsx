@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 type RunPublicResponse = {
   status: string;
@@ -130,9 +131,9 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
   };
 
   return (
-    <section className="mt-6 rounded-xl border p-4" data-testid="problem-workbench">
+    <section className="qa-card mt-6" data-testid="problem-workbench">
       <h2 className="text-xl font-semibold">Problem Workbench</h2>
-      <p className="text-sm text-zinc-600 dark:text-zinc-300">
+      <p className="text-sm text-muted-foreground">
         problem_id={problemId}, version_id={problemVersionId}
       </p>
       <p ref={readyRef} className="sr-only" data-ready="0" data-testid="workbench-ready">
@@ -140,8 +141,8 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
       </p>
 
       <form onSubmit={onRunPublic} className="mt-4 space-y-3">
-        <textarea
-          className="min-h-44 w-full rounded border px-3 py-2 font-mono text-sm"
+        <Textarea
+          className="min-h-44"
           value={codeText}
           onChange={(e) => setCodeText(e.target.value)}
           data-testid="code-input"
@@ -156,9 +157,9 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
         </div>
       </form>
 
-      {runError ? <p className="mt-3 text-sm text-red-600">{runError}</p> : null}
+      {runError ? <p className="mt-3 text-sm text-destructive">{runError}</p> : null}
       {runResult ? (
-        <div className="mt-4 rounded-lg bg-zinc-100 p-3 text-sm dark:bg-zinc-900" data-testid="public-result-panel">
+        <div className="mt-4 rounded-2xl bg-surface-muted p-3 text-sm" data-testid="public-result-panel">
           <p data-testid="public-status">status: {runResult.status}</p>
           <p data-testid="public-summary">
             summary: passed {runResult.public_feedback.passed}/{runResult.public_feedback.total},{" "}
@@ -167,8 +168,8 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
         </div>
       ) : null}
 
-      {submitError ? <p className="mt-3 text-sm text-red-600">{submitError}</p> : null}
-      <div className="mt-4 rounded-lg bg-zinc-100 p-3 text-sm dark:bg-zinc-900" data-testid="submission-panel">
+      {submitError ? <p className="mt-3 text-sm text-destructive">{submitError}</p> : null}
+      <div className="mt-4 rounded-2xl bg-surface-muted p-3 text-sm" data-testid="submission-panel">
         <p>submission_id: {submissionId ?? "-"}</p>
         <p data-testid="submission-status-timeline">status timeline: {statusText || "-"}</p>
         <p data-testid="submission-score">score: {finalScore}</p>

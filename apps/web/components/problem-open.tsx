@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function ProblemOpen() {
   const router = useRouter();
@@ -19,9 +20,9 @@ export function ProblemOpen() {
   };
 
   return (
-    <form onSubmit={onSubmit} className="mt-4 flex items-center gap-2" data-testid="problem-open-form">
-      <input
-        className="w-32 rounded border px-3 py-2"
+    <form onSubmit={onSubmit} className="qa-card mt-0 flex flex-wrap items-center gap-2" data-testid="problem-open-form">
+      <Input
+        className="w-40"
         placeholder="Problem ID"
         value={problemId}
         onChange={(e) => setProblemId(e.target.value)}

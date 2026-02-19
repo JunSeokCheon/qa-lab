@@ -30,18 +30,21 @@ export default async function AdminPage() {
 
   if (adminResponse.status === 403) {
     return (
-      <main className="mx-auto max-w-2xl p-8">
+      <main className="qa-shell">
+        <section className="qa-card">
         <h1 className="text-2xl font-semibold">Admin 페이지</h1>
         <p className="mt-4">현재 계정은 admin 권한이 없어 접근할 수 없습니다. (403)</p>
         <Link href="/" className="mt-4 inline-block underline">
           홈으로 이동
         </Link>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <main className="qa-shell">
+      <section className="qa-card">
       <h1 className="text-2xl font-semibold">Admin 페이지</h1>
       <p className="mt-4">로그인 계정: {me.email}</p>
       <p>역할: {me.role}</p>
@@ -52,6 +55,7 @@ export default async function AdminPage() {
           /admin/submissions/1
         </Link>
       </p>
+      </section>
     </main>
   );
 }

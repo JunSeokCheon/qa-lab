@@ -33,29 +33,36 @@ export default async function DashboardPage() {
   const progress = await fetchMyProgressWithToken(token);
   if (!progress) {
     return (
-      <main className="mx-auto max-w-4xl p-8">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="mt-4">진행 정보를 불러오지 못했습니다.</p>
-        <Link href="/" className="mt-4 inline-block underline">
-          홈으로 이동
-        </Link>
+      <main className="qa-shell">
+        <section className="qa-card">
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="mt-4">진행 정보를 불러오지 못했습니다.</p>
+          <Link href="/" className="mt-4 inline-block underline">
+            홈으로 이동
+          </Link>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
-      <h1 className="text-3xl font-semibold">Skill Dashboard</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{me.email}의 현재 역량 성취도</p>
+    <main className="qa-shell space-y-6">
+      <section className="qa-card">
+        <p className="qa-kicker">Progress</p>
+        <h1 className="mt-2 text-3xl font-bold">Skill Dashboard</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{me.email}의 현재 역량 상태입니다.</p>
+      </section>
 
-      <section className="mt-6">
+      <section className="qa-card">
         <h2 className="text-xl font-semibold">Skill Heatmap</h2>
         {progress.skills.length === 0 ? (
-          <p className="mt-3 rounded-lg border p-4">채점된 제출이 아직 없습니다.</p>
+          <p className="mt-3 rounded-2xl border border-border/70 bg-surface-muted p-4">
+            채점된 제출이 아직 없습니다.
+          </p>
         ) : (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {progress.skills.map((skill) => (
-              <article key={skill.skill_id} className="rounded-lg border p-4">
+              <article key={skill.skill_id} className="rounded-2xl border border-border/70 bg-surface p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">{skill.skill_name}</h3>
                   <span className={`rounded px-2 py-1 text-xs ${heatColor(skill.mastery)}`}>
@@ -63,7 +70,7 @@ export default async function DashboardPage() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm">Level: {masteryLevel(skill.mastery)}</p>
-                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                <p className="mt-1 text-xs text-muted-foreground">
                   earned {skill.earned_points.toFixed(1)} / possible {skill.possible_points.toFixed(1)}
                 </p>
               </article>
@@ -72,11 +79,11 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      <section className="mt-8">
+      <section className="qa-card">
         <h2 className="text-xl font-semibold">최근 제출 10개</h2>
-        <div className="mt-3 overflow-x-auto rounded-lg border">
+        <div className="mt-3 overflow-x-auto rounded-2xl border border-border/70">
           <table className="min-w-full text-sm">
-            <thead className="bg-zinc-100 text-left dark:bg-zinc-900">
+            <thead className="bg-surface-muted text-left">
               <tr>
                 <th className="px-3 py-2">Submission</th>
                 <th className="px-3 py-2">Problem</th>
@@ -86,7 +93,7 @@ export default async function DashboardPage() {
             </thead>
             <tbody>
               {progress.recent_submissions.map((item) => (
-                <tr key={item.submission_id} className="border-t">
+                <tr key={item.submission_id} className="border-t border-border/70">
                   <td className="px-3 py-2">#{item.submission_id}</td>
                   <td className="px-3 py-2">
                     {item.problem_title} (v{item.problem_version})

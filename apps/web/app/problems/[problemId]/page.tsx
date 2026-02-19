@@ -34,12 +34,14 @@ export default async function ProblemPage({ params }: Params) {
   const response = await fetch(`${FASTAPI_BASE_URL}/problems/${problemId}`, { cache: "no-store" });
   if (!response.ok) {
     return (
-      <main className="mx-auto max-w-3xl p-8">
-        <h1 className="text-2xl font-semibold">문제</h1>
-        <p className="mt-3">문제를 불러오지 못했습니다.</p>
-        <Link href="/" className="underline">
-          홈으로 이동
-        </Link>
+      <main className="qa-shell">
+        <section className="qa-card">
+          <h1 className="text-2xl font-semibold">문제</h1>
+          <p className="mt-3">문제를 불러오지 못했습니다.</p>
+          <Link href="/" className="underline">
+            홈으로 이동
+          </Link>
+        </section>
       </main>
     );
   }
@@ -47,19 +49,24 @@ export default async function ProblemPage({ params }: Params) {
   const problem = (await response.json()) as ProblemDetail;
   if (!problem.latest_version) {
     return (
-      <main className="mx-auto max-w-3xl p-8">
-        <h1 className="text-2xl font-semibold">{problem.title}</h1>
-        <p className="mt-3">아직 버전이 없습니다.</p>
+      <main className="qa-shell">
+        <section className="qa-card">
+          <h1 className="text-2xl font-semibold">{problem.title}</h1>
+          <p className="mt-3">아직 문제 버전이 없습니다.</p>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold">{problem.title}</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-        Problem #{problem.id}, Version {problem.latest_version.version}
-      </p>
+    <main className="qa-shell">
+      <section className="qa-card">
+        <p className="qa-kicker">Problem Workspace</p>
+        <h1 className="mt-2 text-3xl font-bold">{problem.title}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Problem #{problem.id}, Version {problem.latest_version.version}
+        </p>
+      </section>
       <ProblemWorkbench problemId={problem.id} problemVersionId={problem.latest_version.id} />
     </main>
   );

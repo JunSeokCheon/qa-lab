@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,18 +38,18 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-black">
-      <main className="w-full max-w-md rounded-xl bg-white p-8 shadow dark:bg-zinc-950">
-        <h1 className="mb-6 text-2xl font-semibold">Login</h1>
+    <div className="min-h-screen">
+      <main className="qa-shell flex min-h-screen items-center justify-center py-12">
+        <section className="qa-card w-full max-w-md">
+          <p className="qa-kicker">Welcome Back</p>
+          <h1 className="mb-6 mt-2 text-3xl font-bold">Login</h1>
         <form onSubmit={onSubmit} className="space-y-4">
-          <input
-            className="w-full rounded border px-3 py-2"
+          <Input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="email"
           />
-          <input
-            className="w-full rounded border px-3 py-2"
+          <Input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -59,6 +60,7 @@ export default function LoginPage() {
             {loading ? "로그인 중..." : "로그인"}
           </Button>
         </form>
+        </section>
       </main>
     </div>
   );
