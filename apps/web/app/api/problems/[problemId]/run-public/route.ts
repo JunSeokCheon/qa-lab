@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 import { FASTAPI_BASE_URL } from "@/lib/auth";
 
 type Params = {
-  params: { problemId: string };
+  params: Promise<{ problemId: string }>;
 };
 
 export async function POST(request: Request, { params }: Params) {
-  const { problemId } = params;
+  const { problemId } = await params;
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
 

@@ -4,10 +4,11 @@ import { NextResponse } from "next/server";
 import { FASTAPI_BASE_URL } from "@/lib/auth";
 
 type Params = {
-  params: { submissionId: string };
+  params: Promise<{ submissionId: string }>;
 };
 
 export async function GET(_: Request, { params }: Params) {
+  const { submissionId } = await params;
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
 
@@ -15,7 +16,7 @@ export async function GET(_: Request, { params }: Params) {
     return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
   }
 
-  const response = await fetch(`${FASTAPI_BASE_URL}/submissions/${params.submissionId}`, {
+  const response = await fetch(`${FASTAPI_BASE_URL}/submissions/${submissionId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
