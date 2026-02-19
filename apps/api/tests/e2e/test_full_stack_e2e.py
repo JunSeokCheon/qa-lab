@@ -153,6 +153,20 @@ def _poll_submission(user_token: str, submission_id: int) -> dict[str, Any]:
     raise AssertionError(f"submission polling timed out: {last_payload}")
 
 
+def _admin_submission_debug(admin_token: str, submission_id: int) -> dict[str, Any]:
+    response = requests.get(
+        f"{API_BASE_URL}/admin/submissions/{submission_id}",
+        headers=_auth_headers(admin_token),
+        timeout=REQUEST_TIMEOUT,
+    )
+    if response.status_code != 200:
+        return {"error": f"admin detail fetch failed status={response.status_code}", "body": response.text}
+    body = response.json()
+    runs = body.get("grade_runs", [])
+    latest_run = runs[0] if runs else None
+    return {"status": body.get("status"), "latest_run": latest_run}
+
+
 @pytest.fixture(scope="module")
 def tokens() -> tuple[str, str]:
     _wait_for_api()
@@ -191,7 +205,8 @@ def test_a_admin_bundle_upload_submit_and_grade(tokens: tuple[str, str]) -> None
     submission_id = int(create_submission.json()["id"])
 
     final = _poll_submission(student_token, submission_id)
-    assert final["status"] == "GRADED", final
+    debug_info = _admin_submission_debug(admin_token, submission_id)
+    assert final["status"] == "GRADED", {"final": final, "debug": debug_info}
     assert final["grade"] is not None
     assert int(final["grade"]["score"]) == 100
 
@@ -211,7 +226,7 @@ def test_b_student_run_public(tokens: tuple[str, str]) -> None:
     )
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["status"] == "PASSED"
+    assert payload["status"] == "PASSED", payload
     assert int(payload["public_feedback"]["passed"]) == int(payload["public_feedback"]["total"])
     assert int(payload["public_feedback"]["total"]) >= 1
 
@@ -236,7 +251,8 @@ def test_c_student_submit_hidden_grading(tokens: tuple[str, str]) -> None:
     submission_id = int(submit.json()["id"])
 
     final = _poll_submission(student_token, submission_id)
-    assert final["status"] == "GRADED", final
+    debug_info = _admin_submission_debug(admin_token, submission_id)
+    assert final["status"] == "GRADED", {"final": final, "debug": debug_info}
     assert final["grade"] is not None
     assert int(final["grade"]["score"]) < int(final["grade"]["max_score"])
     feedback = final["grade"]["feedback_json"]
