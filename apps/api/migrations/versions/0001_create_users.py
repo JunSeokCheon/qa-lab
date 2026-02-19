@@ -39,8 +39,8 @@ def upgrade() -> None:
             ON CONFLICT (email) DO NOTHING
             """
         ).bindparams(
-            admin_hash="$2b$12$ksAeOZ8QIYHSaN.f8Kfg8OF7fPkxBVkzEpg9OhJPqWpvtdHT64DOO",
-            user_hash="$2b$12$lT.1jS4SCpqYB2z61ze3d.wNVF.jHcoEfcFMyiY1PGzbdDc72Su/a",
+            admin_hash="$2b$12$HChp8o.jXnO7.4YhuC46YOC/XJLGvGXjclwzfY1xGvVdK1ybSGdaO",
+            user_hash="$2b$12$VhRzQo9N..JOaUzE2wURduN6YYdrH519vJoIb/jUSdk8xqIqf9RVS",
         )
     )
 
