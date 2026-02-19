@@ -48,12 +48,35 @@ fastapi dev main.py
 - `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` (비밀번호 재설정 토큰 만료 시간)
 - `BUNDLE_MAX_ENTRIES`, `BUNDLE_MAX_UNCOMPRESSED_BYTES` (zip bomb 방어)
 - `MAX_LOG_BYTES` (grader stdout/stderr/log 절단 길이)
+- `SUBMISSION_QUEUE_MAX_DEPTH` (큐 백프레셔 임계치)
+- `SUBMISSION_MAX_ACTIVE_PER_USER` (사용자별 동시 채점 제한)
+- `GRADING_RETRY_MAX_ATTEMPTS`, `GRADING_RETRY_BACKOFF_SECONDS` (일시 장애 재시도 정책)
+- `GRADING_STUCK_TIMEOUT_SECONDS` (RUNNING 장기 체류 watchdog 기준)
+- 로그인 시도 제한은 Redis 키(`auth:login-attempts:*`) 기반으로 동작합니다.
 
 관측성(Observability):
 - 모든 API 응답 헤더에 `X-Request-ID`가 포함됩니다.
 - API는 JSON 구조 로그(`request.completed`)를 출력합니다.
 - 운영 요약(관리자): `GET /admin/ops/summary`
   - `queue_depth`, `pending_grade_runs`, `submission_status_counts`, `health(db/redis)` 확인 가능
+
+채점 신뢰성 운영 명령:
+- RUNNING 장기 체류 정리 + 재큐잉(관리자):
+```bash
+curl -X POST "http://127.0.0.1:8000/admin/watchdog/requeue-stale?stale_seconds=300" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+- 제출 API 백프레셔:
+  - 큐가 `SUBMISSION_QUEUE_MAX_DEPTH` 이상이면 `429`
+  - 사용자의 `QUEUED/RUNNING`이 `SUBMISSION_MAX_ACTIVE_PER_USER` 이상이면 `429`
+
+관리자 감사 로그:
+- 조회 API: `GET /admin/audit-logs?limit=50`
+- 기록 대상: 문제/버전/스킬 생성 및 수정, 번들 업로드, 재채점, watchdog 재큐잉
+
+번들 업로드 보안 정책:
+- 허용 경로: `statement.md`, `rubric.yaml`, `starter/*`, `tests/public/*`, `tests/hidden/*`
+- 차단: 경로순회(`..`), 절대경로, NUL 문자, 의심 경로(`.git`, `.env`, `id_rsa`), 실행 파일 확장자(`.exe`, `.dll`, `.bat`, `.ps1` 등)
 
 ### 웹/백 동시 실행 방법
 터미널 1 (API):
@@ -376,6 +399,52 @@ pnpm exec playwright install --with-deps chromium
 pnpm test:e2e
 ```
 
+### 테스트 보강 실행 (Unit + E2E)
+API 단위 테스트:
+```bash
+python -m pip install pytest
+pytest -vv --tb=short apps/api/tests/unit
+```
+
+API/Worker E2E:
+```bash
+pytest -vv -s --tb=short apps/api/tests/e2e/test_full_stack_e2e.py
+```
+
+Playwright(학생 + 관리자 플로우):
+```bash
+cd apps/web
+pnpm test:e2e
+```
+
+### 데이터/도메인 확장
+- `problem_versions.status`: `draft | published | archived`
+- `problem_versions.rubric_version`: 번들 업로드 시 증가
+- `rubric_histories`: rubric 버전/sha 이력 저장
+- `submissions`는 생성 시 `bundle_key_snapshot`, `bundle_sha256_snapshot`, `rubric_version_snapshot`을 고정 저장
+- `mastery_snapshots`: 시점별 skill mastery 스냅샷 저장
+
+운영 명령:
+```bash
+# 문제 버전 상태 변경 (admin)
+curl -X PUT "http://127.0.0.1:8000/admin/problem-versions/1/status" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"status\":\"published\"}"
+
+# rubric 이력 조회 (admin)
+curl "http://127.0.0.1:8000/admin/problem-versions/1/rubric-history" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+
+# mastery 스냅샷 캡처 (admin)
+curl -X POST "http://127.0.0.1:8000/admin/progress/snapshots/capture" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+
+# 내 mastery 추세 조회 (student)
+curl "http://127.0.0.1:8000/me/progress/trend?limit=20" ^
+  -H "Authorization: Bearer <USER_TOKEN>"
+```
+
 
 ### DB 마이그레이션 (Alembic)
 1) `.env` 파일 만들기:
@@ -467,7 +536,11 @@ docker compose -f infra/docker-compose.yml down -v
 - `infra/docker-compose.prod.yml`
 - `infra/.env.prod.example`
 - `docs/DEPLOYMENT.md`
+- `docs/OPERATIONS_RUNBOOK.md`
 - `scripts/deploy_prod.sh`
+- `scripts/backup_prod.sh`
+- `scripts/restore_prod.sh`
+- `scripts/ops_healthcheck.sh`
 
 빠른 배포 절차:
 ```bash
@@ -477,6 +550,18 @@ cp infra/.env.prod.example infra/.env.prod
 
 # 2) 빌드 + 기동
 bash scripts/deploy_prod.sh
+```
+
+운영 준비 명령:
+```bash
+# 상태 점검
+bash scripts/ops_healthcheck.sh
+
+# 백업
+bash scripts/backup_prod.sh
+
+# 복구(예시)
+bash scripts/restore_prod.sh --input-dir backups/<timestamp>
 ```
 
 직접 실행 명령:

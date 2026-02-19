@@ -54,10 +54,12 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "로그인 중..." : "로그인"}
             </Button>
-            <div className="flex items-center justify-between text-xs">
-              <Link className="underline" href="/signup">
-                회원가입
-              </Link>
+            <Link href="/signup" className="block">
+              <Button type="button" variant="outline" className="w-full">
+                회원가입 하러가기
+              </Button>
+            </Link>
+            <div className="flex items-center justify-end text-xs">
               <Link className="underline" href="/forgot-password">
                 비밀번호 재설정
               </Link>

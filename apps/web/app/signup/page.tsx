@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
@@ -15,9 +15,26 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const toErrorMessage = (payload: unknown): string => {
+    if (!payload || typeof payload !== "object") return "회원가입에 실패했습니다.";
+    const data = payload as { detail?: unknown; message?: unknown };
+
+    if (typeof data.message === "string" && data.message.trim()) return data.message;
+    if (typeof data.detail === "string" && data.detail.trim()) return data.detail;
+
+    if (Array.isArray(data.detail)) {
+      const first = data.detail[0] as { msg?: unknown } | undefined;
+      if (first && typeof first.msg === "string" && first.msg.trim()) return first.msg;
+      return "입력값을 다시 확인해주세요.";
+    }
+
+    return "회원가입에 실패했습니다.";
+  };
+
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+
     if (password.length < 8) {
       setError("비밀번호는 8자 이상이어야 합니다.");
       return;
@@ -33,9 +50,10 @@ export default function SignupPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+
     if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
-      setError(payload.detail ?? payload.message ?? "회원가입에 실패했습니다.");
+      const payload = await response.json().catch(() => null);
+      setError(toErrorMessage(payload));
       setLoading(false);
       return;
     }
@@ -45,6 +63,7 @@ export default function SignupPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+
     router.push("/");
     router.refresh();
   };
@@ -58,21 +77,14 @@ export default function SignupPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <Input placeholder="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <Input type="password" placeholder="password (8+)" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <Input
-              type="password"
-              placeholder="confirm password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
+            <Input type="password" placeholder="confirm password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button className="w-full" disabled={loading}>
               {loading ? "가입 중..." : "회원가입"}
             </Button>
             <p className="text-xs text-muted-foreground">
               이미 계정이 있나요?{" "}
-              <Link href="/login" className="underline">
-                로그인
-              </Link>
+              <Link href="/login" className="underline">로그인</Link>
             </p>
           </form>
         </section>

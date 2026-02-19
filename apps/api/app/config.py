@@ -27,6 +27,11 @@ ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "ht
 LOGIN_RATE_LIMIT_ATTEMPTS = int(os.getenv("LOGIN_RATE_LIMIT_ATTEMPTS", "10"))
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "60"))
 MAX_LOG_BYTES = int(os.getenv("MAX_LOG_BYTES", str(8 * 1024)))
+SUBMISSION_QUEUE_MAX_DEPTH = int(os.getenv("SUBMISSION_QUEUE_MAX_DEPTH", "200"))
+SUBMISSION_MAX_ACTIVE_PER_USER = int(os.getenv("SUBMISSION_MAX_ACTIVE_PER_USER", "3"))
+GRADING_RETRY_MAX_ATTEMPTS = int(os.getenv("GRADING_RETRY_MAX_ATTEMPTS", "3"))
+GRADING_RETRY_BACKOFF_SECONDS = int(os.getenv("GRADING_RETRY_BACKOFF_SECONDS", "2"))
+GRADING_STUCK_TIMEOUT_SECONDS = int(os.getenv("GRADING_STUCK_TIMEOUT_SECONDS", "300"))
 
 if APP_ENV in {"production", "prod"} and JWT_SECRET_KEY == "change-this-in-production":
     raise RuntimeError("JWT_SECRET_KEY must be set in production")

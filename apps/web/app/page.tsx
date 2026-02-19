@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 
 import { Button } from "@/components/ui/button";
+import { LogoutButton } from "@/components/logout-button";
 import { ProblemOpen } from "@/components/problem-open";
 import { PublicTestRunner } from "@/components/public-test-runner";
 import { fetchMeWithToken } from "@/lib/auth";
@@ -44,9 +45,7 @@ export default async function HomePage() {
                   <Link href="/dashboard">
                     <Button variant="outline">Dashboard</Button>
                   </Link>
-                  <form action="/api/auth/logout" method="post">
-                    <Button type="submit">Logout</Button>
-                  </form>
+                  <LogoutButton />
                 </div>
               </div>
             </section>

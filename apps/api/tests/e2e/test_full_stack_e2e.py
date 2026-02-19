@@ -88,6 +88,17 @@ def _create_bundle_zip(kind: str, *, malicious: bool = False) -> tuple[bytes, st
     return data, hashlib.sha256(data).hexdigest()
 
 
+def _create_blocked_bundle_zip() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("statement.md", "# Bundle")
+        zf.writestr("rubric.yaml", "time_limit_seconds: 20\nweights: {}\n")
+        zf.writestr("starter/evil.exe", b"MZP\x00\x01")
+        zf.writestr("tests/public/test_public.py", "def test_ok():\n    assert True\n")
+        zf.writestr("tests/hidden/test_hidden.py", "def test_hidden():\n    assert True\n")
+    return buffer.getvalue()
+
+
 def _create_problem_version(admin_token: str, *, suffix: str) -> tuple[int, int]:
     skill_response = requests.post(
         f"{API_BASE_URL}/admin/skills",
@@ -227,6 +238,26 @@ def test_a_admin_bundle_upload_submit_and_grade(tokens: tuple[str, str]) -> None
     upload = _upload_bundle(admin_token, version_id, bundle_bytes)
     assert upload["bundle_sha256"] == bundle_sha
     assert int(upload["bundle_size"]) > 0
+    assert int(upload["rubric_version"]) >= 1
+
+    history = requests.get(
+        f"{API_BASE_URL}/admin/problem-versions/{version_id}/rubric-history",
+        headers=_auth_headers(admin_token),
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert history.status_code == 200, history.text
+    history_payload = history.json()
+    assert len(history_payload) >= 1
+    assert int(history_payload[0]["rubric_version"]) == int(upload["rubric_version"])
+
+    status_update = requests.put(
+        f"{API_BASE_URL}/admin/problem-versions/{version_id}/status",
+        headers={**_auth_headers(admin_token), "Content-Type": "application/json"},
+        json={"status": "published"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert status_update.status_code == 200, status_update.text
+    assert status_update.json()["status"] == "published"
 
     problem_detail = requests.get(
         f"{API_BASE_URL}/problems/{problem_id}",
@@ -279,6 +310,27 @@ def test_a1_health_redis_and_admin_guard(tokens: tuple[str, str]) -> None:
     assert "submission_status_counts" in body
     assert body["health"]["db"] in {"ok", "error"}
     assert body["health"]["redis"] in {"ok", "error"}
+
+    watchdog = requests.post(
+        f"{API_BASE_URL}/admin/watchdog/requeue-stale",
+        headers=_auth_headers(admin_token),
+        params={"stale_seconds": 1},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert watchdog.status_code == 200, watchdog.text
+    watchdog_payload = watchdog.json()
+    assert watchdog_payload["status"] == "ok"
+    assert isinstance(watchdog_payload["requeued_submission_ids"], list)
+
+    audit_logs = requests.get(
+        f"{API_BASE_URL}/admin/audit-logs",
+        headers=_auth_headers(admin_token),
+        params={"limit": 20},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert audit_logs.status_code == 200, audit_logs.text
+    actions = [item["action"] for item in audit_logs.json()]
+    assert "watchdog.requeue_stale" in actions
 
 
 def test_b_student_run_public(tokens: tuple[str, str]) -> None:
@@ -342,23 +394,33 @@ def test_c_student_submit_hidden_grading(tokens: tuple[str, str]) -> None:
 
 
 def test_d_zip_slip_is_blocked_during_grading(tokens: tuple[str, str]) -> None:
-    admin_token, student_token = tokens
+    admin_token, _ = tokens
     suffix = f"d-{uuid.uuid4().hex[:8]}"
     _, version_id = _create_problem_version(admin_token, suffix=suffix)
     bundle_bytes, _ = _create_bundle_zip("sum", malicious=True)
-    _upload_bundle(admin_token, version_id, bundle_bytes)
-
-    submit = requests.post(
-        f"{API_BASE_URL}/submissions",
-        headers={**_auth_headers(student_token), "Content-Type": "application/json"},
-        json={"problem_version_id": version_id, "code_text": "def solve(a, b):\n    return a + b\n"},
+    response = requests.post(
+        f"{API_BASE_URL}/admin/problem-versions/{version_id}/bundle",
+        headers=_auth_headers(admin_token),
+        files={"file": ("bundle.zip", bundle_bytes, "application/zip")},
         timeout=REQUEST_TIMEOUT,
     )
-    assert submit.status_code == 200, submit.text
-    submission_id = int(submit.json()["id"])
+    assert response.status_code == 400, response.text
+    assert "path traversal" in response.text.lower() or "invalid path" in response.text.lower()
 
-    final = _poll_submission(student_token, submission_id)
-    assert final["status"] == "FAILED", final
+
+def test_d1_blocked_bundle_filetype_is_rejected(tokens: tuple[str, str]) -> None:
+    admin_token, _ = tokens
+    suffix = f"d1-{uuid.uuid4().hex[:8]}"
+    _, version_id = _create_problem_version(admin_token, suffix=suffix)
+    bundle_bytes = _create_blocked_bundle_zip()
+    response = requests.post(
+        f"{API_BASE_URL}/admin/problem-versions/{version_id}/bundle",
+        headers=_auth_headers(admin_token),
+        files={"file": ("bundle.zip", bundle_bytes, "application/zip")},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert response.status_code == 400, response.text
+    assert "blocked file" in response.text.lower()
 
 
 def test_e_mastery_model_weighted_formula(tokens: tuple[str, str]) -> None:

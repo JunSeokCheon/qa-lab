@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from os.path import commonpath
 from pathlib import Path
 from typing import Any
@@ -18,12 +18,15 @@ import shutil as shutil_lib
 import stat
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import (
     BUNDLE_MAX_ENTRIES,
     BUNDLE_MAX_UNCOMPRESSED_BYTES,
     GRADER_IMAGE,
+    GRADING_RETRY_BACKOFF_SECONDS,
+    GRADING_RETRY_MAX_ATTEMPTS,
+    GRADING_STUCK_TIMEOUT_SECONDS,
     GRADER_TIMEOUT_SECONDS,
     MAX_LOG_BYTES,
 )
@@ -32,6 +35,11 @@ from app.models import Grade, GradeRun, ProblemVersion, Submission, SubmissionSt
 from app.storage import storage
 
 MAX_OUTPUT_BYTES = MAX_LOG_BYTES
+NON_RETRYABLE_ERROR_MARKERS = (
+    "bundle sha256 mismatch",
+    "bundle extract failed",
+    "bundle missing test target",
+)
 
 
 def grade_submission_job(submission_id: int) -> None:
@@ -43,6 +51,47 @@ def grade_submission_job(submission_id: int) -> None:
 def _combine_logs(stdout: str, stderr: str) -> str:
     merged = f"[stdout]\n{stdout}\n\n[stderr]\n{stderr}".strip()
     return _truncate_output(merged, MAX_OUTPUT_BYTES)
+
+
+def _is_retryable_failure(error_message: str) -> bool:
+    lowered = (error_message or "").lower()
+    return not any(marker in lowered for marker in NON_RETRYABLE_ERROR_MARKERS)
+
+
+async def requeue_stale_running_submissions(
+    stale_seconds: int | None = None,
+    max_requeue: int = 100,
+) -> dict[str, object]:
+    threshold_seconds = stale_seconds or GRADING_STUCK_TIMEOUT_SECONDS
+    threshold_seconds = max(int(threshold_seconds), 1)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=threshold_seconds)
+
+    async with AsyncSessionLocal() as session:
+        running_count = await session.scalar(
+            select(func.count(Submission.id)).where(Submission.status == SubmissionStatus.RUNNING.value)
+        )
+        rows = await session.execute(
+            select(Submission)
+            .where(
+                Submission.status == SubmissionStatus.RUNNING.value,
+                Submission.created_at < cutoff,
+            )
+            .order_by(Submission.id.asc())
+            .limit(max_requeue)
+        )
+        stale_submissions = rows.scalars().all()
+
+        submission_ids = [submission.id for submission in stale_submissions]
+        for submission in stale_submissions:
+            submission.status = SubmissionStatus.QUEUED.value
+
+        await session.commit()
+
+    return {
+        "stale_seconds": threshold_seconds,
+        "scanned_running": int(running_count or 0),
+        "requeued_submission_ids": submission_ids,
+    }
 
 
 async def _grade_submission_async(submission_id: int) -> None:
@@ -59,7 +108,9 @@ async def _grade_submission_async(submission_id: int) -> None:
             print(f"[worker] problem version not found submission_id={submission_id}")
             return
 
-        if not version.bundle_key:
+        bundle_key = submission.bundle_key_snapshot or version.bundle_key
+        bundle_sha256 = submission.bundle_sha256_snapshot or version.bundle_sha256
+        if not bundle_key:
             submission.status = SubmissionStatus.FAILED.value
             await session.commit()
             print(f"[worker] bundle not configured problem_version_id={version.id}")
@@ -67,67 +118,95 @@ async def _grade_submission_async(submission_id: int) -> None:
 
         submission.status = SubmissionStatus.RUNNING.value
         await session.commit()
-        started_at = datetime.now(timezone.utc)
 
-        report, exit_code, stderr, stdout, _ = await asyncio.to_thread(
-            _run_grader,
-            submission_id=submission_id,
-            bundle_key=version.bundle_key,
-            code_text=submission.code_text,
-            test_target="tests",
-            expected_bundle_sha256=version.bundle_sha256,
-        )
-        finished_at = datetime.now(timezone.utc)
-        logs = _combine_logs(stdout, stderr)
+        attempts = max(GRADING_RETRY_MAX_ATTEMPTS, 1)
 
-        if report is None:
+        for attempt in range(1, attempts + 1):
+            started_at = datetime.now(timezone.utc)
+            report, exit_code, stderr, stdout, _ = await asyncio.to_thread(
+                _run_grader,
+                submission_id=submission_id,
+                bundle_key=bundle_key,
+                code_text=submission.code_text,
+                test_target="tests",
+                expected_bundle_sha256=bundle_sha256,
+            )
+            finished_at = datetime.now(timezone.utc)
+            logs = _combine_logs(stdout, stderr)
+
+            if report is None:
+                run = GradeRun(
+                    submission_id=submission_id,
+                    grader_image_tag=GRADER_IMAGE,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    score=None,
+                    feedback_json={"error": stderr, "attempt": attempt, "max_attempts": attempts},
+                    exit_code=exit_code,
+                    logs=logs,
+                )
+                session.add(run)
+
+                should_retry = _is_retryable_failure(stderr) and attempt < attempts
+                if should_retry:
+                    submission.status = SubmissionStatus.RUNNING.value
+                    await session.commit()
+                    backoff_seconds = max(GRADING_RETRY_BACKOFF_SECONDS, 1) * attempt
+                    print(
+                        "[worker] transient grading failure: "
+                        f"submission_id={submission_id} attempt={attempt}/{attempts} "
+                        f"retry_in={backoff_seconds}s error={stderr}"
+                    )
+                    await asyncio.sleep(backoff_seconds)
+                    continue
+
+                submission.status = SubmissionStatus.FAILED.value
+                await session.commit()
+                print(
+                    "[worker] grading failed: "
+                    f"submission_id={submission_id} attempt={attempt}/{attempts} error={stderr}"
+                )
+                return
+
+            score, feedback = _build_grade_feedback(
+                report,
+                version.max_score,
+                exit_code,
+                submission.rubric_version_snapshot or version.rubric_version,
+            )
             run = GradeRun(
                 submission_id=submission_id,
                 grader_image_tag=GRADER_IMAGE,
                 started_at=started_at,
                 finished_at=finished_at,
-                score=None,
-                feedback_json={"error": stderr},
+                score=score,
+                feedback_json=feedback,
                 exit_code=exit_code,
                 logs=logs,
             )
             session.add(run)
-            submission.status = SubmissionStatus.FAILED.value
+
+            grade = await session.scalar(select(Grade).where(Grade.submission_id == submission_id))
+            if grade is None:
+                grade = Grade(
+                    submission_id=submission_id,
+                    score=score,
+                    max_score=version.max_score,
+                    feedback_json=feedback,
+                )
+                session.add(grade)
+            else:
+                grade.score = score
+                grade.max_score = version.max_score
+                grade.feedback_json = feedback
+
+            submission.status = SubmissionStatus.GRADED.value
             await session.commit()
-            print(f"[worker] grading failed submission_id={submission_id} stderr={stderr}")
-            return
-
-        score, feedback = _build_grade_feedback(report, version.max_score, exit_code)
-        run = GradeRun(
-            submission_id=submission_id,
-            grader_image_tag=GRADER_IMAGE,
-            started_at=started_at,
-            finished_at=finished_at,
-            score=score,
-            feedback_json=feedback,
-            exit_code=exit_code,
-            logs=logs,
-        )
-        session.add(run)
-
-        grade = await session.scalar(select(Grade).where(Grade.submission_id == submission_id))
-        if grade is None:
-            grade = Grade(
-                submission_id=submission_id,
-                score=score,
-                max_score=version.max_score,
-                feedback_json=feedback,
+            print(
+                "[worker] graded "
+                f"submission_id={submission_id} score={score}/{version.max_score} attempt={attempt}/{attempts}"
             )
-            session.add(grade)
-        else:
-            grade.score = score
-            grade.max_score = version.max_score
-            grade.feedback_json = feedback
-
-        submission.status = SubmissionStatus.GRADED.value
-        await session.commit()
-
-        print(f"[worker] graded submission_id={submission_id} score={score}/{version.max_score}")
+            return
 
 
 def _safe_extract_zip_bytes(zip_bytes: bytes, destination: Path) -> None:
@@ -382,7 +461,9 @@ def run_public_tests_for_bundle(
     }
 
 
-def _build_grade_feedback(report: dict[str, Any], max_score: int, exit_code: int) -> tuple[int, dict[str, Any]]:
+def _build_grade_feedback(
+    report: dict[str, Any], max_score: int, exit_code: int, rubric_version: int | None = None
+) -> tuple[int, dict[str, Any]]:
     tests = report.get("tests", [])
 
     public_tests = [t for t in tests if "/public/" in str(t.get("nodeid", ""))]
@@ -423,6 +504,7 @@ def _build_grade_feedback(report: dict[str, Any], max_score: int, exit_code: int
     feedback = {
         "engine": "docker-pytest-json-report",
         "docker_exit_code": exit_code,
+        "rubric_version": rubric_version,
         "public": {
             "passed": public_passed,
             "total": len(public_tests),

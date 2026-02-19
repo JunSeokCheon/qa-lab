@@ -83,6 +83,9 @@ jobs:
           echo "API did not become ready in time"
           exit 1
 
+      - name: Run API unit tests
+        run: pytest -vv --tb=short apps/api/tests/unit
+
       - name: Run full stack E2E tests
         run: pytest -vv -s --tb=short apps/api/tests/e2e/test_full_stack_e2e.py
 

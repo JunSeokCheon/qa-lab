@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+﻿import { expect, test, type Page } from "@playwright/test";
 
 const problemId = process.env.PW_PROBLEM_ID ?? "1";
 
@@ -6,7 +6,15 @@ async function loginAsStudent(page: Page) {
   await page.goto("/login");
   await page.getByPlaceholder("email").fill("user@example.com");
   await page.getByPlaceholder("password").fill("user1234");
-  await page.getByRole("button", { name: "로그인" }).click();
+  await page.getByRole("button", { name: /로그인|login/i }).click();
+  await expect(page).toHaveURL(/\/$/);
+}
+
+async function loginAsAdmin(page: Page) {
+  await page.goto("/login");
+  await page.getByPlaceholder("email").fill("admin@example.com");
+  await page.getByPlaceholder("password").fill("admin1234");
+  await page.getByRole("button", { name: /로그인|login/i }).click();
   await expect(page).toHaveURL(/\/$/);
 }
 
@@ -18,7 +26,7 @@ async function openProblemPage(page: Page) {
   await expect(page.getByTestId("workbench-ready")).toHaveAttribute("data-ready", "1");
 }
 
-test("login -> 문제 열기 -> run public tests -> pass/summary 표시", async ({ page }) => {
+test("login -> open problem -> run public tests -> show pass/summary", async ({ page }) => {
   await loginAsStudent(page);
   await openProblemPage(page);
 
@@ -29,7 +37,7 @@ test("login -> 문제 열기 -> run public tests -> pass/summary 표시", async 
   await expect(page.getByTestId("public-summary")).toContainText(/summary: passed/i);
 });
 
-test("login -> 문제 제출 -> 상태 전환 -> 점수 표시", async ({ page }) => {
+test("login -> submit -> status transition -> show score", async ({ page }) => {
   await loginAsStudent(page);
   await openProblemPage(page);
 
@@ -41,4 +49,17 @@ test("login -> 문제 제출 -> 상태 전환 -> 점수 표시", async ({ page }
 
   const score = page.getByTestId("submission-score");
   await expect(score).toContainText(/\d+\/\d+/, { timeout: 90_000 });
+});
+
+test("admin -> problems manager -> create skill success", async ({ page }) => {
+  await loginAsAdmin(page);
+  await page.goto("/admin/problems");
+  await expect(page.getByRole("heading", { name: "Problem and Bundle Manager" })).toBeVisible();
+
+  const skillName = `pw-skill-${Date.now()}`;
+  await page.getByPlaceholder("skill name").fill(skillName);
+  await page.getByPlaceholder("description (optional)").fill("playwright admin flow");
+  await page.getByRole("button", { name: "Create skill" }).click();
+
+  await expect(page.getByText(/Skill created \(id=\d+\)/)).toBeVisible({ timeout: 30_000 });
 });

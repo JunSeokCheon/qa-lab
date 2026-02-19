@@ -86,6 +86,10 @@ class ProblemVersionCreate(BaseModel):
     skills: list[ProblemVersionSkillInput] = []
 
 
+class ProblemVersionStatusUpdate(BaseModel):
+    status: str
+
+
 class ProblemVersionSkillResponse(BaseModel):
     skill_id: int
     skill_name: str
@@ -95,6 +99,8 @@ class ProblemVersionSkillResponse(BaseModel):
 class ProblemVersionSummary(BaseModel):
     id: int
     version: int
+    status: str
+    rubric_version: int
     type: str
     difficulty: str
     max_score: int
@@ -182,6 +188,9 @@ class SubmissionResponse(BaseModel):
     user_id: int
     problem_version_id: int
     code_text: str
+    bundle_key_snapshot: str | None = None
+    bundle_sha256_snapshot: str | None = None
+    rubric_version_snapshot: int | None = None
     status: str
     created_at: datetime
     grade: GradeResponse | None = None
@@ -195,6 +204,29 @@ class RegradeResponse(BaseModel):
     status: str
     submission_id: int
     message: str
+
+
+class WatchdogRequeueResponse(BaseModel):
+    status: str
+    stale_seconds: int
+    scanned_running: int
+    requeued_count: int
+    requeued_submission_ids: list[int]
+
+
+class AdminAuditLogResponse(BaseModel):
+    id: int
+    actor_user_id: int | None = None
+    action: str
+    resource_type: str
+    resource_id: str | None = None
+    method: str
+    path: str
+    request_id: str | None = None
+    client_ip: str | None = None
+    user_agent: str | None = None
+    metadata_json: dict[str, Any] | None = None
+    created_at: datetime
 
 
 class ProgressSkillItem(BaseModel):
@@ -226,3 +258,24 @@ class BundleUploadResponse(BaseModel):
     bundle_key: str
     bundle_sha256: str
     bundle_size: int
+    rubric_version: int
+
+
+class RubricHistoryResponse(BaseModel):
+    id: int
+    problem_version_id: int
+    rubric_version: int
+    rubric_sha256: str
+    bundle_key: str | None = None
+    created_at: datetime
+
+
+class ProgressTrendPoint(BaseModel):
+    captured_at: datetime
+    mastery: float
+
+
+class ProgressTrendItem(BaseModel):
+    skill_id: int
+    skill_name: str
+    points: list[ProgressTrendPoint]

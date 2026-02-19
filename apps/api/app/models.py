@@ -15,6 +15,12 @@ class SubmissionStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class ProblemVersionStatus(StrEnum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -75,6 +81,8 @@ class ProblemVersion(Base):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=False)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False)
     statement_md: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=ProblemVersionStatus.DRAFT.value)
+    rubric_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     bundle_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bundle_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -85,6 +93,9 @@ class ProblemVersion(Base):
         back_populates="problem_version", cascade="all, delete-orphan"
     )
     submissions: Mapped[list["Submission"]] = relationship(back_populates="problem_version", cascade="all, delete-orphan")
+    rubric_history: Mapped[list["RubricHistory"]] = relationship(
+        back_populates="problem_version", cascade="all, delete-orphan", order_by="RubricHistory.id.desc()"
+    )
 
 
 class ProblemVersionSkill(Base):
@@ -109,6 +120,9 @@ class Submission(Base):
         ForeignKey("problem_versions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     code_text: Mapped[str] = mapped_column(Text, nullable=False)
+    bundle_key_snapshot: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    bundle_sha256_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    rubric_version_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SubmissionStatus.QUEUED.value)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -154,3 +168,50 @@ class GradeRun(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     submission: Mapped["Submission"] = relationship(back_populates="grade_runs")
+
+
+class RubricHistory(Base):
+    __tablename__ = "rubric_histories"
+    __table_args__ = (
+        UniqueConstraint("problem_version_id", "rubric_version", name="uq_rubric_histories_version"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    problem_version_id: Mapped[int] = mapped_column(
+        ForeignKey("problem_versions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    rubric_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    rubric_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    rubric_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    bundle_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    problem_version: Mapped["ProblemVersion"] = relationship(back_populates="rubric_history")
+
+
+class MasterySnapshot(Base):
+    __tablename__ = "mastery_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id: Mapped[int] = mapped_column(ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
+    mastery: Mapped[float] = mapped_column(nullable=False)
+    earned_points: Mapped[float] = mapped_column(nullable=False)
+    possible_points: Mapped[float] = mapped_column(nullable=False)
+    captured_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    method: Mapped[str] = mapped_column(String(16), nullable=False)
+    path: Mapped[str] = mapped_column(String(255), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    client_ip: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
