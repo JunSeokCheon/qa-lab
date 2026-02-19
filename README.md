@@ -19,6 +19,13 @@ pnpm dev
 ```
 접속 주소: http://localhost:3000
 
+문제 풀이 UX:
+- 에디터 자동저장: 문제/버전별로 브라우저 로컬 저장
+- 단축키:
+  - `Ctrl/Cmd + Enter`: 제출
+  - `Ctrl/Cmd + Shift + Enter`: Public tests 실행
+- 문제 상세 페이지에서 statement를 확인하고 바로 Workbench에서 실행/제출 가능
+
 ### API (FastAPI)
 ```bash
 cd apps/api
