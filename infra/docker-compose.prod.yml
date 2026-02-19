@@ -32,7 +32,7 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       BUNDLE_ROOT: /app/var/bundles
@@ -48,6 +48,8 @@ services:
       GRADER_IMAGE: ${GRADER_IMAGE}
       GRADER_TIMEOUT_SECONDS: ${GRADER_TIMEOUT_SECONDS}
       MAX_LOG_BYTES: ${MAX_LOG_BYTES}
+      DOCKER_VOLUMES_FROM_SELF: "true"
+      GRADER_WORKDIR_ROOT: /app/var/bundles/.grader-work
     command: >
       sh -c "alembic upgrade head &&
       uvicorn main:app --host 0.0.0.0 --port 8000"
@@ -58,6 +60,7 @@ services:
         condition: service_healthy
     volumes:
       - bundles_data:/app/var/bundles
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${API_PORT:-8000}:8000"
 
@@ -67,7 +70,7 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       BUNDLE_ROOT: /app/var/bundles
@@ -80,6 +83,8 @@ services:
       GRADER_IMAGE: ${GRADER_IMAGE}
       GRADER_TIMEOUT_SECONDS: ${GRADER_TIMEOUT_SECONDS}
       MAX_LOG_BYTES: ${MAX_LOG_BYTES}
+      DOCKER_VOLUMES_FROM_SELF: "true"
+      GRADER_WORKDIR_ROOT: /app/var/bundles/.grader-work
     command: ["python", "worker.py"]
     depends_on:
       postgres:

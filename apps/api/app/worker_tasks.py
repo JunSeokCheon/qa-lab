@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -21,6 +22,7 @@ import yaml
 from sqlalchemy import func, select
 
 from app.config import (
+    BUNDLE_ROOT,
     BUNDLE_MAX_ENTRIES,
     BUNDLE_MAX_UNCOMPRESSED_BYTES,
     GRADER_IMAGE,
@@ -40,11 +42,54 @@ NON_RETRYABLE_ERROR_MARKERS = (
     "bundle extract failed",
     "bundle missing test target",
 )
+_WORKER_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _get_worker_event_loop() -> asyncio.AbstractEventLoop:
+    global _WORKER_EVENT_LOOP
+    if _WORKER_EVENT_LOOP is None or _WORKER_EVENT_LOOP.is_closed():
+        _WORKER_EVENT_LOOP = asyncio.new_event_loop()
+    return _WORKER_EVENT_LOOP
+
+
+def _is_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _should_use_docker_volumes_from_self() -> bool:
+    return _is_truthy(os.getenv("DOCKER_VOLUMES_FROM_SELF"))
+
+
+def _resolve_docker_volumes_from_ref() -> str | None:
+    explicit = (os.getenv("DOCKER_VOLUMES_FROM") or "").strip()
+    if explicit:
+        return explicit
+    fallback = (os.getenv("HOSTNAME") or "").strip()
+    return fallback or None
+
+
+def _resolve_grader_workdir_root() -> Path | None:
+    configured = (os.getenv("GRADER_WORKDIR_ROOT") or "").strip()
+    if configured:
+        root = Path(configured)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    if _should_use_docker_volumes_from_self():
+        root = Path(BUNDLE_ROOT) / ".grader-work"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    return None
 
 
 def grade_submission_job(submission_id: int) -> None:
     print(f"[worker] start grading submission_id={submission_id}")
-    asyncio.run(_grade_submission_async(submission_id))
+    loop = _get_worker_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(_grade_submission_async(submission_id))
     print(f"[worker] finished grading submission_id={submission_id}")
 
 
@@ -298,7 +343,11 @@ def _run_grader(
         if digest != expected_bundle_sha256:
             return None, 1, "bundle sha256 mismatch", "", 0
 
-    with tempfile.TemporaryDirectory(prefix=f"submission-{submission_id}-") as tmp_dir:
+    workdir_root = _resolve_grader_workdir_root()
+    with tempfile.TemporaryDirectory(
+        prefix=f"submission-{submission_id}-",
+        dir=str(workdir_root) if workdir_root else None,
+    ) as tmp_dir:
         workdir = Path(tmp_dir)
         try:
             workdir.chmod(0o777)
@@ -329,6 +378,10 @@ def _run_grader(
 
         report_path = workdir / "report.json"
         weights, timeout_seconds = _load_rubric(workdir)
+        use_volumes_from = _should_use_docker_volumes_from_self()
+        volumes_from_ref = _resolve_docker_volumes_from_ref() if use_volumes_from else None
+        if use_volumes_from and not volumes_from_ref:
+            return None, 1, "docker volumes-from is enabled but reference is missing", "", 0
 
         docker_bin = os.getenv("DOCKER_BIN")
         if not docker_bin:
@@ -340,6 +393,23 @@ def _run_grader(
                     break
         if not docker_bin:
             return None, 1, "docker binary not found", "", 0
+
+        if use_volumes_from:
+            workdir_in_container = workdir.resolve().as_posix()
+            pythonpath_value = workdir_in_container
+            pytest_command = (
+                f"cd {shlex.quote(workdir_in_container)} && "
+                "pytest -q -p no:cacheprovider "
+                f"--json-report --json-report-file={shlex.quote((workdir / 'report.json').as_posix())} "
+                f"{shlex.quote(test_target)}"
+            )
+        else:
+            pythonpath_value = "/work"
+            pytest_command = (
+                "cd /work && pytest -q -p no:cacheprovider "
+                "--json-report --json-report-file=/work/report.json "
+                f"{test_target}"
+            )
 
         cmd = [
             docker_bin,
@@ -363,14 +433,16 @@ def _run_grader(
             "-e",
             "PYTHONDONTWRITEBYTECODE=1",
             "-e",
-            "PYTHONPATH=/work",
-            "-v",
-            f"{workdir.resolve()}:/work:rw",
+            f"PYTHONPATH={pythonpath_value}",
             GRADER_IMAGE,
             "sh",
             "-lc",
-            f"cd /work && pytest -q -p no:cacheprovider --json-report --json-report-file=/work/report.json {test_target}",
+            pytest_command,
         ]
+        if use_volumes_from:
+            cmd[2:2] = ["--volumes-from", volumes_from_ref]
+        else:
+            cmd[2:2] = ["-v", f"{workdir.resolve()}:/work:rw"]
 
         print("[worker] docker run:", " ".join(cmd))
         started_at = time.monotonic()

@@ -546,7 +546,7 @@ docker compose -f infra/docker-compose.yml down -v
 ```bash
 # 1) 환경파일 준비
 cp infra/.env.prod.example infra/.env.prod
-# 값 수정: POSTGRES_PASSWORD, JWT_SECRET_KEY, ALLOWED_ORIGINS 등
+# 값 수정: POSTGRES_PASSWORD, JWT_SECRET_KEY, ALLOWED_ORIGINS, APP_ENV 등
 
 # 2) 빌드 + 기동
 bash scripts/deploy_prod.sh
@@ -570,6 +570,9 @@ docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml build
 docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d
 docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 ```
+
+주의:
+- `api`와 `worker`는 공개테스트/채점을 위해 Docker socket(`/var/run/docker.sock`) 접근이 필요합니다.
 
 ## shadcn 컴포넌트 추가 방법
 의존성 추가 이유: 일관된 디자인 시스템 컴포넌트를 빠르게 재사용하기 위해 shadcn/ui를 사용합니다.
