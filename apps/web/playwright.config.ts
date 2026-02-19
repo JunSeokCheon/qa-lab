@@ -15,7 +15,7 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command: "pnpm dev -- --port 3000",
+    command: "pnpm dev --port 3000",
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     stdout: "pipe",
