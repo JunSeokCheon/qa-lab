@@ -2,6 +2,11 @@
 
 Next.js(App Router) + FastAPI + Docker Compose 기반의 모노레포입니다.
 
+## MVP 범위 고정
+- MVP 고정 문서: `docs/MVP_SCOPE.md`
+- 현재 단계에서는 기능 추가보다 안정화/완성도를 우선합니다.
+- 신규 요구는 MVP에 즉시 포함하지 않고 `Post-MVP Backlog`로 분리합니다.
+
 ## 어떻게 실행하는지
 
 ### Web (Next.js)
