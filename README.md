@@ -449,6 +449,32 @@ docker compose -f infra/docker-compose.yml down -v
 - Postgres: `postgres_data`
 - Redis: `redis_data`
 
+## 프로덕션 배포 준비
+추가된 배포 자산:
+- `apps/api/Dockerfile`
+- `apps/web/Dockerfile`
+- `infra/docker-compose.prod.yml`
+- `infra/.env.prod.example`
+- `docs/DEPLOYMENT.md`
+- `scripts/deploy_prod.sh`
+
+빠른 배포 절차:
+```bash
+# 1) 환경파일 준비
+cp infra/.env.prod.example infra/.env.prod
+# 값 수정: POSTGRES_PASSWORD, JWT_SECRET_KEY, ALLOWED_ORIGINS 등
+
+# 2) 빌드 + 기동
+bash scripts/deploy_prod.sh
+```
+
+직접 실행 명령:
+```bash
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml build
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
+```
+
 ## shadcn 컴포넌트 추가 방법
 의존성 추가 이유: 일관된 디자인 시스템 컴포넌트를 빠르게 재사용하기 위해 shadcn/ui를 사용합니다.
 

@@ -1,0 +1,112 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      BUNDLE_ROOT: /app/var/bundles
+      BUNDLE_MAX_SIZE_BYTES: ${BUNDLE_MAX_SIZE_BYTES}
+      BUNDLE_MAX_ENTRIES: ${BUNDLE_MAX_ENTRIES}
+      BUNDLE_MAX_UNCOMPRESSED_BYTES: ${BUNDLE_MAX_UNCOMPRESSED_BYTES}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS}
+      LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS}
+      GRADER_IMAGE: ${GRADER_IMAGE}
+      GRADER_TIMEOUT_SECONDS: ${GRADER_TIMEOUT_SECONDS}
+      MAX_LOG_BYTES: ${MAX_LOG_BYTES}
+    command: >
+      sh -c "alembic upgrade head &&
+      uvicorn main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - bundles_data:/app/var/bundles
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      BUNDLE_ROOT: /app/var/bundles
+      BUNDLE_MAX_SIZE_BYTES: ${BUNDLE_MAX_SIZE_BYTES}
+      BUNDLE_MAX_ENTRIES: ${BUNDLE_MAX_ENTRIES}
+      BUNDLE_MAX_UNCOMPRESSED_BYTES: ${BUNDLE_MAX_UNCOMPRESSED_BYTES}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      GRADER_IMAGE: ${GRADER_IMAGE}
+      GRADER_TIMEOUT_SECONDS: ${GRADER_TIMEOUT_SECONDS}
+      MAX_LOG_BYTES: ${MAX_LOG_BYTES}
+    command: ["python", "worker.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - bundles_data:/app/var/bundles
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      FASTAPI_BASE_URL: http://api:8000
+      FASTAPI_INTERNAL_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  bundles_data:

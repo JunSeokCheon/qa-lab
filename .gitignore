@@ -17,6 +17,7 @@ env/
 .env
 .env.*
 !.env.example
+!infra/.env.prod.example
 
 # Build artifacts
 .next/
