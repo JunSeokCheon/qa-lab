@@ -11,6 +11,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -21,6 +26,24 @@ class MeResponse(BaseModel):
     email: EmailStr
     role: str
     created_at: datetime
+
+
+class PasswordForgotRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordForgotResponse(BaseModel):
+    message: str
+    reset_token: str | None = None
+
+
+class PasswordResetRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class PasswordResetResponse(BaseModel):
+    message: str
 
 
 class SkillCreate(BaseModel):

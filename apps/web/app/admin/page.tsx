@@ -32,11 +32,11 @@ export default async function AdminPage() {
     return (
       <main className="qa-shell">
         <section className="qa-card">
-        <h1 className="text-2xl font-semibold">Admin 페이지</h1>
-        <p className="mt-4">현재 계정은 admin 권한이 없어 접근할 수 없습니다. (403)</p>
-        <Link href="/" className="mt-4 inline-block underline">
-          홈으로 이동
-        </Link>
+          <h1 className="text-2xl font-semibold">Admin 페이지</h1>
+          <p className="mt-4">현재 계정은 admin 권한이 없어 접근할 수 없습니다. (403)</p>
+          <Link href="/" className="mt-4 inline-block underline">
+            홈으로 이동
+          </Link>
         </section>
       </main>
     );
@@ -44,17 +44,20 @@ export default async function AdminPage() {
 
   return (
     <main className="qa-shell">
-      <section className="qa-card">
-      <h1 className="text-2xl font-semibold">Admin 페이지</h1>
-      <p className="mt-4">로그인 계정: {me.email}</p>
-      <p>역할: {me.role}</p>
-      <p className="mt-2 text-green-700">Admin API 접근 성공</p>
-      <p className="mt-6">
-        제출 상세 예시:{" "}
-        <Link href="/admin/submissions/1" className="underline">
-          /admin/submissions/1
-        </Link>
-      </p>
+      <section className="qa-card space-y-3">
+        <h1 className="text-2xl font-semibold">Admin 페이지</h1>
+        <p>로그인 계정: {me.email}</p>
+        <p>역할: {me.role}</p>
+        <p className="text-green-700">Admin API 접근 성공</p>
+
+        <div className="flex flex-wrap gap-3 pt-2 text-sm">
+          <Link href="/admin/problems" className="underline">
+            문제/번들 관리
+          </Link>
+          <Link href="/admin/submissions/1" className="underline">
+            제출 상세 예시(/admin/submissions/1)
+          </Link>
+        </div>
       </section>
     </main>
   );

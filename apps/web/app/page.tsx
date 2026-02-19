@@ -32,6 +32,12 @@ export default async function HomePage() {
                   <p className="text-sm text-muted-foreground">role: {me.role}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Link href="/problems">
+                    <Button variant="outline">문제 목록</Button>
+                  </Link>
+                  <Link href="/submissions">
+                    <Button variant="outline">내 제출</Button>
+                  </Link>
                   <Link href="/admin">
                     <Button variant="outline">Admin</Button>
                   </Link>
@@ -50,9 +56,14 @@ export default async function HomePage() {
         ) : (
           <section className="qa-card">
             <p className="text-sm text-muted-foreground">로그인되지 않았습니다.</p>
-            <Link href="/login" className="mt-3 inline-block">
-              <Button>로그인 페이지로 이동</Button>
-            </Link>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link href="/login">
+                <Button>로그인</Button>
+              </Link>
+              <Link href="/signup">
+                <Button variant="outline">회원가입</Button>
+              </Link>
+            </div>
           </section>
         )}
       </main>

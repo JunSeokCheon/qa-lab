@@ -18,6 +18,7 @@ BUNDLE_MAX_SIZE_BYTES = int(os.getenv("BUNDLE_MAX_SIZE_BYTES", str(50 * 1024 * 1
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))
 GRADER_IMAGE = os.getenv("GRADER_IMAGE", "qa-lab-grader-python")
 GRADER_TIMEOUT_SECONDS = int(os.getenv("GRADER_TIMEOUT_SECONDS", "30"))
 BUNDLE_MAX_ENTRIES = int(os.getenv("BUNDLE_MAX_ENTRIES", "2000"))
@@ -33,3 +34,7 @@ if APP_ENV in {"production", "prod"} and JWT_SECRET_KEY == "change-this-in-produ
 
 def access_token_ttl() -> timedelta:
     return timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+
+def password_reset_token_ttl() -> timedelta:
+    return timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)

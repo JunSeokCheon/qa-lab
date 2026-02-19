@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
+    APP_ENV,
     ALLOWED_ORIGINS,
     BUNDLE_MAX_ENTRIES,
     BUNDLE_MAX_SIZE_BYTES,
@@ -26,10 +27,22 @@ from app.config import (
     LOGIN_RATE_LIMIT_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     access_token_ttl,
+    password_reset_token_ttl,
 )
 from app.db import check_db_connection, get_async_session
 from app.deps import get_current_user, require_admin
-from app.models import Grade, GradeRun, Problem, ProblemVersion, ProblemVersionSkill, Skill, Submission, SubmissionStatus, User
+from app.models import (
+    Grade,
+    GradeRun,
+    PasswordResetToken,
+    Problem,
+    ProblemVersion,
+    ProblemVersionSkill,
+    Skill,
+    Submission,
+    SubmissionStatus,
+    User,
+)
 from app.observability import get_logger, log_event
 from app.queue import check_redis_connection, grading_queue
 from app.schemas import (
@@ -39,6 +52,10 @@ from app.schemas import (
     GradeResponse,
     GradeRunResponse,
     LoginRequest,
+    PasswordForgotRequest,
+    PasswordForgotResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
     MeProgressResponse,
     MeResponse,
     ProblemCreate,
@@ -54,13 +71,14 @@ from app.schemas import (
     RegradeResponse,
     RunPublicRequest,
     RunPublicResponse,
+    RegisterRequest,
     SkillCreate,
     SkillResponse,
     SkillUpdate,
     SubmissionCreate,
     SubmissionResponse,
 )
-from app.security import create_access_token, verify_password
+from app.security import create_access_token, hash_password, verify_password
 from app.storage import storage
 from app.worker_tasks import run_public_tests_for_bundle
 
@@ -112,6 +130,10 @@ def _validate_uploaded_zip(temp_path: Path) -> None:
                     )
     except zipfile.BadZipFile as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid zip file") from exc
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 @app.middleware("http")
@@ -188,6 +210,75 @@ async def login(
 @app.post("/auth/logout")
 def logout() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/auth/register", response_model=MeResponse, status_code=status.HTTP_201_CREATED)
+async def register(
+    payload: RegisterRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> MeResponse:
+    existing = await session.scalar(select(User).where(User.email == payload.email))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
+
+    user = User(email=payload.email, password_hash=hash_password(payload.password), role="user")
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return MeResponse(id=user.id, email=user.email, role=user.role, created_at=user.created_at)
+
+
+@app.post("/auth/password/forgot", response_model=PasswordForgotResponse)
+async def forgot_password(
+    payload: PasswordForgotRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> PasswordForgotResponse:
+    user = await session.scalar(select(User).where(User.email == payload.email))
+    if user is None:
+        return PasswordForgotResponse(message="If the account exists, reset instructions were generated.")
+
+    raw_token = uuid4().hex
+    expires_at = datetime.now(timezone.utc) + password_reset_token_ttl()
+    reset = PasswordResetToken(
+        user_id=user.id,
+        token_hash=_hash_reset_token(raw_token),
+        expires_at=expires_at,
+    )
+    session.add(reset)
+    await session.commit()
+
+    if APP_ENV in {"development", "dev", "test"}:
+        return PasswordForgotResponse(
+            message="Reset token generated (development mode).",
+            reset_token=raw_token,
+        )
+    return PasswordForgotResponse(message="If the account exists, reset instructions were generated.")
+
+
+@app.post("/auth/password/reset", response_model=PasswordResetResponse)
+async def reset_password(
+    payload: PasswordResetRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> PasswordResetResponse:
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
+
+    hashed = _hash_reset_token(payload.token)
+    reset_token = await session.scalar(select(PasswordResetToken).where(PasswordResetToken.token_hash == hashed))
+    now = datetime.now(timezone.utc)
+    if reset_token is None or reset_token.used_at is not None or reset_token.expires_at < now:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    user = await session.scalar(select(User).where(User.id == reset_token.user_id))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
+
+    user.password_hash = hash_password(payload.new_password)
+    reset_token.used_at = now
+    await session.commit()
+    return PasswordResetResponse(message="Password has been reset successfully")
 
 
 @app.get("/me", response_model=MeResponse)

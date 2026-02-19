@@ -45,6 +45,7 @@ fastapi dev main.py
 - `APP_ENV` (`production`에서는 `JWT_SECRET_KEY` 기본값 사용 금지)
 - `ALLOWED_ORIGINS` (CORS 허용 Origin 목록)
 - `LOGIN_RATE_LIMIT_ATTEMPTS`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS` (로그인 시도 제한)
+- `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` (비밀번호 재설정 토큰 만료 시간)
 - `BUNDLE_MAX_ENTRIES`, `BUNDLE_MAX_UNCOMPRESSED_BYTES` (zip bomb 방어)
 - `MAX_LOG_BYTES` (grader stdout/stderr/log 절단 길이)
 
@@ -92,6 +93,8 @@ pnpm dev
 
 4) 브라우저에서 로그인:
 - URL: `http://localhost:3000/login`
+- 회원가입: `http://localhost:3000/signup`
+- 비밀번호 재설정: `http://localhost:3000/forgot-password` -> `http://localhost:3000/reset-password`
 - 일반 사용자: `user@example.com` / `user1234`
 - 관리자: `admin@example.com` / `admin1234`
 
@@ -104,6 +107,14 @@ pnpm dev
   - 관리자: Admin API 접근 성공
 - 홈 화면에서 `Run public tests` 버튼으로 공개 테스트 실행 가능
 - `http://localhost:3000/dashboard` 에서 성취도 히트맵/레벨 확인 가능
+- `http://localhost:3000/problems` 에서 문제 목록 확인 가능
+- `http://localhost:3000/submissions` 에서 내 제출 히스토리 확인 가능
+- `http://localhost:3000/admin/problems` 에서 관리자 문제/버전/번들 관리 가능
+
+회원가입/비밀번호 재설정 API:
+- `POST /auth/register`
+- `POST /auth/password/forgot` (개발모드에서는 응답에 `reset_token` 포함)
+- `POST /auth/password/reset`
 
 ### 문제은행 API (Problem / ProblemVersion)
 마이그레이션:

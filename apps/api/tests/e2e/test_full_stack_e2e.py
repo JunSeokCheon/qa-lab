@@ -444,3 +444,54 @@ def test_f_login_rate_limit_applies() -> None:
         last_status = response.status_code
 
     assert last_status == 429, f"expected 429 after repeated failures, got {last_status}"
+
+
+def test_g_register_and_password_reset_flow() -> None:
+    email = f"user-{uuid.uuid4().hex[:8]}@example.com"
+    initial_password = "start1234"
+    new_password = "changed1234"
+
+    register = requests.post(
+        f"{API_BASE_URL}/auth/register",
+        json={"email": email, "password": initial_password},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert register.status_code == 201, register.text
+
+    login_before = requests.post(
+        f"{API_BASE_URL}/auth/login",
+        json={"email": email, "password": initial_password},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert login_before.status_code == 200, login_before.text
+
+    forgot = requests.post(
+        f"{API_BASE_URL}/auth/password/forgot",
+        json={"email": email},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert forgot.status_code == 200, forgot.text
+    forgot_payload = forgot.json()
+    assert forgot_payload.get("reset_token"), forgot_payload
+    token = str(forgot_payload["reset_token"])
+
+    reset = requests.post(
+        f"{API_BASE_URL}/auth/password/reset",
+        json={"token": token, "new_password": new_password},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert reset.status_code == 200, reset.text
+
+    login_old = requests.post(
+        f"{API_BASE_URL}/auth/login",
+        json={"email": email, "password": initial_password},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert login_old.status_code == 401, login_old.text
+
+    login_new = requests.post(
+        f"{API_BASE_URL}/auth/login",
+        json={"email": email, "password": new_password},
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert login_new.status_code == 200, login_new.text
