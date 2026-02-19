@@ -194,6 +194,12 @@ def _run_grader(
     with tempfile.TemporaryDirectory(prefix=f"submission-{submission_id}-") as tmp_dir:
         workdir = Path(tmp_dir)
         try:
+            workdir.chmod(0o777)
+        except OSError:
+            # Best-effort permission widening for container mounts on CI runners.
+            pass
+
+        try:
             _safe_extract_zip_bytes(bundle_bytes, workdir)
         except Exception as exc:
             return None, 1, f"bundle extract failed: {exc}", "", 0
