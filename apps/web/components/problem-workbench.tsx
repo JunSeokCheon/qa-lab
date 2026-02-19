@@ -51,10 +51,10 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
     setRunError("");
     setRunResult(null);
 
-    const response = await fetch(`/api/problems/${problemId}/run-public`, {
+    const response = await fetch("/api/run-public", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code_text: codeText }),
+      body: JSON.stringify({ problem_id: problemId, code_text: codeText }),
     });
     const body = (await response.json().catch(() => ({}))) as RunPublicResponse & { detail?: string; message?: string };
     if (!response.ok) {
@@ -98,7 +98,12 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      const pollResponse = await fetch(`/api/submissions/${created.id}`, { cache: "no-store" });
+      const pollResponse = await fetch("/api/submissions/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submission_id: created.id }),
+        cache: "no-store",
+      });
       const polled = (await pollResponse.json().catch(() => ({}))) as SubmissionResponse;
       if (!pollResponse.ok) {
         setSubmitError("제출 상태 조회 실패");

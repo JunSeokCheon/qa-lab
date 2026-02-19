@@ -40,12 +40,16 @@ export function PublicTestRunner() {
       payload.problem_version = parsedVersion;
     }
 
-    const response = await fetch(`/api/problems/${problemId}/run-public`, {
+    const response = await fetch("/api/run-public", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        problem_id: Number(problemId),
+        code_text: payload.code_text,
+        problem_version: payload.problem_version,
+      }),
     });
 
     const body = (await response.json().catch(() => ({}))) as RunPublicResponse & { detail?: string; message?: string };
