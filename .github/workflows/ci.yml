@@ -51,7 +51,7 @@ jobs:
       - name: Install API and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r apps/api/requirements.txt pytest requests
+          python -m pip install -r apps/api/requirements.txt pytest requests pytest-github-actions-annotate-failures
 
       - name: Build grader image
         run: docker build -t "$GRADER_IMAGE" -f grader-images/python/Dockerfile .
@@ -83,7 +83,7 @@ jobs:
           exit 1
 
       - name: Run full stack E2E tests
-        run: pytest -vv -s apps/api/tests/e2e/test_full_stack_e2e.py
+        run: pytest -vv -s --tb=short apps/api/tests/e2e/test_full_stack_e2e.py
 
       - name: Bootstrap Playwright problem data
         run: python apps/api/tests/e2e/bootstrap_playwright_data.py --env-file "$GITHUB_ENV"
