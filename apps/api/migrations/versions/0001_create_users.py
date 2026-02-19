@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+import bcrypt
 
 
 # revision identifiers, used by Alembic.
@@ -19,6 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    admin_hash = bcrypt.hashpw(b"admin1234", bcrypt.gensalt()).decode("utf-8")
+    user_hash = bcrypt.hashpw(b"user1234", bcrypt.gensalt()).decode("utf-8")
+
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -39,8 +43,8 @@ def upgrade() -> None:
             ON CONFLICT (email) DO NOTHING
             """
         ).bindparams(
-            admin_hash="$2b$12$HChp8o.jXnO7.4YhuC46YOC/XJLGvGXjclwzfY1xGvVdK1ybSGdaO",
-            user_hash="$2b$12$VhRzQo9N..JOaUzE2wURduN6YYdrH519vJoIb/jUSdk8xqIqf9RVS",
+            admin_hash=admin_hash,
+            user_hash=user_hash,
         )
     )
 
