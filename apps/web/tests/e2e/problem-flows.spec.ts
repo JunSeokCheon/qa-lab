@@ -15,6 +15,7 @@ async function openProblemPage(page: Page) {
   await page.getByTestId("open-problem-button").click();
   await expect(page).toHaveURL(new RegExp(`/problems/${problemId}$`));
   await expect(page.getByTestId("problem-workbench")).toBeVisible();
+  await expect(page.getByTestId("workbench-ready")).toHaveAttribute("data-ready", "1");
 }
 
 test("login -> 문제 열기 -> run public tests -> pass/summary 표시", async ({ page }) => {

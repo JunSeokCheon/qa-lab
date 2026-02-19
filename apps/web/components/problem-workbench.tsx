@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -27,6 +27,7 @@ type SubmissionResponse = {
 };
 
 export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: number; problemVersionId: number }) {
+  const readyRef = useRef<HTMLParagraphElement | null>(null);
   const [codeText, setCodeText] = useState("def solve(a, b):\n    return a + b\n");
   const [runLoading, setRunLoading] = useState(false);
   const [runError, setRunError] = useState("");
@@ -39,6 +40,10 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
   const [finalScore, setFinalScore] = useState<string>("-");
 
   const statusText = useMemo(() => statusTimeline.join(" -> "), [statusTimeline]);
+
+  useEffect(() => {
+    readyRef.current?.setAttribute("data-ready", "1");
+  }, []);
 
   const onRunPublic = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -124,6 +129,9 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
       <h2 className="text-xl font-semibold">Problem Workbench</h2>
       <p className="text-sm text-zinc-600 dark:text-zinc-300">
         problem_id={problemId}, version_id={problemVersionId}
+      </p>
+      <p ref={readyRef} className="sr-only" data-ready="0" data-testid="workbench-ready">
+        ready
       </p>
 
       <form onSubmit={onRunPublic} className="mt-4 space-y-3">
