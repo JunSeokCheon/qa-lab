@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -14,16 +15,23 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
 import shutil as shutil_lib
+import stat
 
 import yaml
 from sqlalchemy import select
 
-from app.config import GRADER_IMAGE, GRADER_TIMEOUT_SECONDS
+from app.config import (
+    BUNDLE_MAX_ENTRIES,
+    BUNDLE_MAX_UNCOMPRESSED_BYTES,
+    GRADER_IMAGE,
+    GRADER_TIMEOUT_SECONDS,
+    MAX_LOG_BYTES,
+)
 from app.db import AsyncSessionLocal
 from app.models import Grade, GradeRun, ProblemVersion, Submission, SubmissionStatus
 from app.storage import storage
 
-MAX_OUTPUT_BYTES = 8 * 1024
+MAX_OUTPUT_BYTES = MAX_LOG_BYTES
 
 
 def grade_submission_job(submission_id: int) -> None:
@@ -67,6 +75,7 @@ async def _grade_submission_async(submission_id: int) -> None:
             bundle_key=version.bundle_key,
             code_text=submission.code_text,
             test_target="tests",
+            expected_bundle_sha256=version.bundle_sha256,
         )
         finished_at = datetime.now(timezone.utc)
         logs = _combine_logs(stdout, stderr)
@@ -126,7 +135,21 @@ def _safe_extract_zip_bytes(zip_bytes: bytes, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
 
     with ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for member in zf.infolist():
+        members = zf.infolist()
+        if len(members) > BUNDLE_MAX_ENTRIES:
+            raise ValueError("bundle has too many files")
+
+        total_uncompressed = 0
+        for member in members:
+            total_uncompressed += int(member.file_size)
+            if total_uncompressed > BUNDLE_MAX_UNCOMPRESSED_BYTES:
+                raise ValueError("bundle uncompressed size is too large")
+
+            mode = (member.external_attr >> 16) & 0o777777
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"symlink entry is not allowed: {member.filename}")
+
+        for member in members:
             member_name = member.filename
             if not member_name:
                 continue
@@ -188,8 +211,13 @@ def _run_grader(
     bundle_key: str,
     code_text: str,
     test_target: str = "tests",
+    expected_bundle_sha256: str | None = None,
 ) -> tuple[dict[str, Any] | None, int, str, str, int]:
     bundle_bytes = storage.read_bundle(bundle_key)
+    if expected_bundle_sha256:
+        digest = hashlib.sha256(bundle_bytes).hexdigest()
+        if digest != expected_bundle_sha256:
+            return None, 1, "bundle sha256 mismatch", "", 0
 
     with tempfile.TemporaryDirectory(prefix=f"submission-{submission_id}-") as tmp_dir:
         workdir = Path(tmp_dir)
@@ -298,12 +326,18 @@ def _run_grader(
         return report, completed.returncode, stderr_limited, stdout_limited, duration_ms
 
 
-def run_public_tests_for_bundle(problem_version: int, bundle_key: str, code_text: str) -> dict[str, Any]:
+def run_public_tests_for_bundle(
+    problem_version: int,
+    bundle_key: str,
+    code_text: str,
+    expected_bundle_sha256: str | None = None,
+) -> dict[str, Any]:
     report, exit_code, stderr, stdout, duration_ms = _run_grader(
         submission_id=problem_version,
         bundle_key=bundle_key,
         code_text=code_text,
         test_target="tests/public",
+        expected_bundle_sha256=expected_bundle_sha256,
     )
 
     if report is None:

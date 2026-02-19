@@ -37,8 +37,16 @@ fastapi dev main.py
 접속 주소:
 - API: http://127.0.0.1:8000/health
 - DB Health: http://127.0.0.1:8000/health/db
+- Redis Health: http://127.0.0.1:8000/health/redis
 - Me (Bearer 필요): http://127.0.0.1:8000/me
 - Docs: http://127.0.0.1:8000/docs
+
+운영/보안 필수 환경변수:
+- `APP_ENV` (`production`에서는 `JWT_SECRET_KEY` 기본값 사용 금지)
+- `ALLOWED_ORIGINS` (CORS 허용 Origin 목록)
+- `LOGIN_RATE_LIMIT_ATTEMPTS`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS` (로그인 시도 제한)
+- `BUNDLE_MAX_ENTRIES`, `BUNDLE_MAX_UNCOMPRESSED_BYTES` (zip bomb 방어)
+- `MAX_LOG_BYTES` (grader stdout/stderr/log 절단 길이)
 
 ### 웹/백 동시 실행 방법
 터미널 1 (API):

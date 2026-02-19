@@ -254,6 +254,20 @@ def test_a_admin_bundle_upload_submit_and_grade(tokens: tuple[str, str]) -> None
     assert int(final["grade"]["score"]) == 100
 
 
+def test_a1_health_redis_and_admin_guard(tokens: tuple[str, str]) -> None:
+    _, student_token = tokens
+    redis_health = requests.get(f"{API_BASE_URL}/health/redis", timeout=REQUEST_TIMEOUT)
+    assert redis_health.status_code == 200, redis_health.text
+    assert redis_health.json()["redis"] == "ok"
+
+    admin_health = requests.get(
+        f"{API_BASE_URL}/admin/health",
+        headers=_auth_headers(student_token),
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert admin_health.status_code == 403, admin_health.text
+
+
 def test_b_student_run_public(tokens: tuple[str, str]) -> None:
     admin_token, student_token = tokens
     suffix = f"b-{uuid.uuid4().hex[:8]}"
@@ -403,3 +417,17 @@ def test_e_mastery_model_weighted_formula(tokens: tuple[str, str]) -> None:
     assert float(skill_b["earned_points"]) == pytest.approx(0.0, abs=0.01)
     assert float(skill_b["possible_points"]) == pytest.approx(5000.0, abs=0.01)
     assert float(skill_b["mastery"]) == pytest.approx(0.0, abs=0.01)
+
+
+def test_f_login_rate_limit_applies() -> None:
+    email = f"rate-limit-{uuid.uuid4().hex[:10]}@example.com"
+    last_status = None
+    for _ in range(12):
+        response = requests.post(
+            f"{API_BASE_URL}/auth/login",
+            json={"email": email, "password": "wrong-password"},
+            timeout=REQUEST_TIMEOUT,
+        )
+        last_status = response.status_code
+
+    assert last_status == 429, f"expected 429 after repeated failures, got {last_status}"

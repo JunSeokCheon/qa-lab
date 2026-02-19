@@ -3,19 +3,32 @@
 import asyncio
 import hashlib
 import tempfile
+import time
+import zipfile
+from collections import defaultdict, deque
 from pathlib import Path
+from threading import Lock
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import BUNDLE_MAX_SIZE_BYTES, access_token_ttl
+from app.config import (
+    ALLOWED_ORIGINS,
+    BUNDLE_MAX_ENTRIES,
+    BUNDLE_MAX_SIZE_BYTES,
+    BUNDLE_MAX_UNCOMPRESSED_BYTES,
+    LOGIN_RATE_LIMIT_ATTEMPTS,
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    access_token_ttl,
+)
 from app.db import check_db_connection, get_async_session
 from app.deps import get_current_user, require_admin
 from app.models import Grade, GradeRun, Problem, ProblemVersion, ProblemVersionSkill, Skill, Submission, SubmissionStatus, User
-from app.queue import grading_queue
+from app.queue import check_redis_connection, grading_queue
 from app.schemas import (
     AuthTokenResponse,
     AdminSubmissionDetailResponse,
@@ -49,6 +62,52 @@ from app.storage import storage
 from app.worker_tasks import run_public_tests_for_bundle
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+_login_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
+_login_rate_lock = Lock()
+
+
+def _is_login_rate_limited(client_key: str) -> bool:
+    now = time.time()
+    with _login_rate_lock:
+        attempts = _login_attempts[client_key]
+        while attempts and now - attempts[0] > LOGIN_RATE_LIMIT_WINDOW_SECONDS:
+            attempts.popleft()
+        if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
+            return True
+        attempts.append(now)
+        return False
+
+
+def _reset_login_attempts(client_key: str) -> None:
+    with _login_rate_lock:
+        _login_attempts.pop(client_key, None)
+
+
+def _validate_uploaded_zip(temp_path: Path) -> None:
+    try:
+        with zipfile.ZipFile(temp_path) as zf:
+            members = zf.infolist()
+            if len(members) > BUNDLE_MAX_ENTRIES:
+                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Bundle has too many files")
+
+            total_uncompressed = 0
+            for member in members:
+                total_uncompressed += int(member.file_size)
+                if total_uncompressed > BUNDLE_MAX_UNCOMPRESSED_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="Bundle uncompressed size is too large",
+                    )
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid zip file") from exc
 
 
 @app.get("/health")
@@ -64,13 +123,31 @@ async def health_db() -> JSONResponse:
     return JSONResponse(content={"db": "error"}, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
+@app.get("/health/redis")
+def health_redis() -> JSONResponse:
+    ok = check_redis_connection()
+    if ok:
+        return JSONResponse(content={"redis": "ok"}, status_code=status.HTTP_200_OK)
+    return JSONResponse(content={"redis": "error"}, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
 @app.post("/auth/login", response_model=AuthTokenResponse)
-async def login(payload: LoginRequest, session: Annotated[AsyncSession, Depends(get_async_session)]) -> AuthTokenResponse:
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AuthTokenResponse:
+    client_host = request.client.host if request.client else "unknown"
+    client_key = f"{client_host}:{payload.email.lower()}"
+    if _is_login_rate_limited(client_key):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts. Try again later.")
+
     result = await session.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
+    _reset_login_attempts(client_key)
     token = create_access_token(subject=user.email, role=user.role, expires_delta=access_token_ttl())
     return AuthTokenResponse(access_token=token, token_type="bearer")
 
@@ -173,6 +250,8 @@ async def upload_problem_bundle(
 
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .zip bundle is allowed")
+    if file.content_type not in {"application/zip", "application/x-zip-compressed", "application/octet-stream"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid content type for zip bundle")
 
     sha256 = hashlib.sha256()
     total_size = 0
@@ -193,6 +272,7 @@ async def upload_problem_bundle(
 
     digest = sha256.hexdigest()
     try:
+        _validate_uploaded_zip(temp_path)
         bundle_key, bundle_size = storage.save_bundle(problem_version_id, temp_path, digest)
     finally:
         temp_path.unlink(missing_ok=True)
@@ -472,6 +552,7 @@ async def run_public_tests(
         version.version,
         version.bundle_key,
         payload.code_text,
+        version.bundle_sha256,
     )
     return RunPublicResponse(**result)
 
