@@ -1,16 +1,14 @@
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
 
 type Params = {
-  params: Promise<{ submissionId: string }>;
+  params: { submissionId: string } | Promise<{ submissionId: string }>;
 };
 
-export async function GET(_: Request, { params }: Params) {
-  const { submissionId } = await params;
-  const cookieStore = await cookies();
-  const token = cookieStore.get("access_token")?.value;
+export async function GET(request: NextRequest, { params }: Params) {
+  const token = request.cookies.get("access_token")?.value;
+  const { submissionId } = await Promise.resolve(params);
 
   if (!token) {
     return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
