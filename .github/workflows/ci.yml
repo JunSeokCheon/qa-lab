@@ -38,6 +38,7 @@ jobs:
       BUNDLE_MAX_SIZE_BYTES: "52428800"
       GRADER_IMAGE: qa-lab-grader-python
       JWT_SECRET_KEY: ci-secret
+      DOCKER_BIN: /usr/bin/docker
 
     steps:
       - name: Checkout

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ from os.path import commonpath
 from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
+import shutil as shutil_lib
 
 import yaml
 from sqlalchemy import select
@@ -215,8 +217,19 @@ def _run_grader(
         report_path = workdir / "report.json"
         weights, timeout_seconds = _load_rubric(workdir)
 
+        docker_bin = os.getenv("DOCKER_BIN")
+        if not docker_bin:
+            docker_bin = shutil_lib.which("docker")
+        if not docker_bin:
+            for candidate in ("/usr/bin/docker", "/usr/local/bin/docker"):
+                if Path(candidate).exists():
+                    docker_bin = candidate
+                    break
+        if not docker_bin:
+            return None, 1, "docker binary not found", "", 0
+
         cmd = [
-            "docker",
+            docker_bin,
             "run",
             "--rm",
             "--network",
