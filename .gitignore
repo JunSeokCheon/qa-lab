@@ -1,0 +1,35 @@
+﻿# Node
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+.next/
+dist/
+build/
+out/
+coverage/
+*.log
+playwright-report/
+test-results/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

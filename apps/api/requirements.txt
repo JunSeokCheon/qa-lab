@@ -1,0 +1,10 @@
+﻿fastapi[standard]
+SQLAlchemy[asyncio]
+asyncpg
+alembic
+python-dotenv
+python-jose[cryptography]
+bcrypt
+rq
+redis
+pyyaml

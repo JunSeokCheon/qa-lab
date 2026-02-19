@@ -1,0 +1,9 @@
+{
+  "name": "@qa-lab/openapi-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
