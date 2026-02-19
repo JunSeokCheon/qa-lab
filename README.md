@@ -48,6 +48,12 @@ fastapi dev main.py
 - `BUNDLE_MAX_ENTRIES`, `BUNDLE_MAX_UNCOMPRESSED_BYTES` (zip bomb 방어)
 - `MAX_LOG_BYTES` (grader stdout/stderr/log 절단 길이)
 
+관측성(Observability):
+- 모든 API 응답 헤더에 `X-Request-ID`가 포함됩니다.
+- API는 JSON 구조 로그(`request.completed`)를 출력합니다.
+- 운영 요약(관리자): `GET /admin/ops/summary`
+  - `queue_depth`, `pending_grade_runs`, `submission_status_counts`, `health(db/redis)` 확인 가능
+
 ### 웹/백 동시 실행 방법
 터미널 1 (API):
 ```bash

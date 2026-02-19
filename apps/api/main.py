@@ -6,9 +6,11 @@ import tempfile
 import time
 import zipfile
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +30,7 @@ from app.config import (
 from app.db import check_db_connection, get_async_session
 from app.deps import get_current_user, require_admin
 from app.models import Grade, GradeRun, Problem, ProblemVersion, ProblemVersionSkill, Skill, Submission, SubmissionStatus, User
+from app.observability import get_logger, log_event
 from app.queue import check_redis_connection, grading_queue
 from app.schemas import (
     AuthTokenResponse,
@@ -69,6 +72,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+logger = get_logger()
 
 _login_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
 _login_rate_lock = Lock()
@@ -108,6 +112,35 @@ def _validate_uploaded_zip(temp_path: Path) -> None:
                     )
     except zipfile.BadZipFile as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid zip file") from exc
+
+
+@app.middleware("http")
+async def add_request_id_and_logging(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or uuid4().hex
+    request.state.request_id = request_id
+    started_at = time.monotonic()
+    response = None
+
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
+            status_code = response.status_code
+        else:
+            status_code = 500
+        log_event(
+            logger,
+            "request.completed",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            duration_ms=duration_ms,
+            client=(request.client.host if request.client else "unknown"),
+        )
 
 
 @app.get("/health")
@@ -235,6 +268,37 @@ async def me_progress(
 @app.get("/admin/health")
 async def admin_health(_: Annotated[User, Depends(require_admin)]) -> dict[str, str]:
     return {"admin": "ok"}
+
+
+@app.get("/admin/ops/summary")
+async def admin_ops_summary(
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> dict[str, object]:
+    status_rows = await session.execute(
+        select(Submission.status, func.count(Submission.id)).group_by(Submission.status)
+    )
+    submission_status_counts = {row[0]: int(row[1]) for row in status_rows.all()}
+
+    pending_grade_runs = await session.scalar(
+        select(func.count(GradeRun.id)).where(GradeRun.score.is_(None))
+    )
+
+    try:
+        queue_depth = int(grading_queue.count)
+    except Exception:
+        queue_depth = -1
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "queue_depth": queue_depth,
+        "pending_grade_runs": int(pending_grade_runs or 0),
+        "submission_status_counts": submission_status_counts,
+        "health": {
+            "db": "ok" if await check_db_connection() else "error",
+            "redis": "ok" if check_redis_connection() else "error",
+        },
+    }
 
 
 @app.post("/admin/problem-versions/{problem_version_id}/bundle", response_model=BundleUploadResponse)

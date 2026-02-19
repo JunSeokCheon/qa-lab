@@ -255,10 +255,11 @@ def test_a_admin_bundle_upload_submit_and_grade(tokens: tuple[str, str]) -> None
 
 
 def test_a1_health_redis_and_admin_guard(tokens: tuple[str, str]) -> None:
-    _, student_token = tokens
+    admin_token, student_token = tokens
     redis_health = requests.get(f"{API_BASE_URL}/health/redis", timeout=REQUEST_TIMEOUT)
     assert redis_health.status_code == 200, redis_health.text
     assert redis_health.json()["redis"] == "ok"
+    assert redis_health.headers.get("X-Request-ID"), "X-Request-ID header is missing"
 
     admin_health = requests.get(
         f"{API_BASE_URL}/admin/health",
@@ -266,6 +267,18 @@ def test_a1_health_redis_and_admin_guard(tokens: tuple[str, str]) -> None:
         timeout=REQUEST_TIMEOUT,
     )
     assert admin_health.status_code == 403, admin_health.text
+
+    ops_summary = requests.get(
+        f"{API_BASE_URL}/admin/ops/summary",
+        headers=_auth_headers(admin_token),
+        timeout=REQUEST_TIMEOUT,
+    )
+    assert ops_summary.status_code == 200, ops_summary.text
+    body = ops_summary.json()
+    assert "queue_depth" in body
+    assert "submission_status_counts" in body
+    assert body["health"]["db"] in {"ok", "error"}
+    assert body["health"]["redis"] in {"ok", "error"}
 
 
 def test_b_student_run_public(tokens: tuple[str, str]) -> None:
