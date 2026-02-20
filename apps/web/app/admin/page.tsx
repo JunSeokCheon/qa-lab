@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { BackButton } from "@/components/back-button";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 export default async function AdminPage() {
@@ -32,6 +33,7 @@ export default async function AdminPage() {
     return (
       <main className="qa-shell">
         <section className="qa-card">
+          <BackButton />
           <h1 className="text-2xl font-semibold">Admin 페이지</h1>
           <p className="mt-4">현재 계정은 admin 권한이 없어 접근할 수 없습니다. (403)</p>
           <Link href="/" className="mt-4 inline-block underline">
@@ -45,6 +47,7 @@ export default async function AdminPage() {
   return (
     <main className="qa-shell">
       <section className="qa-card space-y-3">
+        <BackButton />
         <h1 className="text-2xl font-semibold">Admin 페이지</h1>
         <p>로그인 계정: {me.email}</p>
         <p>역할: {me.role}</p>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { BackButton } from "@/components/back-button";
 import { RegradeButton } from "@/components/regrade-button";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
@@ -59,8 +60,9 @@ export default async function AdminSubmissionDetailPage({ params }: Params) {
   if (response.status === 403) {
     return (
       <main className="mx-auto max-w-3xl p-8">
-        <h1 className="text-2xl font-semibold">제출 상세</h1>
-        <p className="mt-4">admin 권한이 없어 접근할 수 없습니다.</p>
+        <BackButton fallbackHref="/admin" />
+        <h1 className="mt-3 text-2xl font-semibold">Submission Detail</h1>
+        <p className="mt-4">Admin 권한이 없어 접근할 수 없습니다.</p>
         <Link href="/admin" className="mt-4 inline-block underline">
           Admin으로 이동
         </Link>
@@ -70,7 +72,8 @@ export default async function AdminSubmissionDetailPage({ params }: Params) {
   if (response.status === 404) {
     return (
       <main className="mx-auto max-w-3xl p-8">
-        <h1 className="text-2xl font-semibold">제출 상세</h1>
+        <BackButton fallbackHref="/admin" />
+        <h1 className="mt-3 text-2xl font-semibold">Submission Detail</h1>
         <p className="mt-4">해당 제출을 찾을 수 없습니다.</p>
         <Link href="/admin" className="mt-4 inline-block underline">
           Admin으로 이동
@@ -83,7 +86,8 @@ export default async function AdminSubmissionDetailPage({ params }: Params) {
 
   return (
     <main className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Admin Submission #{detail.id}</h1>
+      <BackButton fallbackHref="/admin" />
+      <h1 className="mt-3 text-2xl font-semibold">Admin Submission #{detail.id}</h1>
       <p className="mt-2">user_id: {detail.user_id}</p>
       <p>problem_version_id: {detail.problem_version_id}</p>
       <p>status: {detail.status}</p>

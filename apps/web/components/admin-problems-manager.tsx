@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
+import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -163,6 +164,7 @@ export function AdminProblemsManager({ initialSkills }: { initialSkills: Skill[]
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
+        <BackButton fallbackHref="/admin" />
         <p className="qa-kicker">Admin</p>
         <h1 className="mt-2 text-3xl font-bold">Problem and Bundle Manager</h1>
         <p className="mt-2 text-sm text-muted-foreground">

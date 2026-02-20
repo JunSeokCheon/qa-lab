@@ -4,7 +4,6 @@ import { cookies } from "next/headers";
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/logout-button";
 import { ProblemOpen } from "@/components/problem-open";
-import { PublicTestRunner } from "@/components/public-test-runner";
 import { fetchMeWithToken } from "@/lib/auth";
 
 export default async function HomePage() {
@@ -19,7 +18,7 @@ export default async function HomePage() {
           <p className="qa-kicker text-hero-foreground/80">QA Lab</p>
           <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">Skill Lab</h1>
           <p className="mt-3 max-w-2xl text-sm text-hero-foreground/90 md:text-base">
-            코드를 제출하고, 공개 테스트를 먼저 실행해보며, 자동 채점 결과와 성취도를 한 곳에서 확인하세요.
+            코드를 제출하고, 자동 채점 결과와 성취도를 한 곳에서 확인하세요.
           </p>
         </section>
 
@@ -50,7 +49,6 @@ export default async function HomePage() {
               </div>
             </section>
             <ProblemOpen />
-            <PublicTestRunner />
           </>
         ) : (
           <section className="qa-card">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { BackButton } from "@/components/back-button";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 type MySubmissionItem = {
@@ -33,6 +34,7 @@ export default async function SubmissionsPage() {
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
+        <BackButton />
         <p className="qa-kicker">Student</p>
         <h1 className="mt-2 text-3xl font-bold">내 제출 히스토리</h1>
         <p className="mt-2 text-sm text-muted-foreground">{me.email}</p>

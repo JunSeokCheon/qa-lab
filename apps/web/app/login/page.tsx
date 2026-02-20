@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -44,6 +45,7 @@ export default function LoginPage() {
     <div className="min-h-screen">
       <main className="qa-shell flex min-h-screen items-center justify-center py-12">
         <section className="qa-card w-full max-w-md">
+          <BackButton />
           <p className="qa-kicker">Welcome Back</p>
           <h1 className="mb-6 mt-2 text-3xl font-bold">Login</h1>
           <form onSubmit={onSubmit} className="space-y-4">

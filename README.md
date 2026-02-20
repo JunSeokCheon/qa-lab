@@ -23,7 +23,6 @@ pnpm dev
 - 에디터 자동저장: 문제/버전별로 브라우저 로컬 저장
 - 단축키:
   - `Ctrl/Cmd + Enter`: 제출
-  - `Ctrl/Cmd + Shift + Enter`: Public tests 실행
 - 문제 상세 페이지에서 statement를 확인하고 바로 Workbench에서 실행/제출 가능
 
 ### API (FastAPI)
@@ -128,7 +127,6 @@ pnpm dev
 - `http://localhost:3000/admin` 접근 시:
   - 일반 사용자: 403 안내
   - 관리자: Admin API 접근 성공
-- 홈 화면에서 `Run public tests` 버튼으로 공개 테스트 실행 가능
 - `http://localhost:3000/dashboard` 에서 성취도 히트맵/레벨 확인 가능
 - `http://localhost:3000/problems` 에서 문제 목록 확인 가능
 - `http://localhost:3000/submissions` 에서 내 제출 히스토리 확인 가능
@@ -380,7 +378,7 @@ PR/push 시 `.github/workflows/ci.yml`에서 전체 스택 E2E를 실행합니�
 - (D) (추가) 악성 zip(Zip Slip) 업로드 후 제출 -> 채점 `FAILED` 확인(안전 추출 방어 간접 검증)
 
 Playwright UI E2E(`apps/web/tests/e2e/problem-flows.spec.ts`):
-- 로그인 -> 문제 열기 -> `Run public tests` 클릭 -> 결과 패널의 `status/summary` 확인
+- 로그인 -> 문제 열기 -> Workbench 진입 및 제출 버튼 표시 확인
 - 로그인 -> 제출 -> `QUEUED/RUNNING/GRADED` 상태 전환 및 점수 표시 확인
 
 CI에서는 API/Worker/DB/Redis가 동작 중인 상태에서 Playwright를 실행하며,

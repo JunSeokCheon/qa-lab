@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { BackButton } from "@/components/back-button";
 import { fetchMeWithToken, fetchMyProgressWithToken } from "@/lib/auth";
 
 function masteryLevel(mastery: number): string {
@@ -35,6 +36,7 @@ export default async function DashboardPage() {
     return (
       <main className="qa-shell">
         <section className="qa-card">
+          <BackButton />
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="mt-4">진행 정보를 불러오지 못했습니다.</p>
           <Link href="/" className="mt-4 inline-block underline">
@@ -48,6 +50,7 @@ export default async function DashboardPage() {
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
+        <BackButton />
         <p className="qa-kicker">Progress</p>
         <h1 className="mt-2 text-3xl font-bold">Skill Dashboard</h1>
         <p className="mt-2 text-sm text-muted-foreground">{me.email}의 현재 역량 상태입니다.</p>

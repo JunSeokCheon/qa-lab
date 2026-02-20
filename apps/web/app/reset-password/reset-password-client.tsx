@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -46,6 +47,7 @@ export function ResetPasswordClient() {
     <div className="min-h-screen">
       <main className="qa-shell flex min-h-screen items-center justify-center py-12">
         <section className="qa-card w-full max-w-md space-y-4">
+          <BackButton />
           <p className="qa-kicker">Set New Password</p>
           <h1 className="text-3xl font-bold">Reset Password</h1>
           <form onSubmit={onSubmit} className="space-y-3">

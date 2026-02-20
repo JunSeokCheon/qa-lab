@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { BackButton } from "@/components/back-button";
 import { ProblemWorkbench } from "@/components/problem-workbench";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
@@ -37,6 +38,7 @@ export default async function ProblemPage({ params }: Params) {
     return (
       <main className="qa-shell">
         <section className="qa-card">
+          <BackButton />
           <h1 className="text-2xl font-semibold">Problem</h1>
           <p className="mt-3">Unable to load the requested problem.</p>
           <Link href="/" className="underline">
@@ -52,6 +54,7 @@ export default async function ProblemPage({ params }: Params) {
     return (
       <main className="qa-shell">
         <section className="qa-card">
+          <BackButton />
           <h1 className="text-2xl font-semibold">{problem.title}</h1>
           <p className="mt-3">This problem does not have a published version yet.</p>
         </section>
@@ -62,6 +65,7 @@ export default async function ProblemPage({ params }: Params) {
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
+        <BackButton />
         <p className="qa-kicker">Problem Workspace</p>
         <h1 className="mt-2 text-3xl font-bold">{problem.title}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -72,7 +76,6 @@ export default async function ProblemPage({ params }: Params) {
       <section className="qa-card">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Statement</h2>
-          <p className="text-xs text-muted-foreground">Tip: run public tests before submitting.</p>
         </div>
         <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-surface-muted p-4 text-sm leading-6 text-foreground">
           {problem.latest_version.statement_md}

@@ -1,25 +1,9 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-
-type RunPublicResponse = {
-  status: string;
-  summary: {
-    problem_version: number;
-    docker_exit_code: number;
-    duration_ms: number;
-    stdout: string;
-    stderr: string;
-  };
-  public_feedback: {
-    passed: number;
-    total: number;
-    failed_cases: Array<{ name: string; outcome: string; message: string }>;
-  };
-};
 
 type SubmissionResponse = {
   id: number;
@@ -32,10 +16,6 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
   const codeKey = `qa-lab:code:${problemId}:${problemVersionId}`;
 
   const [codeText, setCodeText] = useState("def solve(a, b):\n    return a + b\n");
-  const [runLoading, setRunLoading] = useState(false);
-  const [runError, setRunError] = useState("");
-  const [runResult, setRunResult] = useState<RunPublicResponse | null>(null);
-
   const [submitLoading, setSubmitLoading] = useState(false);
   const [polling, setPolling] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -43,7 +23,7 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
   const [statusTimeline, setStatusTimeline] = useState<string[]>([]);
   const [finalScore, setFinalScore] = useState<string>("-");
 
-  const canRun = codeText.trim().length > 0;
+  const canSubmit = codeText.trim().length > 0;
   const statusText = useMemo(() => statusTimeline.join(" -> "), [statusTimeline]);
   const codeLineCount = useMemo(() => codeText.split("\n").length, [codeText]);
   const codeCharCount = useMemo(() => codeText.length, [codeText]);
@@ -75,37 +55,8 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
     window.localStorage.setItem(codeKey, codeText);
   }, [codeKey, codeText]);
 
-  const onRunPublic = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canRun) {
-      return;
-    }
-
-    setRunLoading(true);
-    setRunError("");
-    setRunResult(null);
-
-    try {
-      const response = await fetch("/api/run-public", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ problem_id: problemId, code_text: codeText }),
-      });
-      const body = (await response.json().catch(() => ({}))) as RunPublicResponse & { detail?: string; message?: string };
-      if (!response.ok) {
-        setRunError(body.detail ?? body.message ?? "Public test run failed");
-        return;
-      }
-      setRunResult(body);
-    } catch {
-      setRunError("Network error while running public tests");
-    } finally {
-      setRunLoading(false);
-    }
-  };
-
   const onSubmitCode = async () => {
-    if (!canRun) {
+    if (!canSubmit) {
       return;
     }
 
@@ -187,11 +138,7 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
   const onEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      if (event.shiftKey) {
-        void onRunPublic({ preventDefault: () => undefined } as FormEvent<HTMLFormElement>);
-      } else {
-        void onSubmitCode();
-      }
+      void onSubmitCode();
     }
   };
 
@@ -205,9 +152,8 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
           </p>
         </div>
         <div className="rounded-xl bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
-          <p>Shortcuts</p>
+          <p>Shortcut</p>
           <p>Ctrl/Cmd + Enter: submit</p>
-          <p>Ctrl/Cmd + Shift + Enter: run public tests</p>
         </div>
       </div>
 
@@ -216,7 +162,7 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
         ready
       </p>
 
-      <form onSubmit={onRunPublic} className="mt-4 space-y-3">
+      <div className="mt-4 space-y-3">
         <Textarea
           className="min-h-52"
           value={codeText}
@@ -225,36 +171,14 @@ export function ProblemWorkbench({ problemId, problemVersionId }: { problemId: n
           data-testid="code-input"
         />
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={runLoading || !canRun} data-testid="run-public-button">
-            {runLoading ? "Running..." : "Run public tests"}
-          </Button>
-          <Button type="button" disabled={submitLoading || !canRun} onClick={onSubmitCode} data-testid="submit-button">
+          <Button type="button" disabled={submitLoading || !canSubmit} onClick={onSubmitCode} data-testid="submit-button">
             {submitLoading ? "Submitting..." : "Submit"}
           </Button>
           <Button type="button" variant="outline" onClick={onResetCode}>
             Reset code
           </Button>
         </div>
-      </form>
-
-      {runError ? <p className="mt-3 text-sm text-destructive">{runError}</p> : null}
-      {runResult ? (
-        <div className="mt-4 space-y-2 rounded-2xl bg-surface-muted p-3 text-sm" data-testid="public-result-panel">
-          <p data-testid="public-status">status: {runResult.status}</p>
-          <p data-testid="public-summary">
-            summary: passed {runResult.public_feedback.passed}/{runResult.public_feedback.total}, {runResult.summary.duration_ms}ms
-          </p>
-          {runResult.public_feedback.failed_cases.length > 0 ? (
-            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-              {runResult.public_feedback.failed_cases.map((item) => (
-                <li key={item.name}>
-                  {item.name}: {item.outcome}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+      </div>
 
       {submitError ? <p className="mt-3 text-sm text-destructive">{submitError}</p> : null}
       <div className="mt-4 space-y-2 rounded-2xl bg-surface-muted p-3 text-sm" data-testid="submission-panel">

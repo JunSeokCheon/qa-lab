@@ -26,15 +26,12 @@ async function openProblemPage(page: Page) {
   await expect(page.getByTestId("workbench-ready")).toHaveAttribute("data-ready", "1");
 }
 
-test("login -> open problem -> run public tests -> show pass/summary", async ({ page }) => {
+test("login -> open problem -> show submit workbench", async ({ page }) => {
   await loginAsStudent(page);
   await openProblemPage(page);
 
-  await page.getByTestId("run-public-button").click();
-  const panel = page.getByTestId("public-result-panel");
-  await expect(panel).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByTestId("public-status")).toContainText(/PASS|PASSED|FAILED/i);
-  await expect(page.getByTestId("public-summary")).toContainText(/summary: passed/i);
+  await expect(page.getByTestId("submit-button")).toBeVisible();
+  await expect(page.getByTestId("submission-status-timeline")).toContainText("-");
 });
 
 test("login -> submit -> status transition -> show score", async ({ page }) => {
