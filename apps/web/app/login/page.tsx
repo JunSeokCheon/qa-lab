@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
@@ -46,11 +46,10 @@ export default function LoginPage() {
       <main className="qa-shell flex min-h-screen items-center justify-center py-12">
         <section className="qa-card w-full max-w-md">
           <BackButton />
-          <p className="qa-kicker">Welcome Back</p>
-          <h1 className="mb-6 mt-2 text-3xl font-bold">Login</h1>
+          <h1 className="mb-6 mt-2 text-3xl font-bold">로그인</h1>
           <form onSubmit={onSubmit} className="space-y-4">
-            <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" />
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
+            <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="아이디" />
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="비밀번호" />
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
             {failedCount > 0 ? <p className="text-xs text-muted-foreground">로그인 실패 횟수: {failedCount}</p> : null}
             <Button type="submit" className="w-full" disabled={loading}>
@@ -58,7 +57,7 @@ export default function LoginPage() {
             </Button>
             <Link href="/signup" className="block">
               <Button type="button" variant="outline" className="w-full">
-                회원가입 하러가기
+                회원가입
               </Button>
             </Link>
             <div className="flex items-center justify-end text-xs">

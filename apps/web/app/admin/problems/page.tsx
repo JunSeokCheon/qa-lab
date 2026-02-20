@@ -5,6 +5,7 @@ import { AdminProblemsManager } from "@/components/admin-problems-manager";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 type Skill = { id: number; name: string; description?: string | null };
+type Folder = { id: number; name: string; slug: string; parent_id: number | null; sort_order: number; path: string };
 
 export default async function AdminProblemsPage() {
   const cookieStore = await cookies();
@@ -25,6 +26,11 @@ export default async function AdminProblemsPage() {
   });
 
   const initialSkills = (await response.json().catch(() => [])) as Skill[];
+  const foldersResponse = await fetch(`${FASTAPI_BASE_URL}/admin/problem-folders`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const initialFolders = (await foldersResponse.json().catch(() => [])) as Folder[];
 
-  return <AdminProblemsManager initialSkills={initialSkills} />;
+  return <AdminProblemsManager initialSkills={initialSkills} initialFolders={initialFolders} />;
 }

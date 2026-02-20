@@ -74,12 +74,12 @@ export default function SignupPage() {
       <main className="qa-shell flex min-h-screen items-center justify-center py-12">
         <section className="qa-card w-full max-w-md">
           <BackButton />
-          <p className="qa-kicker">New Account</p>
+          <p className="qa-kicker">새 계정 만들기</p>
           <h1 className="mb-6 mt-2 text-3xl font-bold">회원가입</h1>
           <form onSubmit={onSubmit} className="space-y-4">
-            <Input placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <Input type="password" placeholder="password (8+)" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <Input type="password" placeholder="confirm password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <Input placeholder="아이디" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <Input type="password" placeholder="비밀번호 (8자 이상)" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input type="password" placeholder="비밀번호 확인" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button className="w-full" disabled={loading}>
               {loading ? "가입 중..." : "회원가입"}

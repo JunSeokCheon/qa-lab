@@ -24,7 +24,7 @@ export function LogoutButton() {
 
   return (
     <Button type="button" onClick={onLogout} disabled={loading}>
-      {loading ? "Logging out..." : "Logout"}
+      {loading ? "로그아웃 중..." : "로그아웃"}
     </Button>
   );
 }

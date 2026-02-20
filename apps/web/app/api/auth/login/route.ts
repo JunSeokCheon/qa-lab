@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload?.access_token) {
     return NextResponse.json(
-      { message: payload?.detail ?? "Login failed" },
+      { message: payload?.detail ?? "로그인에 실패했습니다." },
       { status: response.status || 401 },
     );
   }

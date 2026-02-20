@@ -13,8 +13,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Skill Lab | QA Learning Studio",
-  description: "Bootcamp-ready coding QA lab with public tests, submissions, and mastery tracking.",
+  title: "트랙 QA 스튜디오",
+  description: "내일배움캠프 데이터분석 트랙 학습자용 QA 서비스",
 };
 
 export default function RootLayout({
@@ -23,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="ko">
       <body
         className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} antialiased`}
       >

@@ -22,7 +22,7 @@ export function ResetPasswordClient() {
     setMessage("");
     setError("");
     if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setError("비밀번호는 8자 이상이어야 합니다.");
       return;
     }
 
@@ -35,11 +35,11 @@ export function ResetPasswordClient() {
     const payload = (await response.json().catch(() => ({}))) as { message?: string; detail?: string };
 
     if (!response.ok) {
-      setError(payload.detail ?? payload.message ?? "Failed to reset password.");
+      setError(payload.detail ?? payload.message ?? "비밀번호 재설정에 실패했습니다.");
       setLoading(false);
       return;
     }
-    setMessage(payload.message ?? "Password has been reset.");
+    setMessage(payload.message ?? "비밀번호가 변경되었습니다.");
     setLoading(false);
   };
 
@@ -48,24 +48,24 @@ export function ResetPasswordClient() {
       <main className="qa-shell flex min-h-screen items-center justify-center py-12">
         <section className="qa-card w-full max-w-md space-y-4">
           <BackButton />
-          <p className="qa-kicker">Set New Password</p>
-          <h1 className="text-3xl font-bold">Reset Password</h1>
+          <p className="qa-kicker">새 비밀번호 설정</p>
+          <h1 className="text-3xl font-bold">비밀번호 재설정</h1>
           <form onSubmit={onSubmit} className="space-y-3">
-            <Input placeholder="reset token" value={token} onChange={(e) => setToken(e.target.value)} />
+            <Input placeholder="재설정 토큰" value={token} onChange={(e) => setToken(e.target.value)} />
             <Input
               type="password"
-              placeholder="new password (8+)"
+              placeholder="새 비밀번호 (8자 이상)"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
             <Button className="w-full" disabled={loading}>
-              {loading ? "Resetting..." : "Reset Password"}
+              {loading ? "변경 중..." : "비밀번호 변경"}
             </Button>
           </form>
           <p className="text-xs text-muted-foreground">
-            Go to login:{" "}
+            로그인으로 이동:{" "}
             <Link href="/login" className="underline">
               /login
             </Link>

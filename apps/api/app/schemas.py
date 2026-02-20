@@ -62,13 +62,32 @@ class SkillResponse(BaseModel):
     description: str | None = None
 
 
+class ProblemFolderCreate(BaseModel):
+    name: str
+    slug: str | None = None
+    parent_id: int | None = None
+    sort_order: int = 0
+
+
+class ProblemFolderResponse(BaseModel):
+    id: int
+    name: str
+    slug: str
+    parent_id: int | None = None
+    sort_order: int
+    path: str
+
+
 class ProblemCreate(BaseModel):
     title: str
+    folder_id: int | None = None
 
 
 class ProblemResponse(BaseModel):
     id: int
     title: str
+    folder_id: int | None = None
+    folder_path: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -84,6 +103,7 @@ class ProblemVersionCreate(BaseModel):
     max_score: int
     statement_md: str
     skills: list[ProblemVersionSkillInput] = []
+    question_meta_json: dict[str, Any] | None = None
 
 
 class ProblemVersionStatusUpdate(BaseModel):
@@ -104,6 +124,7 @@ class ProblemVersionSummary(BaseModel):
     type: str
     difficulty: str
     max_score: int
+    question_meta: dict[str, Any] | None = None
     bundle_key: str | None = None
     created_at: datetime
 
@@ -118,6 +139,8 @@ class ProblemVersionDetail(ProblemVersionSummary):
 class ProblemListItem(BaseModel):
     id: int
     title: str
+    folder_id: int | None = None
+    folder_path: str | None = None
     created_at: datetime
     updated_at: datetime
     latest_version: ProblemVersionSummary | None = None
@@ -126,6 +149,8 @@ class ProblemListItem(BaseModel):
 class ProblemDetail(BaseModel):
     id: int
     title: str
+    folder_id: int | None = None
+    folder_path: str | None = None
     created_at: datetime
     updated_at: datetime
     latest_version: ProblemVersionDetail | None = None
@@ -133,7 +158,8 @@ class ProblemDetail(BaseModel):
 
 class SubmissionCreate(BaseModel):
     problem_version_id: int
-    code_text: str
+    code_text: str | None = None
+    answer_text: str | None = None
 
 
 class RunPublicRequest(BaseModel):

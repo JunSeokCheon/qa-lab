@@ -165,7 +165,21 @@ curl -X POST "http://127.0.0.1:8000/admin/skills" ^
 curl -X POST "http://127.0.0.1:8000/admin/problems" ^
   -H "Authorization: Bearer <ADMIN_TOKEN>" ^
   -H "Content-Type: application/json" ^
-  -d "{\"title\":\"Two Sum\"}"
+  -d "{\"title\":\"Two Sum\",\"folder_id\":1}"
+```
+
+2-1) 폴더(모듈) 생성:
+```bash
+curl -X POST "http://127.0.0.1:8000/admin/problem-folders" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\":\"Python\",\"sort_order\":10}"
+```
+
+2-2) 폴더 목록 조회:
+```bash
+curl "http://127.0.0.1:8000/admin/problem-folders" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
 ```
 
 3) 문제 버전 생성(statement_md 포함):
@@ -176,7 +190,23 @@ curl -X POST "http://127.0.0.1:8000/admin/problems/1/versions" ^
   -d "{\"type\":\"coding\",\"difficulty\":\"easy\",\"max_score\":100,\"statement_md\":\"# 문제\\n두 수의 합을 구하세요.\",\"skills\":[{\"skill_id\":1,\"weight\":70}]}"
 ```
 
-3-1) 문제 번들(zip) 업로드:
+3-1) 객관식 버전 생성:
+```bash
+curl -X POST "http://127.0.0.1:8000/admin/problems/1/versions" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"type\":\"multiple_choice\",\"difficulty\":\"easy\",\"max_score\":100,\"statement_md\":\"정답을 고르세요.\",\"question_meta_json\":{\"choices\":[\"A\",\"B\",\"C\"],\"correct_index\":1}}"
+```
+
+3-2) 주관식 버전 생성:
+```bash
+curl -X POST "http://127.0.0.1:8000/admin/problems/1/versions" ^
+  -H "Authorization: Bearer <ADMIN_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"type\":\"subjective\",\"difficulty\":\"easy\",\"max_score\":100,\"statement_md\":\"핵심 개념을 설명하세요.\",\"question_meta_json\":{\"acceptable_answers\":[\"회귀\",\"regression\"],\"case_sensitive\":false}}"
+```
+
+3-3) 코딩 문제 번들(zip) 업로드:
 ```bash
 curl -X POST "http://127.0.0.1:8000/admin/problem-versions/1/bundle" ^
   -H "Authorization: Bearer <ADMIN_TOKEN>" ^
@@ -196,6 +226,10 @@ curl "http://127.0.0.1:8000/problems/1"
 
 ### 제출(Submission) API
 상태머신: `QUEUED -> RUNNING -> GRADED | FAILED`
+
+문항 유형별 제출 동작:
+- `coding`: 비동기 채점(`QUEUED -> RUNNING -> GRADED/FAILED`)
+- `multiple_choice`, `subjective`: 즉시 채점(`GRADED`)
 
 RQ 비동기 채점(Docker + pytest-json-report):
 - 제출 생성 시 API가 Redis 큐(`grading`)에 작업 enqueue
@@ -526,6 +560,26 @@ docker compose -f infra/docker-compose.yml down -v
 볼륨:
 - Postgres: `postgres_data`
 - Redis: `redis_data`
+
+### Docker 전체 스택 즉시 테스트 (Web+API+Worker)
+로컬 `3000/8000` 포트가 이미 사용 중이면 아래처럼 포트를 바꿔 실행할 수 있습니다.
+
+```powershell
+$env:API_PORT='8010'
+$env:WEB_PORT='3010'
+docker compose -p qa-lab-prod --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
+```
+
+실행 확인:
+```bash
+docker compose -p qa-lab-prod --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
+```
+
+웹 E2E 확인(도커 웹 3010 기준):
+```powershell
+cd apps/web
+cmd /c "set PLAYWRIGHT_BASE_URL=http://127.0.0.1:3010&& pnpm test:e2e"
+```
 
 ## 프로덕션 배포 준비
 추가된 배포 자산:

@@ -45,6 +45,18 @@ class _FakeSession:
         return
 
 
+def _published_coding_version() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=1,
+        status="published",
+        type="coding",
+        bundle_key=None,
+        bundle_sha256=None,
+        rubric_version=1,
+        max_score=100,
+    )
+
+
 def _make_zip_with_signature(sig: bytes, filename: str = "starter/bad.bin") -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -84,7 +96,7 @@ def test_create_submission_returns_429_when_queue_backpressure_hits(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def _override_session() -> AsyncGenerator[_FakeSession]:
-        yield _FakeSession()
+        yield _FakeSession(scalars=[_published_coding_version()])
 
     main.app.dependency_overrides[get_async_session] = _override_session
     monkeypatch.setattr(
@@ -106,7 +118,7 @@ def test_create_submission_returns_429_when_user_active_limit_hits(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def _override_session() -> AsyncGenerator[_FakeSession]:
-        yield _FakeSession(scalars=[SUBMISSION_MAX_ACTIVE_PER_USER])
+        yield _FakeSession(scalars=[_published_coding_version(), SUBMISSION_MAX_ACTIVE_PER_USER])
 
     main.app.dependency_overrides[get_async_session] = _override_session
     monkeypatch.setattr(main, "grading_queue", SimpleNamespace(count=0, enqueue=lambda *_a, **_k: None))
@@ -123,7 +135,7 @@ def test_create_submission_returns_429_when_user_active_limit_hits(
 def test_upload_bundle_rejects_blocked_signature(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake_version = SimpleNamespace(id=9, bundle_key=None, bundle_sha256=None, bundle_size=None)
+    fake_version = SimpleNamespace(id=9, type="coding", bundle_key=None, bundle_sha256=None, bundle_size=None)
 
     async def _override_session() -> AsyncGenerator[_FakeSession]:
         yield _FakeSession(scalars=[fake_version])

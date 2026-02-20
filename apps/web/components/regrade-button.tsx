@@ -18,12 +18,12 @@ export function RegradeButton({ submissionId }: { submissionId: number }) {
     });
     const payload = (await response.json().catch(() => ({}))) as { message?: string; detail?: string };
     if (!response.ok) {
-      setMessage(payload.detail ?? payload.message ?? "재채점 요청 실패");
+      setMessage(payload.detail ?? payload.message ?? "재채점 요청에 실패했습니다.");
       setLoading(false);
       return;
     }
 
-    setMessage(payload.message ?? "재채점이 큐에 등록되었습니다.");
+    setMessage(payload.message ?? "재채점 요청이 접수되었습니다.");
     setLoading(false);
     router.refresh();
   };
@@ -31,7 +31,7 @@ export function RegradeButton({ submissionId }: { submissionId: number }) {
   return (
     <div className="flex items-center gap-3">
       <Button type="button" onClick={onRegrade} disabled={loading}>
-        {loading ? "Queueing..." : "Regrade"}
+        {loading ? "요청 중..." : "재채점"}
       </Button>
       {message ? <p className="text-sm">{message}</p> : null}
     </div>

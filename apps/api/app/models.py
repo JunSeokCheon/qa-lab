@@ -57,16 +57,45 @@ class Skill(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ProblemFolder(Base):
+    __tablename__ = "problem_folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("problem_folders.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    parent: Mapped["ProblemFolder | None"] = relationship(
+        "ProblemFolder",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children: Mapped[list["ProblemFolder"]] = relationship(
+        "ProblemFolder",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+    problems: Mapped[list["Problem"]] = relationship(back_populates="folder")
+
+
 class Problem(Base):
     __tablename__ = "problems"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("problem_folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    folder: Mapped["ProblemFolder | None"] = relationship(back_populates="problems")
     versions: Mapped[list["ProblemVersion"]] = relationship(back_populates="problem", cascade="all, delete-orphan")
 
 
@@ -81,6 +110,7 @@ class ProblemVersion(Base):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=False)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False)
     statement_md: Mapped[str] = mapped_column(Text, nullable=False)
+    question_meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=ProblemVersionStatus.DRAFT.value)
     rubric_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     bundle_key: Mapped[str | None] = mapped_column(String(500), nullable=True)

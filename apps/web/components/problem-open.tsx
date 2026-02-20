@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
@@ -20,17 +21,24 @@ export function ProblemOpen() {
   };
 
   return (
-    <form onSubmit={onSubmit} className="qa-card mt-0 flex flex-wrap items-center gap-2" data-testid="problem-open-form">
+    <form
+      onSubmit={onSubmit}
+      className="qa-card mt-0 flex flex-wrap items-center gap-2"
+      data-testid="problem-open-form"
+    >
       <Input
         className="w-40"
-        placeholder="Problem ID"
+        placeholder="문제 ID"
         value={problemId}
         onChange={(e) => setProblemId(e.target.value)}
         data-testid="problem-id-input"
       />
       <Button type="submit" data-testid="open-problem-button">
-        문제 열기
+        ID로 열기
       </Button>
+      <Link href="/problems" className="ml-auto text-sm underline">
+        카테고리로 보기
+      </Link>
     </form>
   );
 }

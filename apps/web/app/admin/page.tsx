@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -17,6 +17,7 @@ export default async function AdminPage() {
   if (!me) {
     redirect("/login");
   }
+  const roleLabel = me.role === "admin" ? "관리자" : "학습자";
 
   const adminResponse = await fetch(`${FASTAPI_BASE_URL}/admin/health`, {
     headers: {
@@ -34,10 +35,10 @@ export default async function AdminPage() {
       <main className="qa-shell">
         <section className="qa-card">
           <BackButton />
-          <h1 className="text-2xl font-semibold">Admin</h1>
-          <p className="mt-4">Current account does not have admin permissions. (403)</p>
+          <h1 className="text-2xl font-semibold">관리자 페이지</h1>
+          <p className="mt-4">현재 계정은 관리자 권한이 없습니다. (403)</p>
           <Link href="/" className="mt-4 inline-block underline">
-            Go home
+            홈으로 이동
           </Link>
         </section>
       </main>
@@ -48,17 +49,17 @@ export default async function AdminPage() {
     <main className="qa-shell">
       <section className="qa-card space-y-3">
         <BackButton />
-        <h1 className="text-2xl font-semibold">Admin</h1>
-        <p>Signed in as: {me.username}</p>
-        <p>Role: {me.role}</p>
-        <p className="text-green-700">Admin API access confirmed</p>
+        <h1 className="text-2xl font-semibold">관리자 페이지</h1>
+        <p>로그인 계정: {me.username}</p>
+        <p>권한: {roleLabel}</p>
+        <p className="text-green-700">관리자 API 접근 확인</p>
 
         <div className="flex flex-wrap gap-3 pt-2 text-sm">
           <Link href="/admin/problems" className="underline">
-            Problem/Bundle Manager
+            문제/번들 관리
           </Link>
           <Link href="/admin/submissions/1" className="underline">
-            Submission detail sample (/admin/submissions/1)
+            제출 상세 예시 (/admin/submissions/1)
           </Link>
         </div>
       </section>

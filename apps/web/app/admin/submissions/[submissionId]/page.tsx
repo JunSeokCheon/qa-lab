@@ -61,10 +61,10 @@ export default async function AdminSubmissionDetailPage({ params }: Params) {
     return (
       <main className="mx-auto max-w-3xl p-8">
         <BackButton fallbackHref="/admin" />
-        <h1 className="mt-3 text-2xl font-semibold">Submission Detail</h1>
-        <p className="mt-4">Admin 권한이 없어 접근할 수 없습니다.</p>
+        <h1 className="mt-3 text-2xl font-semibold">제출 상세</h1>
+        <p className="mt-4">관리자 권한이 없어 접근할 수 없습니다.</p>
         <Link href="/admin" className="mt-4 inline-block underline">
-          Admin으로 이동
+          관리자 홈으로 이동
         </Link>
       </main>
     );
@@ -73,10 +73,10 @@ export default async function AdminSubmissionDetailPage({ params }: Params) {
     return (
       <main className="mx-auto max-w-3xl p-8">
         <BackButton fallbackHref="/admin" />
-        <h1 className="mt-3 text-2xl font-semibold">Submission Detail</h1>
+        <h1 className="mt-3 text-2xl font-semibold">제출 상세</h1>
         <p className="mt-4">해당 제출을 찾을 수 없습니다.</p>
         <Link href="/admin" className="mt-4 inline-block underline">
-          Admin으로 이동
+          관리자 홈으로 이동
         </Link>
       </main>
     );
@@ -87,34 +87,33 @@ export default async function AdminSubmissionDetailPage({ params }: Params) {
   return (
     <main className="mx-auto max-w-4xl p-8">
       <BackButton fallbackHref="/admin" />
-      <h1 className="mt-3 text-2xl font-semibold">Admin Submission #{detail.id}</h1>
-      <p className="mt-2">user_id: {detail.user_id}</p>
-      <p>problem_version_id: {detail.problem_version_id}</p>
-      <p>status: {detail.status}</p>
+      <h1 className="mt-3 text-2xl font-semibold">관리자 제출 #{detail.id}</h1>
+      <p className="mt-2">사용자 ID: {detail.user_id}</p>
+      <p>문제 버전 ID: {detail.problem_version_id}</p>
+      <p>상태: {detail.status}</p>
       <p>
-        current score: {detail.grade ? `${detail.grade.score}/${detail.grade.max_score}` : "-"}
+        현재 점수: {detail.grade ? `${detail.grade.score}/${detail.grade.max_score}` : "-"}
       </p>
       <div className="mt-4">
         <RegradeButton submissionId={detail.id} />
       </div>
 
       <section className="mt-8">
-        <h2 className="text-xl font-semibold">Grade runs</h2>
+        <h2 className="text-xl font-semibold">채점 실행 이력</h2>
         {detail.grade_runs.length === 0 ? (
           <p className="mt-3 rounded border p-3">실행 이력이 없습니다.</p>
         ) : (
           <div className="mt-3 space-y-3">
             {detail.grade_runs.map((run) => (
               <article key={run.id} className="rounded-lg border p-4">
-                <p className="font-medium">Run #{run.id}</p>
+                <p className="font-medium">실행 #{run.id}</p>
                 <p className="text-sm">
-                  image: {run.grader_image_tag} | exit_code: {run.exit_code}
+                  이미지: {run.grader_image_tag} | 종료코드: {run.exit_code}
                 </p>
                 <p className="text-sm">
-                  started: {new Date(run.started_at).toLocaleString()} | finished:{" "}
-                  {new Date(run.finished_at).toLocaleString()}
+                  시작: {new Date(run.started_at).toLocaleString()} | 종료: {new Date(run.finished_at).toLocaleString()}
                 </p>
-                <p className="text-sm">score: {run.score === null ? "-" : run.score}</p>
+                <p className="text-sm">점수: {run.score === null ? "-" : run.score}</p>
                 {run.logs ? (
                   <pre className="mt-2 max-h-40 overflow-auto rounded border bg-zinc-50 p-2 text-xs dark:bg-zinc-900">
                     {run.logs}
