@@ -26,6 +26,14 @@ type ExamDetail = {
   questions: ExamQuestion[];
 };
 
+type ExamResource = {
+  id: number;
+  file_name: string;
+  content_type: string | null;
+  size_bytes: number;
+  created_at: string;
+};
+
 type Params = {
   params: Promise<{ problemId: string }>;
 };
@@ -58,7 +66,7 @@ export default async function ProblemPage({ params }: Params) {
       <main className="qa-shell">
         <section className="qa-card">
           <BackButton />
-          <h1 className="text-2xl font-semibold">시험</h1>
+          <h1 className="mt-3 text-2xl font-semibold">시험</h1>
           <p className="mt-3">요청한 시험을 불러오지 못했습니다.</p>
           <Link href="/problems" className="underline">
             시험 목록으로 이동
@@ -70,11 +78,19 @@ export default async function ProblemPage({ params }: Params) {
 
   const exam = (await response.json()) as ExamDetail;
 
+  const resourcesResponse = await fetch(`${FASTAPI_BASE_URL}/exams/${problemId}/resources`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const resources = resourcesResponse.ok
+    ? ((await resourcesResponse.json().catch(() => [])) as ExamResource[])
+    : [];
+
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
         <BackButton />
-        <p className="qa-kicker">시험 응시</p>
+        <p className="qa-kicker mt-3">시험 응시</p>
         <h1 className="mt-2 text-3xl font-bold">{exam.title}</h1>
         {exam.description ? <p className="mt-2 text-sm text-muted-foreground">{exam.description}</p> : null}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -83,6 +99,32 @@ export default async function ProblemPage({ params }: Params) {
           <span className="rounded-full bg-surface-muted px-2 py-1">{exam.question_count}문항</span>
           <span className="rounded-full bg-surface-muted px-2 py-1">응시자: {me.username}</span>
         </div>
+      </section>
+
+      <section className="qa-card space-y-3">
+        <h2 className="text-lg font-semibold">시험 자료</h2>
+        {resources.length === 0 ? (
+          <p className="text-sm text-muted-foreground">등록된 자료가 없습니다.</p>
+        ) : (
+          <div className="space-y-2">
+            {resources.map((resource) => (
+              <article key={resource.id} className="rounded-xl border border-border/70 bg-surface p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">{resource.file_name}</p>
+                  <a
+                    className="text-primary underline"
+                    href={`/api/exams/${exam.id}/resources/${resource.id}/download`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    다운로드
+                  </a>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{resource.content_type ?? "application/octet-stream"}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <ExamTaker examId={exam.id} questions={exam.questions} submitted={exam.submitted} />

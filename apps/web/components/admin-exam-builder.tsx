@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,15 @@ type ExamSummary = {
   folder_path: string | null;
   status: string;
 };
+type ExamSubmissionAnswer = {
+  question_id: number;
+  question_order: number;
+  question_type: string;
+  prompt_md: string;
+  choices: string[] | null;
+  answer_text: string | null;
+  selected_choice_index: number | null;
+};
 type ExamSubmission = {
   submission_id: number;
   exam_id: number;
@@ -24,14 +33,14 @@ type ExamSubmission = {
   username: string;
   status: string;
   submitted_at: string;
-  answers: Array<{
-    question_id: number;
-    question_order: number;
-    question_type: string;
-    prompt_md: string;
-    answer_text: string | null;
-    selected_choice_index: number | null;
-  }>;
+  answers: ExamSubmissionAnswer[];
+};
+type ExamResource = {
+  id: number;
+  file_name: string;
+  content_type: string | null;
+  size_bytes: number;
+  created_at: string;
 };
 
 type QuestionType = "multiple_choice" | "subjective" | "coding";
@@ -44,10 +53,27 @@ type DraftQuestion = {
   choicesText: string;
 };
 
+type ChoiceStat = {
+  questionId: number;
+  questionOrder: number;
+  prompt: string;
+  choices: string[];
+  counts: number[];
+  respondents: string[][];
+  unansweredUsers: string[];
+  totalResponses: number;
+};
+
 function examKindLabel(kind: string): string {
   if (kind === "quiz") return "퀴즈";
   if (kind === "assessment") return "성취도 평가";
   return kind;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function AdminExamBuilder({
@@ -70,8 +96,12 @@ export function AdminExamBuilder({
   const [questions, setQuestions] = useState<DraftQuestion[]>([
     { key: 1, type: "multiple_choice", prompt_md: "", required: true, choicesText: "선택지 1\n선택지 2" },
   ]);
+
   const [activeExamId, setActiveExamId] = useState<number | null>(null);
   const [submissionRows, setSubmissionRows] = useState<ExamSubmission[]>([]);
+  const [resourceRows, setResourceRows] = useState<ExamResource[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const updateQuestion = (key: number, patch: Partial<DraftQuestion>) => {
     setQuestions((prev) => prev.map((question) => (question.key === key ? { ...question, ...patch } : question)));
@@ -98,16 +128,40 @@ export function AdminExamBuilder({
   };
 
   const loadSubmissions = async (examId: number) => {
-    setError("");
     const response = await fetch(`/api/admin/exams/${examId}/submissions`, { cache: "no-store" });
     const payload = (await response.json().catch(() => [])) as ExamSubmission[] | { detail?: string; message?: string };
     if (!response.ok) {
       const messagePayload = payload as { detail?: string; message?: string };
-      setError(messagePayload.detail ?? messagePayload.message ?? "제출 결과를 불러오지 못했습니다.");
-      return;
+      throw new Error(messagePayload.detail ?? messagePayload.message ?? "제출 결과를 불러오지 못했습니다.");
     }
-    setActiveExamId(examId);
     setSubmissionRows(payload as ExamSubmission[]);
+  };
+
+  const loadResources = async (examId: number) => {
+    const response = await fetch(`/api/admin/exams/${examId}/resources`, { cache: "no-store" });
+    const payload = (await response.json().catch(() => [])) as ExamResource[] | { detail?: string; message?: string };
+    if (!response.ok) {
+      const messagePayload = payload as { detail?: string; message?: string };
+      throw new Error(messagePayload.detail ?? messagePayload.message ?? "시험 자료를 불러오지 못했습니다.");
+    }
+    setResourceRows(payload as ExamResource[]);
+  };
+
+  const openExamDetail = async (examId: number) => {
+    setError("");
+    setMessage("");
+    setActiveExamId(examId);
+    try {
+      await Promise.all([loadSubmissions(examId), loadResources(examId)]);
+    } catch (reason) {
+      setSubmissionRows([]);
+      setResourceRows([]);
+      if (reason instanceof Error) {
+        setError(reason.message);
+        return;
+      }
+      setError("시험 상세 정보를 불러오지 못했습니다.");
+    }
   };
 
   const onCreateExam = async (event: FormEvent<HTMLFormElement>) => {
@@ -159,21 +213,115 @@ export function AdminExamBuilder({
     setLoading(false);
   };
 
+  const onUploadResource = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeExamId) {
+      setError("자료를 업로드할 시험을 먼저 선택해 주세요.");
+      return;
+    }
+    if (!uploadFile) {
+      setError("업로드할 파일을 선택해 주세요.");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", uploadFile, uploadFile.name);
+
+    const response = await fetch(`/api/admin/exams/${activeExamId}/resources`, {
+      method: "POST",
+      body: formData,
+    });
+    const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
+    if (!response.ok) {
+      setError(payload.detail ?? payload.message ?? "파일 업로드에 실패했습니다.");
+      setUploading(false);
+      return;
+    }
+
+    setUploadFile(null);
+    await loadResources(activeExamId);
+    setMessage("시험 자료를 업로드했습니다.");
+    setUploading(false);
+  };
+
+  const choiceStats = useMemo(() => {
+    const byQuestion = new Map<number, ChoiceStat>();
+
+    for (const row of submissionRows) {
+      for (const answer of row.answers) {
+        if (answer.question_type !== "multiple_choice") {
+          continue;
+        }
+
+        const existing = byQuestion.get(answer.question_id);
+        const choiceSource = answer.choices ?? [];
+        if (!existing) {
+          const choices = [...choiceSource];
+          const counts = choices.map(() => 0);
+          const respondents = choices.map(() => [] as string[]);
+          byQuestion.set(answer.question_id, {
+            questionId: answer.question_id,
+            questionOrder: answer.question_order,
+            prompt: answer.prompt_md,
+            choices,
+            counts,
+            respondents,
+            unansweredUsers: [],
+            totalResponses: 0,
+          });
+        }
+
+        const stat = byQuestion.get(answer.question_id);
+        if (!stat) continue;
+
+        if (choiceSource.length > stat.choices.length) {
+          for (let i = stat.choices.length; i < choiceSource.length; i += 1) {
+            stat.choices.push(choiceSource[i] ?? `선택지 ${i + 1}`);
+            stat.counts.push(0);
+            stat.respondents.push([]);
+          }
+        }
+
+        const selected = answer.selected_choice_index;
+        if (selected === null || selected < 0) {
+          stat.unansweredUsers.push(row.username);
+          continue;
+        }
+
+        while (stat.choices.length <= selected) {
+          const nextIndex = stat.choices.length;
+          stat.choices.push(`선택지 ${nextIndex + 1}`);
+          stat.counts.push(0);
+          stat.respondents.push([]);
+        }
+
+        stat.counts[selected] += 1;
+        stat.respondents[selected].push(row.username);
+        stat.totalResponses += 1;
+      }
+    }
+
+    return [...byQuestion.values()].sort((a, b) => a.questionOrder - b.questionOrder);
+  }, [submissionRows]);
+
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
         <BackButton fallbackHref="/admin" />
-        <p className="qa-kicker">관리자</p>
+        <p className="qa-kicker mt-3">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
-        <p className="mt-2 text-sm text-muted-foreground">구글 폼처럼 시험지와 문항을 한 번에 만들고 제출 결과를 확인합니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">시험지 생성, 제출 결과 확인, 시험 자료 업로드를 한 화면에서 처리합니다.</p>
       </section>
 
       {error ? <p className="qa-card text-sm text-destructive">{error}</p> : null}
       {message ? <p className="qa-card text-sm text-emerald-700">{message}</p> : null}
 
       <form className="qa-card space-y-4" onSubmit={onCreateExam}>
-        <h2 className="text-lg font-semibold">시험지 생성</h2>
-        <Input placeholder="시험 제목 (예: 파이썬 퀴즈)" value={title} onChange={(event) => setTitle(event.target.value)} required />
+        <h2 className="text-lg font-semibold">새 시험 만들기</h2>
+        <Input placeholder="시험 제목 (예: 파이썬 기초 퀴즈)" value={title} onChange={(event) => setTitle(event.target.value)} required />
         <Textarea
           className="min-h-20"
           placeholder="설명 (선택)"
@@ -219,11 +367,11 @@ export function AdminExamBuilder({
               >
                 <option value="multiple_choice">객관식</option>
                 <option value="subjective">주관식</option>
-                <option value="coding">코드 작성</option>
+                <option value="coding">코딩</option>
               </select>
               <Textarea
                 className="mt-2 min-h-20"
-                placeholder="문항 내용을 입력하세요."
+                placeholder="문항 내용을 입력해 주세요."
                 value={question.prompt_md}
                 onChange={(event) => updateQuestion(question.key, { prompt_md: event.target.value })}
                 required
@@ -266,8 +414,8 @@ export function AdminExamBuilder({
                   <p className="text-sm font-semibold">
                     {exam.title} ({examKindLabel(exam.exam_kind)}) - {exam.question_count}문항
                   </p>
-                  <Button type="button" variant="outline" onClick={() => void loadSubmissions(exam.id)}>
-                    제출 보기
+                  <Button type="button" variant="outline" onClick={() => void openExamDetail(exam.id)}>
+                    제출/통계 보기
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -280,36 +428,113 @@ export function AdminExamBuilder({
       </section>
 
       {activeExamId ? (
-        <section className="qa-card space-y-3">
-          <h2 className="text-lg font-semibold">시험 #{activeExamId} 제출 결과</h2>
-          {submissionRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">아직 제출이 없습니다.</p>
-          ) : (
-            <div className="space-y-2">
-              {submissionRows.map((row) => (
-                <article key={row.submission_id} className="rounded-xl border border-border/70 bg-surface p-3">
-                  <p className="text-sm font-semibold">
-                    {row.username} ({new Date(row.submitted_at).toLocaleString()})
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    {row.answers.map((answer) => (
-                      <div key={`${row.submission_id}-${answer.question_id}`} className="rounded-lg bg-surface-muted p-2 text-xs">
-                        <p>
-                          {answer.question_order}. {answer.prompt_md}
-                        </p>
-                        <p className="mt-1 text-muted-foreground">
-                          {answer.question_type === "multiple_choice"
-                            ? `선택: ${answer.selected_choice_index === null ? "-" : answer.selected_choice_index + 1}번`
-                            : `응답: ${answer.answer_text ?? "-"}`}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+        <>
+          <section className="qa-card space-y-3">
+            <h2 className="text-lg font-semibold">시험 #{activeExamId} 자료 관리</h2>
+            <form className="flex flex-col gap-3 md:flex-row md:items-center" onSubmit={onUploadResource}>
+              <input
+                type="file"
+                className="text-sm"
+                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+              />
+              <Button type="submit" disabled={uploading}>
+                {uploading ? "업로드 중..." : "자료 업로드"}
+              </Button>
+            </form>
+            {resourceRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">업로드된 자료가 없습니다.</p>
+            ) : (
+              <div className="space-y-2">
+                {resourceRows.map((resource) => (
+                  <article key={resource.id} className="rounded-xl border border-border/70 bg-surface p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{resource.file_name}</p>
+                      <a
+                        className="text-primary underline"
+                        href={`/api/exams/${activeExamId}/resources/${resource.id}/download`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        다운로드
+                      </a>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {resource.content_type ?? "application/octet-stream"} | {formatBytes(resource.size_bytes)} |{" "}
+                      {new Date(resource.created_at).toLocaleString()}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="qa-card space-y-3">
+            <h2 className="text-lg font-semibold">객관식 응답 통계</h2>
+            {choiceStats.length === 0 ? (
+              <p className="text-sm text-muted-foreground">객관식 응답이 아직 없습니다.</p>
+            ) : (
+              <div className="space-y-3">
+                {choiceStats.map((stat) => (
+                  <article key={stat.questionId} className="rounded-xl border border-border/70 bg-surface p-3">
+                    <p className="text-sm font-semibold">
+                      {stat.questionOrder}. {stat.prompt}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">응답 수: {stat.totalResponses}</p>
+                    <div className="mt-2 space-y-2">
+                      {stat.choices.map((choice, index) => (
+                        <div key={`${stat.questionId}-${index}`} className="rounded-lg bg-surface-muted p-2 text-xs">
+                          <p>
+                            {index + 1}번 선택지: {choice}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">응답자 수: {stat.counts[index]}명</p>
+                          <p className="mt-1 text-muted-foreground">
+                            응답 학생: {stat.respondents[index].length ? stat.respondents[index].join(", ") : "-"}
+                          </p>
+                        </div>
+                      ))}
+                      {stat.unansweredUsers.length > 0 ? (
+                        <div className="rounded-lg bg-surface-muted p-2 text-xs text-muted-foreground">
+                          미응답 학생: {stat.unansweredUsers.join(", ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="qa-card space-y-3">
+            <h2 className="text-lg font-semibold">학생별 제출 상세</h2>
+            {submissionRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">아직 제출이 없습니다.</p>
+            ) : (
+              <div className="space-y-2">
+                {submissionRows.map((row) => (
+                  <article key={row.submission_id} className="rounded-xl border border-border/70 bg-surface p-3">
+                    <p className="text-sm font-semibold">
+                      {row.username} ({new Date(row.submitted_at).toLocaleString()})
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {row.answers.map((answer) => (
+                        <div key={`${row.submission_id}-${answer.question_id}`} className="rounded-lg bg-surface-muted p-2 text-xs">
+                          <p>
+                            {answer.question_order}. {answer.prompt_md}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {answer.question_type === "multiple_choice"
+                              ? `선택: ${answer.selected_choice_index === null ? "-" : answer.selected_choice_index + 1}번`
+                              : `응답: ${answer.answer_text ?? "-"}`}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
       ) : null}
     </main>
   );

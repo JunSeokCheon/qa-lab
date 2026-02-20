@@ -182,6 +182,14 @@ class ExamQuestionSummary(BaseModel):
     choices: list[str] | None = None
 
 
+class ExamResourceSummary(BaseModel):
+    id: int
+    file_name: str
+    content_type: str | None = None
+    size_bytes: int
+    created_at: datetime
+
+
 class ExamSummary(BaseModel):
     id: int
     title: str
@@ -232,6 +240,7 @@ class AdminExamSubmissionAnswer(BaseModel):
     question_order: int
     question_type: str
     prompt_md: str
+    choices: list[str] | None = None
     answer_text: str | None = None
     selected_choice_index: int | None = None
 

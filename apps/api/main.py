@@ -5,13 +5,14 @@ import re
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,8 @@ from app.config import (
     GRADING_STUCK_TIMEOUT_SECONDS,
     LOGIN_RATE_LIMIT_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    EXAM_RESOURCE_MAX_SIZE_BYTES,
+    EXAM_RESOURCE_ROOT,
     access_token_ttl,
     password_reset_token_ttl,
 )
@@ -31,6 +34,7 @@ from app.models import (
     Exam,
     ExamAnswer,
     ExamQuestion,
+    ExamResource,
     ExamSubmission,
     Grade,
     GradeRun,
@@ -54,6 +58,7 @@ from app.schemas import (
     ExamCreate,
     ExamDetail,
     ExamQuestionSummary,
+    ExamResourceSummary,
     ExamSubmitRequest,
     ExamSubmitResponse,
     ExamSubmissionSummary,
@@ -227,6 +232,24 @@ def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
         required=question.required,
         choices=list(question.choices_json or []) if question.choices_json is not None else None,
     )
+
+
+def _to_exam_resource_summary(resource: ExamResource) -> ExamResourceSummary:
+    return ExamResourceSummary(
+        id=resource.id,
+        file_name=resource.file_name,
+        content_type=resource.content_type,
+        size_bytes=resource.size_bytes,
+        created_at=resource.created_at,
+    )
+
+
+def _resolve_exam_resource_path(exam_id: int, stored_name: str) -> Path:
+    root = Path(EXAM_RESOURCE_ROOT).resolve()
+    path = (root / str(exam_id) / stored_name).resolve()
+    if root not in path.parents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 리소스 경로입니다.")
+    return path
 
 
 def _to_exam_summary(
@@ -963,6 +986,7 @@ async def list_admin_exam_submissions(
                     question_order=question.order_index,
                     question_type=question.type,
                     prompt_md=question.prompt_md,
+                    choices=list(question.choices_json or []) if question.choices_json is not None else None,
                     answer_text=answer.answer_text,
                     selected_choice_index=answer.selected_choice_index,
                 )
@@ -980,6 +1004,122 @@ async def list_admin_exam_submissions(
             )
         )
     return payload
+
+
+@app.get("/admin/exams/{exam_id}/resources", response_model=list[ExamResourceSummary])
+async def list_admin_exam_resources(
+    exam_id: int,
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[ExamResourceSummary]:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    resources = (
+        await session.execute(select(ExamResource).where(ExamResource.exam_id == exam_id).order_by(ExamResource.id.desc()))
+    ).scalars().all()
+    return [_to_exam_resource_summary(resource) for resource in resources]
+
+
+@app.post("/admin/exams/{exam_id}/resources", response_model=ExamResourceSummary, status_code=status.HTTP_201_CREATED)
+async def upload_admin_exam_resource(
+    exam_id: int,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    file: UploadFile = File(...),
+) -> ExamResourceSummary:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    original_name = Path(file.filename or "").name.strip()
+    if not original_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="업로드 파일명이 비어 있습니다.")
+
+    payload = await file.read()
+    await file.close()
+    size_bytes = len(payload)
+    if size_bytes == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="빈 파일은 업로드할 수 없습니다.")
+    if size_bytes > EXAM_RESOURCE_MAX_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"파일 크기는 {EXAM_RESOURCE_MAX_SIZE_BYTES} bytes 이하여야 합니다.",
+        )
+
+    suffix = Path(original_name).suffix[:20]
+    stored_name = f"{uuid4().hex}{suffix}"
+    target_path = _resolve_exam_resource_path(exam_id, stored_name)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(payload)
+
+    resource = ExamResource(
+        exam_id=exam_id,
+        file_name=original_name,
+        stored_name=stored_name,
+        content_type=(file.content_type or None),
+        size_bytes=size_bytes,
+    )
+    session.add(resource)
+    await session.flush()
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.resource.upload",
+        resource_type="exam_resource",
+        resource_id=str(resource.id),
+        metadata={"exam_id": exam_id, "file_name": resource.file_name, "size_bytes": resource.size_bytes},
+    )
+    await session.commit()
+    await session.refresh(resource)
+    return _to_exam_resource_summary(resource)
+
+
+@app.get("/exams/{exam_id}/resources", response_model=list[ExamResourceSummary])
+async def list_exam_resources(
+    exam_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[ExamResourceSummary]:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None or (exam.status != "published" and user.role != "admin"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    resources = (
+        await session.execute(select(ExamResource).where(ExamResource.exam_id == exam_id).order_by(ExamResource.id.desc()))
+    ).scalars().all()
+    return [_to_exam_resource_summary(resource) for resource in resources]
+
+
+@app.get("/exams/{exam_id}/resources/{resource_id}/download")
+async def download_exam_resource(
+    exam_id: int,
+    resource_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> FileResponse:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None or (exam.status != "published" and user.role != "admin"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    resource = await session.scalar(
+        select(ExamResource).where(ExamResource.id == resource_id, ExamResource.exam_id == exam_id)
+    )
+    if resource is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="리소스를 찾을 수 없습니다.")
+
+    path = _resolve_exam_resource_path(exam_id, resource.stored_name)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="저장된 파일을 찾을 수 없습니다.")
+
+    return FileResponse(
+        path=str(path),
+        media_type=resource.content_type or "application/octet-stream",
+        filename=resource.file_name,
+    )
 
 
 @app.get("/exams", response_model=list[ExamSummary])

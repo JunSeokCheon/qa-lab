@@ -128,3 +128,18 @@ pnpm dev
 cd apps/api
 alembic upgrade head
 ```
+
+## Exam Resources (2026-02-20)
+- Admin can upload files per exam at `/admin/problems`.
+- Students can download uploaded files at `/problems/{examId}`.
+- Objective analytics now show per-choice counts and responder names.
+
+### New API endpoints
+- GET /admin/exams/{exam_id}/resources
+- POST /admin/exams/{exam_id}/resources
+- GET /exams/{exam_id}/resources
+- GET /exams/{exam_id}/resources/{resource_id}/download
+
+### New API env vars
+- EXAM_RESOURCE_ROOT (default: ./var/bundles/exam-resources)
+- EXAM_RESOURCE_MAX_SIZE_BYTES (default: 20971520)

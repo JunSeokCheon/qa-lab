@@ -170,6 +170,9 @@ class Exam(Base):
     questions: Mapped[list["ExamQuestion"]] = relationship(
         back_populates="exam", cascade="all, delete-orphan", order_by="ExamQuestion.order_index.asc()"
     )
+    resources: Mapped[list["ExamResource"]] = relationship(
+        back_populates="exam", cascade="all, delete-orphan", order_by="ExamResource.id.desc()"
+    )
     submissions: Mapped[list["ExamSubmission"]] = relationship(back_populates="exam", cascade="all, delete-orphan")
 
 
@@ -188,6 +191,20 @@ class ExamQuestion(Base):
 
     exam: Mapped["Exam"] = relationship(back_populates="questions")
     answers: Mapped[list["ExamAnswer"]] = relationship(back_populates="question")
+
+
+class ExamResource(Base):
+    __tablename__ = "exam_resources"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    exam: Mapped["Exam"] = relationship(back_populates="resources")
 
 
 class ExamSubmission(Base):
