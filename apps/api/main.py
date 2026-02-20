@@ -989,6 +989,11 @@ async def list_admin_exam_submissions(
                     choices=list(question.choices_json or []) if question.choices_json is not None else None,
                     answer_text=answer.answer_text,
                     selected_choice_index=answer.selected_choice_index,
+                    grading_status=answer.grading_status,
+                    grading_score=answer.grading_score,
+                    grading_max_score=answer.grading_max_score,
+                    grading_feedback_json=answer.grading_feedback_json,
+                    graded_at=answer.graded_at,
                 )
             )
         payload.append(
@@ -1216,7 +1221,8 @@ async def submit_exam(
             "selected_choice_index": answer.selected_choice_index,
         }
 
-    submission = ExamSubmission(exam_id=exam_id, user_id=user.id, status="SUBMITTED")
+    has_coding_question = any(question.type == "coding" for question in questions)
+    submission = ExamSubmission(exam_id=exam_id, user_id=user.id, status="QUEUED" if has_coding_question else "SUBMITTED")
     session.add(submission)
     await session.flush()
 
@@ -1245,11 +1251,25 @@ async def submit_exam(
                 exam_question_id=question.id,
                 answer_text=answer_text,
                 selected_choice_index=selected_choice_index,
+                grading_status="QUEUED" if question.type == "coding" else None,
             )
         )
 
     await session.commit()
     await session.refresh(submission)
+
+    if has_coding_question:
+        try:
+            grading_queue.enqueue("app.worker_tasks.grade_exam_submission_job", submission.id)
+        except Exception as exc:
+            submission.status = "FAILED"
+            submission.note = f"grading queue enqueue failed: {exc}"
+            await session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="자동 채점 큐에 작업 등록에 실패했습니다. 잠시 후 다시 시도하세요.",
+            ) from exc
+
     return ExamSubmitResponse(
         submission_id=submission.id,
         exam_id=submission.exam_id,

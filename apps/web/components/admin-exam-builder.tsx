@@ -24,6 +24,11 @@ type ExamSubmissionAnswer = {
   choices: string[] | null;
   answer_text: string | null;
   selected_choice_index: number | null;
+  grading_status: string | null;
+  grading_score: number | null;
+  grading_max_score: number | null;
+  grading_feedback_json: Record<string, unknown> | null;
+  graded_at: string | null;
 };
 type ExamSubmission = {
   submission_id: number;
@@ -611,6 +616,14 @@ export function AdminExamBuilder({
                               ? `선택: ${answer.selected_choice_index === null ? "-" : answer.selected_choice_index + 1}번`
                               : `응답: ${answer.answer_text ?? "-"}`}
                           </p>
+                          {answer.question_type === "coding" ? (
+                            <p className="mt-1 text-muted-foreground">
+                              채점 상태: {answer.grading_status ?? "PENDING"}{" "}
+                              {answer.grading_score !== null && answer.grading_max_score !== null
+                                ? `(${answer.grading_score}/${answer.grading_max_score})`
+                                : ""}
+                            </p>
+                          ) : null}
                         </div>
                       ))}
                     </div>

@@ -243,6 +243,11 @@ class AdminExamSubmissionAnswer(BaseModel):
     choices: list[str] | None = None
     answer_text: str | None = None
     selected_choice_index: int | None = None
+    grading_status: str | None = None
+    grading_score: int | None = None
+    grading_max_score: int | None = None
+    grading_feedback_json: dict[str, Any] | None = None
+    graded_at: datetime | None = None
 
 
 class AdminExamSubmissionDetail(BaseModel):

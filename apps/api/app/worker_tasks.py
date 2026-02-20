@@ -15,6 +15,7 @@ from os.path import commonpath
 from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
+import zipfile
 import shutil as shutil_lib
 import stat
 
@@ -25,6 +26,7 @@ from app.config import (
     BUNDLE_ROOT,
     BUNDLE_MAX_ENTRIES,
     BUNDLE_MAX_UNCOMPRESSED_BYTES,
+    EXAM_RESOURCE_ROOT,
     GRADER_IMAGE,
     GRADING_RETRY_BACKOFF_SECONDS,
     GRADING_RETRY_MAX_ATTEMPTS,
@@ -33,7 +35,17 @@ from app.config import (
     MAX_LOG_BYTES,
 )
 from app.db import AsyncSessionLocal
-from app.models import Grade, GradeRun, ProblemVersion, Submission, SubmissionStatus
+from app.models import (
+    ExamAnswer,
+    ExamQuestion,
+    ExamResource,
+    ExamSubmission,
+    Grade,
+    GradeRun,
+    ProblemVersion,
+    Submission,
+    SubmissionStatus,
+)
 from app.storage import storage
 
 MAX_OUTPUT_BYTES = MAX_LOG_BYTES
@@ -93,6 +105,14 @@ def grade_submission_job(submission_id: int) -> None:
     print(f"[worker] finished grading submission_id={submission_id}")
 
 
+def grade_exam_submission_job(exam_submission_id: int) -> None:
+    print(f"[worker] start grading exam_submission_id={exam_submission_id}")
+    loop = _get_worker_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(_grade_exam_submission_async(exam_submission_id))
+    print(f"[worker] finished grading exam_submission_id={exam_submission_id}")
+
+
 def _combine_logs(stdout: str, stderr: str) -> str:
     merged = f"[stdout]\n{stdout}\n\n[stderr]\n{stderr}".strip()
     return _truncate_output(merged, MAX_OUTPUT_BYTES)
@@ -101,6 +121,50 @@ def _combine_logs(stdout: str, stderr: str) -> str:
 def _is_retryable_failure(error_message: str) -> bool:
     lowered = (error_message or "").lower()
     return not any(marker in lowered for marker in NON_RETRYABLE_ERROR_MARKERS)
+
+
+def _resolve_exam_resource_path(exam_id: int, stored_name: str) -> Path:
+    root = Path(EXAM_RESOURCE_ROOT).resolve()
+    path = (root / str(exam_id) / stored_name).resolve()
+    if commonpath([str(path), str(root)]) != str(root):
+        raise ValueError("invalid exam resource path")
+    return path
+
+
+def _build_exam_grading_bundle_bytes(exam_id: int, resources: list[ExamResource]) -> bytes:
+    # Build a temporary grader bundle from uploaded exam resources.
+    # - zip resources are extracted into bundle root
+    # - non-zip resources are copied to bundle_root/resources/
+    with tempfile.TemporaryDirectory(prefix=f"exam-{exam_id}-bundle-") as tmp_dir:
+        bundle_root = Path(tmp_dir)
+        resource_dir = bundle_root / "resources"
+        resource_dir.mkdir(parents=True, exist_ok=True)
+
+        for resource in resources:
+            source = _resolve_exam_resource_path(exam_id, resource.stored_name)
+            if not source.exists() or not source.is_file():
+                raise FileNotFoundError(f"resource file not found: {resource.file_name}")
+
+            lower_name = resource.file_name.lower()
+            if lower_name.endswith(".zip"):
+                _safe_extract_zip_bytes(source.read_bytes(), bundle_root)
+                continue
+
+            sanitized_name = Path(resource.file_name).name or f"resource-{resource.id}"
+            target = resource_dir / sanitized_name
+            if target.exists():
+                target = resource_dir / f"{resource.id}-{sanitized_name}"
+            shutil.copy2(source, target)
+
+        archive_path = bundle_root / "exam_bundle.zip"
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in bundle_root.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path == archive_path:
+                    continue
+                zf.write(path, arcname=path.relative_to(bundle_root).as_posix())
+        return archive_path.read_bytes()
 
 
 async def requeue_stale_running_submissions(
@@ -254,6 +318,120 @@ async def _grade_submission_async(submission_id: int) -> None:
             return
 
 
+async def _grade_exam_submission_async(exam_submission_id: int) -> None:
+    async with AsyncSessionLocal() as session:
+        exam_submission = await session.scalar(select(ExamSubmission).where(ExamSubmission.id == exam_submission_id))
+        if exam_submission is None:
+            print(f"[worker] exam submission not found exam_submission_id={exam_submission_id}")
+            return
+
+        answer_rows = (
+            await session.execute(
+                select(ExamAnswer, ExamQuestion)
+                .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+                .where(ExamAnswer.exam_submission_id == exam_submission_id)
+                .order_by(ExamQuestion.order_index.asc())
+            )
+        ).all()
+
+        coding_rows = [(answer, question) for answer, question in answer_rows if question.type == "coding"]
+        if not coding_rows:
+            exam_submission.status = "SUBMITTED"
+            await session.commit()
+            return
+
+        exam_submission.status = "RUNNING"
+        for answer, _ in coding_rows:
+            answer.grading_status = "RUNNING"
+        await session.commit()
+
+        resources = (
+            await session.execute(
+                select(ExamResource).where(ExamResource.exam_id == exam_submission.exam_id).order_by(ExamResource.id.asc())
+            )
+        ).scalars().all()
+
+        try:
+            bundle_bytes = _build_exam_grading_bundle_bytes(exam_submission.exam_id, resources)
+        except Exception as exc:
+            message = f"failed to prepare exam resources: {exc}"
+            for answer, _ in coding_rows:
+                answer.grading_status = "FAILED"
+                answer.grading_feedback_json = {"error": message}
+                answer.grading_logs = message
+                answer.graded_at = datetime.now(timezone.utc)
+            exam_submission.status = "FAILED"
+            exam_submission.note = json.dumps(
+                {"coding_questions": len(coding_rows), "graded": 0, "failed": len(coding_rows), "error": message},
+                ensure_ascii=False,
+            )
+            await session.commit()
+            return
+
+        bundle_sha = hashlib.sha256(bundle_bytes).hexdigest()
+        graded_count = 0
+        failed_count = 0
+        for answer, question in coding_rows:
+            code_text = (answer.answer_text or "").strip()
+            if not code_text:
+                failed_count += 1
+                answer.grading_status = "FAILED"
+                answer.grading_feedback_json = {"error": "empty coding answer"}
+                answer.grading_logs = "empty coding answer"
+                answer.graded_at = datetime.now(timezone.utc)
+                continue
+
+            target = f"tests/question_{question.order_index}"
+            report, exit_code, stderr, stdout, _ = await asyncio.to_thread(
+                _run_grader_from_bundle_bytes,
+                submission_id=exam_submission_id,
+                bundle_bytes=bundle_bytes,
+                code_text=code_text,
+                test_target=target,
+                expected_bundle_sha256=bundle_sha,
+            )
+            if report is None and "bundle missing test target" in (stderr or "").lower():
+                report, exit_code, stderr, stdout, _ = await asyncio.to_thread(
+                    _run_grader_from_bundle_bytes,
+                    submission_id=exam_submission_id,
+                    bundle_bytes=bundle_bytes,
+                    code_text=code_text,
+                    test_target="tests",
+                    expected_bundle_sha256=bundle_sha,
+                )
+
+            logs = _combine_logs(stdout, stderr)
+            if report is None:
+                failed_count += 1
+                answer.grading_status = "FAILED"
+                answer.grading_feedback_json = {"error": stderr, "docker_exit_code": exit_code}
+                answer.grading_logs = logs
+                answer.graded_at = datetime.now(timezone.utc)
+                continue
+
+            score, feedback = _build_grade_feedback(report, max_score=100, exit_code=exit_code, rubric_version=1)
+            graded_count += 1
+            answer.grading_status = "GRADED"
+            answer.grading_score = score
+            answer.grading_max_score = 100
+            answer.grading_feedback_json = feedback
+            answer.grading_logs = logs
+            answer.graded_at = datetime.now(timezone.utc)
+
+        exam_submission.status = "GRADED" if failed_count == 0 else "FAILED"
+        exam_submission.note = json.dumps(
+            {
+                "coding_questions": len(coding_rows),
+                "graded": graded_count,
+                "failed": failed_count,
+                "resource_count": len(resources),
+                "resource_spec": "Use tests/question_{order} or tests/ in uploaded zip resources. Data files are mounted under resources/.",
+            },
+            ensure_ascii=False,
+        )
+        await session.commit()
+
+
 def _safe_extract_zip_bytes(zip_bytes: bytes, destination: Path) -> None:
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -330,14 +508,13 @@ def _strip_hidden_lines(text: str) -> str:
     return "\n".join(visible)
 
 
-def _run_grader(
+def _run_grader_from_bundle_bytes(
     submission_id: int,
-    bundle_key: str,
+    bundle_bytes: bytes,
     code_text: str,
     test_target: str = "tests",
     expected_bundle_sha256: str | None = None,
 ) -> tuple[dict[str, Any] | None, int, str, str, int]:
-    bundle_bytes = storage.read_bundle(bundle_key)
     if expected_bundle_sha256:
         digest = hashlib.sha256(bundle_bytes).hexdigest()
         if digest != expected_bundle_sha256:
@@ -475,6 +652,23 @@ def _run_grader(
 
         report["_rubric"] = {"time_limit_seconds": timeout_seconds, "weights": weights}
         return report, completed.returncode, stderr_limited, stdout_limited, duration_ms
+
+
+def _run_grader(
+    submission_id: int,
+    bundle_key: str,
+    code_text: str,
+    test_target: str = "tests",
+    expected_bundle_sha256: str | None = None,
+) -> tuple[dict[str, Any] | None, int, str, str, int]:
+    bundle_bytes = storage.read_bundle(bundle_key)
+    return _run_grader_from_bundle_bytes(
+        submission_id=submission_id,
+        bundle_bytes=bundle_bytes,
+        code_text=code_text,
+        test_target=test_target,
+        expected_bundle_sha256=expected_bundle_sha256,
+    )
 
 
 def run_public_tests_for_bundle(

@@ -132,3 +132,25 @@ alembic upgrade head
 ## 환경 변수 (추가)
 - `EXAM_RESOURCE_ROOT` (기본값: `./var/bundles/exam-resources`)
 - `EXAM_RESOURCE_MAX_SIZE_BYTES` (기본값: `20971520`)
+
+## Coding Auto Grading Resource Spec (Exam)
+When an exam has `coding` questions, submit now enqueues a grading job to worker queue `grading`.
+
+### Resource bundle rules
+- Upload one or more resource files on admin exam page.
+- `.zip` resources are extracted into grader bundle root.
+- Non-zip resources are copied under `resources/`.
+
+### Test target resolution
+- First tries `tests/question_{order}` for each coding question (order = 1,2,3...)
+- Falls back to `tests/` if question-specific path does not exist.
+
+### Student code runtime path
+- Student answer is written to `solution.py`.
+- Test code can reference shared data files from `resources/`.
+
+### Required DB migration
+```bash
+cd apps/api
+alembic upgrade head
+```
