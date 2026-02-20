@@ -993,6 +993,7 @@ async def list_admin_exam_submissions(
                     grading_score=answer.grading_score,
                     grading_max_score=answer.grading_max_score,
                     grading_feedback_json=answer.grading_feedback_json,
+                    grading_logs=answer.grading_logs,
                     graded_at=answer.graded_at,
                 )
             )

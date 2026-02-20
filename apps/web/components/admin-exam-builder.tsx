@@ -28,6 +28,7 @@ type ExamSubmissionAnswer = {
   grading_score: number | null;
   grading_max_score: number | null;
   grading_feedback_json: Record<string, unknown> | null;
+  grading_logs: string | null;
   graded_at: string | null;
 };
 type ExamSubmission = {
@@ -617,12 +618,19 @@ export function AdminExamBuilder({
                               : `응답: ${answer.answer_text ?? "-"}`}
                           </p>
                           {answer.question_type === "coding" ? (
-                            <p className="mt-1 text-muted-foreground">
-                              채점 상태: {answer.grading_status ?? "PENDING"}{" "}
-                              {answer.grading_score !== null && answer.grading_max_score !== null
-                                ? `(${answer.grading_score}/${answer.grading_max_score})`
-                                : ""}
-                            </p>
+                            <>
+                              <p className="mt-1 text-muted-foreground">
+                                채점 상태: {answer.grading_status ?? "PENDING"}{" "}
+                                {answer.grading_score !== null && answer.grading_max_score !== null
+                                  ? `(${answer.grading_score}/${answer.grading_max_score})`
+                                  : ""}
+                              </p>
+                              {answer.grading_status === "FAILED" && answer.grading_logs ? (
+                                <p className="mt-1 whitespace-pre-wrap text-[11px] text-destructive">
+                                  {answer.grading_logs.slice(0, 300)}
+                                </p>
+                              ) : null}
+                            </>
                           ) : null}
                         </div>
                       ))}

@@ -247,6 +247,7 @@ class AdminExamSubmissionAnswer(BaseModel):
     grading_score: int | None = None
     grading_max_score: int | None = None
     grading_feedback_json: dict[str, Any] | None = None
+    grading_logs: str | None = None
     graded_at: datetime | None = None
 
 
