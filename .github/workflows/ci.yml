@@ -89,7 +89,7 @@ jobs:
       - name: Run full stack E2E tests
         run: pytest -vv -s --tb=short apps/api/tests/e2e/test_full_stack_e2e.py
 
-      - name: Bootstrap Playwright problem data
+      - name: Bootstrap Playwright exam data
         run: python apps/api/tests/e2e/bootstrap_playwright_data.py --env-file "$GITHUB_ENV"
 
       - name: Set up pnpm

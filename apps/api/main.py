@@ -1,20 +1,15 @@
 ﻿from __future__ import annotations
 
-import asyncio
 import hashlib
-import io
 import re
-import tempfile
 import time
-import zipfile
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
@@ -23,14 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import (
     APP_ENV,
     ALLOWED_ORIGINS,
-    BUNDLE_MAX_ENTRIES,
-    BUNDLE_MAX_SIZE_BYTES,
-    BUNDLE_MAX_UNCOMPRESSED_BYTES,
     GRADING_STUCK_TIMEOUT_SECONDS,
     LOGIN_RATE_LIMIT_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
-    SUBMISSION_MAX_ACTIVE_PER_USER,
-    SUBMISSION_QUEUE_MAX_DEPTH,
     access_token_ttl,
     password_reset_token_ttl,
 )
@@ -49,12 +39,9 @@ from app.models import (
     Problem,
     ProblemFolder,
     ProblemVersion,
-    ProblemVersionStatus,
     ProblemVersionSkill,
-    RubricHistory,
     Skill,
     Submission,
-    SubmissionStatus,
     User,
 )
 from app.observability import get_logger, log_event
@@ -64,17 +51,13 @@ from app.schemas import (
     AdminExamSubmissionDetail,
     AdminExamSubmissionAnswer,
     AuthTokenResponse,
-    AdminSubmissionDetailResponse,
-    BundleUploadResponse,
     ExamCreate,
     ExamDetail,
+    ExamQuestionSummary,
     ExamSubmitRequest,
     ExamSubmitResponse,
     ExamSubmissionSummary,
     ExamSummary,
-    ExamQuestionSummary,
-    GradeResponse,
-    GradeRunResponse,
     LoginRequest,
     PasswordForgotRequest,
     PasswordForgotResponse,
@@ -82,36 +65,20 @@ from app.schemas import (
     PasswordResetResponse,
     MeProgressResponse,
     MeResponse,
-    ProblemCreate,
-    ProblemDetail,
     ProblemFolderCreate,
     ProblemFolderResponse,
-    ProblemListItem,
-    ProblemResponse,
-    ProblemVersionCreate,
-    ProblemVersionStatusUpdate,
-    ProblemVersionDetail,
-    ProblemVersionSkillResponse,
-    ProblemVersionSummary,
     ProgressRecentSubmission,
     ProgressSkillItem,
     ProgressTrendItem,
     ProgressTrendPoint,
-    RegradeResponse,
-    RubricHistoryResponse,
-    RunPublicRequest,
-    RunPublicResponse,
     RegisterRequest,
     SkillCreate,
     SkillResponse,
     SkillUpdate,
-    SubmissionCreate,
-    SubmissionResponse,
     WatchdogRequeueResponse,
 )
 from app.security import create_access_token, hash_password, verify_password
-from app.storage import storage
-from app.worker_tasks import requeue_stale_running_submissions, run_public_tests_for_bundle
+from app.worker_tasks import requeue_stale_running_submissions
 
 app = FastAPI()
 app.add_middleware(
@@ -125,41 +92,6 @@ logger = get_logger()
 
 _login_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
 _login_rate_lock = Lock()
-_ALLOWED_BUNDLE_FILES = {"statement.md", "rubric.yaml"}
-_ALLOWED_BUNDLE_DIRS = ("starter/", "tests/public/", "tests/hidden/")
-_BLOCKED_BUNDLE_SUFFIXES = {
-    ".exe",
-    ".dll",
-    ".so",
-    ".dylib",
-    ".bat",
-    ".cmd",
-    ".ps1",
-    ".msi",
-    ".com",
-    ".jar",
-    ".class",
-}
-_BLOCKED_NAME_PATTERNS = (
-    re.compile(r"(^|/)\.(git|svn|hg)(/|$)", re.IGNORECASE),
-    re.compile(r"(^|/)(__pycache__)(/|$)", re.IGNORECASE),
-    re.compile(r"(^|/)(id_rsa|id_ed25519|\.env)(/|$)", re.IGNORECASE),
-)
-_BLOCKED_MAGIC_HEADERS = (
-    b"MZ",  # Windows PE
-    b"\x7fELF",  # Linux ELF
-    b"\xca\xfe\xba\xbe",  # Java class
-    b"PK\x03\x04",  # nested zip/jar
-)
-_PROBLEM_TYPE_ALIASES = {
-    "coding": "coding",
-    "code": "coding",
-    "multiple_choice": "multiple_choice",
-    "mcq": "multiple_choice",
-    "objective": "multiple_choice",
-    "subjective": "subjective",
-    "short_answer": "subjective",
-}
 _EXAM_QUESTION_TYPE_ALIASES = {
     "multiple_choice": "multiple_choice",
     "objective": "multiple_choice",
@@ -200,57 +132,6 @@ def _reset_login_attempts(client_key: str) -> None:
     with _login_rate_lock:
         _login_attempts.pop(client_key, None)
 
-
-def _validate_bundle_member_name(name: str) -> None:
-    normalized = name.replace("\\", "/")
-    lowered = normalized.lower()
-
-    if "\x00" in normalized:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle contains invalid filename")
-    if lowered.startswith("/") or lowered.startswith("./"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle contains invalid path")
-    if ".." in lowered.split("/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle contains path traversal sequence")
-    if lowered not in _ALLOWED_BUNDLE_FILES and not any(lowered.startswith(root) for root in _ALLOWED_BUNDLE_DIRS):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Bundle contains unsupported path: {name}")
-    if Path(lowered).suffix in _BLOCKED_BUNDLE_SUFFIXES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Blocked file type in bundle: {name}")
-    for pattern in _BLOCKED_NAME_PATTERNS:
-        if pattern.search(lowered):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Suspicious file path in bundle: {name}")
-
-
-def _validate_uploaded_zip(temp_path: Path) -> None:
-    try:
-        with zipfile.ZipFile(temp_path) as zf:
-            members = zf.infolist()
-            if len(members) > BUNDLE_MAX_ENTRIES:
-                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Bundle has too many files")
-
-            total_uncompressed = 0
-            for member in members:
-                if not member.filename:
-                    continue
-                _validate_bundle_member_name(member.filename)
-                total_uncompressed += int(member.file_size)
-                if total_uncompressed > BUNDLE_MAX_UNCOMPRESSED_BYTES:
-                    raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail="Bundle uncompressed size is too large",
-                    )
-                if member.is_dir():
-                    continue
-                with zf.open(member, "r") as fp:
-                    head = fp.read(8)
-                if any(head.startswith(sig) for sig in _BLOCKED_MAGIC_HEADERS):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Blocked file signature detected in bundle: {member.filename}",
-                    )
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid zip file") from exc
-
-
 def _hash_reset_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -258,17 +139,6 @@ def _hash_reset_token(token: str) -> str:
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return slug or f"folder-{uuid4().hex[:8]}"
-
-
-def _normalize_problem_type(raw_type: str) -> str:
-    normalized = _PROBLEM_TYPE_ALIASES.get(raw_type.strip().lower())
-    if normalized is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported problem type. Use coding, multiple_choice, or subjective.",
-        )
-    return normalized
-
 
 def _normalize_exam_question_type(raw_type: str) -> str:
     normalized = _EXAM_QUESTION_TYPE_ALIASES.get(raw_type.strip().lower())
@@ -307,135 +177,6 @@ def _sanitize_exam_question_choices(question_type: str, choices: list[str] | Non
     if len(normalized_choices) < 2:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 선택지 2개 이상이 필요합니다.")
     return normalized_choices
-
-
-def _sanitize_question_meta(problem_type: str, question_meta_json: dict[str, Any] | None) -> dict[str, Any] | None:
-    if problem_type == "multiple_choice":
-        choices = list((question_meta_json or {}).get("choices") or [])
-        return {"choices": choices}
-    if problem_type == "subjective":
-        return {"answer_format": "short_text"}
-    return None
-
-
-def _normalize_answer_text(text: str, *, case_sensitive: bool) -> str:
-    collapsed = re.sub(r"\s+", " ", text.strip())
-    return collapsed if case_sensitive else collapsed.lower()
-
-
-def _validate_question_meta(problem_type: str, question_meta_json: dict[str, Any] | None) -> dict[str, Any] | None:
-    data = question_meta_json or {}
-    if problem_type == "coding":
-        return None
-
-    if problem_type == "multiple_choice":
-        raw_choices = data.get("choices")
-        if not isinstance(raw_choices, list):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="multiple_choice requires a choices list",
-            )
-        choices = [str(item).strip() for item in raw_choices if str(item).strip()]
-        if len(choices) < 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="multiple_choice requires at least 2 non-empty choices",
-            )
-
-        correct_index_value = data.get("correct_index")
-        if correct_index_value is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="multiple_choice requires correct_index",
-            )
-        try:
-            correct_index = int(correct_index_value)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="correct_index must be an integer",
-            ) from exc
-        if correct_index < 0 or correct_index >= len(choices):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="correct_index is out of range",
-            )
-        return {"choices": choices, "correct_index": correct_index}
-
-    if problem_type == "subjective":
-        case_sensitive = bool(data.get("case_sensitive", False))
-
-        raw_answers = data.get("acceptable_answers")
-        if raw_answers is None:
-            raw_single = data.get("correct_text")
-            raw_answers = [raw_single] if raw_single is not None else []
-        if not isinstance(raw_answers, list):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="subjective requires acceptable_answers list or correct_text",
-            )
-        acceptable_answers = [str(item).strip() for item in raw_answers if str(item).strip()]
-        if not acceptable_answers:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="subjective requires at least one answer key",
-            )
-        return {"acceptable_answers": acceptable_answers, "case_sensitive": case_sensitive}
-
-    return None
-
-
-def _grade_non_coding_submission(version: ProblemVersion, submitted_text: str) -> tuple[int, dict[str, Any]]:
-    question_type = version.type
-    meta = version.question_meta_json or {}
-    cleaned = submitted_text.strip()
-
-    if question_type == "multiple_choice":
-        choices = list(meta.get("choices") or [])
-        correct_index = int(meta.get("correct_index", -1))
-        selected_index: int | None = None
-        if re.fullmatch(r"-?\d+", cleaned):
-            submitted_number = int(cleaned)
-            if 1 <= submitted_number <= len(choices):
-                selected_index = submitted_number - 1
-            elif 0 <= submitted_number < len(choices):
-                selected_index = submitted_number
-        if selected_index is None:
-            submitted_key = cleaned.casefold()
-            for idx, choice in enumerate(choices):
-                if str(choice).strip().casefold() == submitted_key:
-                    selected_index = idx
-                    break
-        is_correct = selected_index == correct_index
-        score = version.max_score if is_correct else 0
-        feedback = {
-            "type": "multiple_choice",
-            "is_correct": is_correct,
-            "selected_index": selected_index,
-            "selected_choice": choices[selected_index] if selected_index is not None and selected_index < len(choices) else None,
-            "choice_count": len(choices),
-        }
-        return score, feedback
-
-    if question_type == "subjective":
-        case_sensitive = bool(meta.get("case_sensitive", False))
-        expected_values = [str(item) for item in (meta.get("acceptable_answers") or [])]
-        normalized_submitted = _normalize_answer_text(cleaned, case_sensitive=case_sensitive)
-        is_correct = any(
-            _normalize_answer_text(candidate, case_sensitive=case_sensitive) == normalized_submitted
-            for candidate in expected_values
-        )
-        score = version.max_score if is_correct else 0
-        feedback = {
-            "type": "subjective",
-            "is_correct": is_correct,
-            "expected_count": len(expected_values),
-            "case_sensitive": case_sensitive,
-        }
-        return score, feedback
-
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only coding problems are async graded")
-
 
 async def _load_folder_path_map(session: AsyncSession) -> dict[int, str]:
     rows = (await session.execute(select(ProblemFolder).order_by(ProblemFolder.sort_order.asc(), ProblemFolder.id.asc()))).scalars().all()
@@ -504,23 +245,6 @@ def _to_exam_summary(
         created_at=exam.created_at,
         updated_at=exam.updated_at,
     )
-
-
-def _extract_rubric_yaml(bundle_bytes: bytes) -> str:
-    try:
-        with zipfile.ZipFile(io.BytesIO(bundle_bytes)) as zf:
-            with zf.open("rubric.yaml", "r") as fp:
-                content = fp.read()
-    except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle must include rubric.yaml") from exc
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid zip file") from exc
-
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="rubric.yaml must be utf-8 text") from exc
-
 
 def _request_context(request: Request) -> dict[str, str | None]:
     return {
@@ -956,92 +680,6 @@ async def admin_list_audit_logs(
         )
         for log in logs
     ]
-
-
-@app.post("/admin/problem-versions/{problem_version_id}/bundle", response_model=BundleUploadResponse)
-async def upload_problem_bundle(
-    problem_version_id: int,
-    request: Request,
-    admin_user: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-    file: UploadFile = File(...),
-) -> BundleUploadResponse:
-    version = await session.scalar(select(ProblemVersion).where(ProblemVersion.id == problem_version_id))
-    if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem version not found")
-    if version.type != "coding":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle upload is only supported for coding problems")
-
-    if not file.filename or not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .zip bundle is allowed")
-    if file.content_type not in {"application/zip", "application/x-zip-compressed", "application/octet-stream"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid content type for zip bundle")
-
-    sha256 = hashlib.sha256()
-    total_size = 0
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as temp_file:
-        temp_path = Path(temp_file.name)
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            total_size += len(chunk)
-            if total_size > BUNDLE_MAX_SIZE_BYTES:
-                temp_file.close()
-                temp_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Bundle too large")
-            sha256.update(chunk)
-            temp_file.write(chunk)
-
-    digest = sha256.hexdigest()
-    try:
-        _validate_uploaded_zip(temp_path)
-        bundle_bytes = temp_path.read_bytes()
-        rubric_yaml = _extract_rubric_yaml(bundle_bytes)
-        rubric_sha256 = hashlib.sha256(rubric_yaml.encode("utf-8")).hexdigest()
-        bundle_key, bundle_size = storage.save_bundle(problem_version_id, temp_path, digest)
-    finally:
-        temp_path.unlink(missing_ok=True)
-
-    next_rubric_version = (
-        await session.scalar(
-            select(func.max(RubricHistory.rubric_version)).where(RubricHistory.problem_version_id == problem_version_id)
-        )
-        or 0
-    ) + 1
-
-    version.bundle_key = bundle_key
-    version.bundle_sha256 = digest
-    version.bundle_size = bundle_size
-    version.rubric_version = int(next_rubric_version)
-    session.add(
-        RubricHistory(
-            problem_version_id=problem_version_id,
-            rubric_version=int(next_rubric_version),
-            rubric_sha256=rubric_sha256,
-            rubric_yaml=rubric_yaml,
-            bundle_key=bundle_key,
-        )
-    )
-    await _write_admin_audit_log(
-        session=session,
-        request=request,
-        actor_user_id=admin_user.id,
-        action="problem_version.bundle_upload",
-        resource_type="problem_version",
-        resource_id=str(problem_version_id),
-        metadata={"bundle_key": bundle_key, "bundle_size": bundle_size},
-    )
-    await session.commit()
-
-    return BundleUploadResponse(
-        problem_version_id=problem_version_id,
-        bundle_key=bundle_key,
-        bundle_sha256=digest,
-        bundle_size=bundle_size,
-        rubric_version=version.rubric_version,
-    )
 
 
 @app.post("/admin/skills", response_model=SkillResponse)
@@ -1506,612 +1144,3 @@ async def update_skill(
     await session.commit()
     await session.refresh(skill)
     return SkillResponse(id=skill.id, name=skill.name, description=skill.description)
-
-
-@app.post("/admin/problems", response_model=ProblemResponse)
-async def create_problem(
-    payload: ProblemCreate,
-    request: Request,
-    admin_user: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> ProblemResponse:
-    folder_id = payload.folder_id
-    folder_path: str | None = None
-    if folder_id is not None:
-        folder = await session.scalar(select(ProblemFolder).where(ProblemFolder.id == folder_id))
-        if folder is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem folder not found")
-        folder_path_map = await _load_folder_path_map(session)
-        folder_path = folder_path_map.get(folder.id)
-
-    problem = Problem(title=payload.title, folder_id=folder_id)
-    session.add(problem)
-    await session.flush()
-    await _write_admin_audit_log(
-        session=session,
-        request=request,
-        actor_user_id=admin_user.id,
-        action="problem.create",
-        resource_type="problem",
-        resource_id=str(problem.id),
-        metadata={"title": problem.title, "folder_id": problem.folder_id},
-    )
-    await session.commit()
-    await session.refresh(problem)
-    return ProblemResponse(
-        id=problem.id,
-        title=problem.title,
-        folder_id=problem.folder_id,
-        folder_path=folder_path,
-        created_at=problem.created_at,
-        updated_at=problem.updated_at,
-    )
-
-
-@app.post("/admin/problems/{problem_id}/versions", response_model=ProblemVersionDetail)
-async def create_problem_version(
-    problem_id: int,
-    payload: ProblemVersionCreate,
-    request: Request,
-    admin_user: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> ProblemVersionDetail:
-    normalized_type = _normalize_problem_type(payload.type)
-    validated_question_meta = _validate_question_meta(normalized_type, payload.question_meta_json)
-
-    problem_result = await session.execute(select(Problem).where(Problem.id == problem_id))
-    problem = problem_result.scalar_one_or_none()
-    if problem is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
-
-    for entry in payload.skills:
-        skill_result = await session.execute(select(Skill).where(Skill.id == entry.skill_id))
-        if skill_result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Skill {entry.skill_id} not found",
-            )
-
-    current_max = await session.scalar(
-        select(func.max(ProblemVersion.version)).where(ProblemVersion.problem_id == problem_id)
-    )
-    next_version = 1 if current_max is None else current_max + 1
-
-    version = ProblemVersion(
-        problem_id=problem_id,
-        version=next_version,
-        status=ProblemVersionStatus.PUBLISHED.value,
-        type=normalized_type,
-        difficulty=payload.difficulty,
-        max_score=payload.max_score,
-        statement_md=payload.statement_md,
-        question_meta_json=validated_question_meta,
-    )
-    session.add(version)
-    await session.flush()
-
-    for skill_weight in payload.skills:
-        session.add(
-            ProblemVersionSkill(
-                problem_version_id=version.id,
-                skill_id=skill_weight.skill_id,
-                weight=skill_weight.weight,
-            )
-        )
-
-    problem.updated_at = func.now()
-    await _write_admin_audit_log(
-        session=session,
-        request=request,
-        actor_user_id=admin_user.id,
-        action="problem_version.create",
-        resource_type="problem",
-        resource_id=str(problem_id),
-        metadata={"problem_version_id": version.id, "version": next_version, "type": version.type},
-    )
-
-    await session.commit()
-    await session.refresh(version)
-
-    skill_rows = await session.execute(
-        select(ProblemVersionSkill, Skill)
-        .join(Skill, Skill.id == ProblemVersionSkill.skill_id)
-        .where(ProblemVersionSkill.problem_version_id == version.id)
-    )
-
-    skill_items = [
-        ProblemVersionSkillResponse(skill_id=pvs.skill_id, skill_name=skill.name, weight=pvs.weight)
-        for pvs, skill in skill_rows.all()
-    ]
-
-    return ProblemVersionDetail(
-        id=version.id,
-        version=version.version,
-        status=version.status,
-        rubric_version=version.rubric_version,
-        type=version.type,
-        difficulty=version.difficulty,
-        max_score=version.max_score,
-        question_meta=_sanitize_question_meta(version.type, version.question_meta_json),
-        bundle_key=version.bundle_key,
-        bundle_sha256=version.bundle_sha256,
-        bundle_size=version.bundle_size,
-        created_at=version.created_at,
-        statement_md=version.statement_md,
-        skills=skill_items,
-    )
-
-
-@app.put("/admin/problem-versions/{problem_version_id}/status", response_model=ProblemVersionDetail)
-async def update_problem_version_status(
-    problem_version_id: int,
-    payload: ProblemVersionStatusUpdate,
-    request: Request,
-    admin_user: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> ProblemVersionDetail:
-    version = await session.scalar(select(ProblemVersion).where(ProblemVersion.id == problem_version_id))
-    if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem version not found")
-
-    allowed = {ProblemVersionStatus.DRAFT.value, ProblemVersionStatus.PUBLISHED.value, ProblemVersionStatus.ARCHIVED.value}
-    if payload.status not in allowed:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid version status")
-    version.status = payload.status
-
-    await _write_admin_audit_log(
-        session=session,
-        request=request,
-        actor_user_id=admin_user.id,
-        action="problem_version.status_update",
-        resource_type="problem_version",
-        resource_id=str(problem_version_id),
-        metadata={"status": payload.status},
-    )
-    await session.commit()
-    await session.refresh(version)
-
-    skill_rows = await session.execute(
-        select(ProblemVersionSkill, Skill)
-        .join(Skill, Skill.id == ProblemVersionSkill.skill_id)
-        .where(ProblemVersionSkill.problem_version_id == version.id)
-    )
-    skill_items = [
-        ProblemVersionSkillResponse(skill_id=pvs.skill_id, skill_name=skill.name, weight=pvs.weight)
-        for pvs, skill in skill_rows.all()
-    ]
-    return ProblemVersionDetail(
-        id=version.id,
-        version=version.version,
-        status=version.status,
-        rubric_version=version.rubric_version,
-        type=version.type,
-        difficulty=version.difficulty,
-        max_score=version.max_score,
-        question_meta=_sanitize_question_meta(version.type, version.question_meta_json),
-        bundle_key=version.bundle_key,
-        bundle_sha256=version.bundle_sha256,
-        bundle_size=version.bundle_size,
-        created_at=version.created_at,
-        statement_md=version.statement_md,
-        skills=skill_items,
-    )
-
-
-@app.get("/admin/problem-versions/{problem_version_id}/rubric-history", response_model=list[RubricHistoryResponse])
-async def get_problem_version_rubric_history(
-    problem_version_id: int,
-    _: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> list[RubricHistoryResponse]:
-    rows = await session.execute(
-        select(RubricHistory)
-        .where(RubricHistory.problem_version_id == problem_version_id)
-        .order_by(RubricHistory.rubric_version.desc())
-    )
-    histories = rows.scalars().all()
-    return [
-        RubricHistoryResponse(
-            id=history.id,
-            problem_version_id=history.problem_version_id,
-            rubric_version=history.rubric_version,
-            rubric_sha256=history.rubric_sha256,
-            bundle_key=history.bundle_key,
-            created_at=history.created_at,
-        )
-        for history in histories
-    ]
-
-
-async def _latest_version_summary(
-    session: AsyncSession,
-    problem_id: int,
-) -> ProblemVersionSummary | None:
-    latest = await session.scalar(
-        select(ProblemVersion)
-        .where(
-            ProblemVersion.problem_id == problem_id,
-            ProblemVersion.status == ProblemVersionStatus.PUBLISHED.value,
-        )
-        .order_by(ProblemVersion.version.desc())
-        .limit(1)
-    )
-    if latest is None:
-        return None
-
-    return ProblemVersionSummary(
-        id=latest.id,
-        version=latest.version,
-        status=latest.status,
-        rubric_version=latest.rubric_version,
-        type=latest.type,
-        difficulty=latest.difficulty,
-        max_score=latest.max_score,
-        question_meta=_sanitize_question_meta(latest.type, latest.question_meta_json),
-        bundle_key=latest.bundle_key,
-        created_at=latest.created_at,
-    )
-
-
-@app.get("/problems", response_model=list[ProblemListItem])
-async def list_problems(session: Annotated[AsyncSession, Depends(get_async_session)]) -> list[ProblemListItem]:
-    result = await session.execute(select(Problem).order_by(Problem.id.asc()))
-    problems = result.scalars().all()
-    folder_path_map = await _load_folder_path_map(session)
-
-    items: list[ProblemListItem] = []
-    for problem in problems:
-        latest = await _latest_version_summary(session, problem.id)
-        items.append(
-            ProblemListItem(
-                id=problem.id,
-                title=problem.title,
-                folder_id=problem.folder_id,
-                folder_path=folder_path_map.get(problem.folder_id) if problem.folder_id is not None else None,
-                created_at=problem.created_at,
-                updated_at=problem.updated_at,
-                latest_version=latest,
-            )
-        )
-    return items
-
-
-@app.get("/problems/{problem_id}", response_model=ProblemDetail)
-async def get_problem(problem_id: int, session: Annotated[AsyncSession, Depends(get_async_session)]) -> ProblemDetail:
-    problem = await session.scalar(select(Problem).where(Problem.id == problem_id))
-    if problem is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
-    folder_path_map = await _load_folder_path_map(session)
-
-    latest = await session.scalar(
-        select(ProblemVersion)
-        .where(
-            ProblemVersion.problem_id == problem_id,
-            ProblemVersion.status == ProblemVersionStatus.PUBLISHED.value,
-        )
-        .order_by(ProblemVersion.version.desc())
-        .limit(1)
-    )
-
-    latest_detail: ProblemVersionDetail | None = None
-    if latest is not None:
-        skill_rows = await session.execute(
-            select(ProblemVersionSkill, Skill)
-            .join(Skill, Skill.id == ProblemVersionSkill.skill_id)
-            .where(ProblemVersionSkill.problem_version_id == latest.id)
-        )
-        skill_items = [
-            ProblemVersionSkillResponse(skill_id=pvs.skill_id, skill_name=skill.name, weight=pvs.weight)
-            for pvs, skill in skill_rows.all()
-        ]
-        latest_detail = ProblemVersionDetail(
-            id=latest.id,
-            version=latest.version,
-            status=latest.status,
-            rubric_version=latest.rubric_version,
-            type=latest.type,
-            difficulty=latest.difficulty,
-            max_score=latest.max_score,
-            question_meta=_sanitize_question_meta(latest.type, latest.question_meta_json),
-            bundle_key=latest.bundle_key,
-            bundle_sha256=latest.bundle_sha256,
-            bundle_size=latest.bundle_size,
-            created_at=latest.created_at,
-            statement_md=latest.statement_md,
-            skills=skill_items,
-        )
-
-    return ProblemDetail(
-        id=problem.id,
-        title=problem.title,
-        folder_id=problem.folder_id,
-        folder_path=folder_path_map.get(problem.folder_id) if problem.folder_id is not None else None,
-        created_at=problem.created_at,
-        updated_at=problem.updated_at,
-        latest_version=latest_detail,
-    )
-
-
-@app.post("/problems/{problem_id}/run-public", response_model=RunPublicResponse)
-async def run_public_tests(
-    problem_id: int,
-    payload: RunPublicRequest,
-    _: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> RunPublicResponse:
-    if payload.problem_version is None:
-        version = await session.scalar(
-            select(ProblemVersion)
-            .where(
-                ProblemVersion.problem_id == problem_id,
-                ProblemVersion.status == ProblemVersionStatus.PUBLISHED.value,
-            )
-            .order_by(ProblemVersion.version.desc())
-            .limit(1)
-        )
-    else:
-        version = await session.scalar(
-            select(ProblemVersion).where(
-                ProblemVersion.problem_id == problem_id,
-                ProblemVersion.version == payload.problem_version,
-                ProblemVersion.status == ProblemVersionStatus.PUBLISHED.value,
-            )
-        )
-
-    if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem version not found")
-    if version.type != "coding":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Run public tests is only supported for coding problems")
-    if not version.bundle_key:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bundle not configured for problem version")
-
-    result = await asyncio.to_thread(
-        run_public_tests_for_bundle,
-        version.version,
-        version.bundle_key,
-        payload.code_text,
-        version.bundle_sha256,
-    )
-    return RunPublicResponse(**result)
-
-
-def _to_grade_response(grade: Grade | None) -> GradeResponse | None:
-    if grade is None:
-        return None
-    return GradeResponse(
-        id=grade.id,
-        submission_id=grade.submission_id,
-        score=grade.score,
-        max_score=grade.max_score,
-        feedback_json=grade.feedback_json,
-        created_at=grade.created_at,
-    )
-
-
-def _to_grade_run_response(run: GradeRun) -> GradeRunResponse:
-    return GradeRunResponse(
-        id=run.id,
-        submission_id=run.submission_id,
-        grader_image_tag=run.grader_image_tag,
-        started_at=run.started_at,
-        finished_at=run.finished_at,
-        score=run.score,
-        feedback_json=run.feedback_json,
-        exit_code=run.exit_code,
-        logs=run.logs,
-        created_at=run.created_at,
-    )
-
-
-def _to_submission_response(submission: Submission, grade: Grade | None = None) -> SubmissionResponse:
-    return SubmissionResponse(
-        id=submission.id,
-        user_id=submission.user_id,
-        problem_version_id=submission.problem_version_id,
-        code_text=submission.code_text,
-        bundle_key_snapshot=submission.bundle_key_snapshot,
-        bundle_sha256_snapshot=submission.bundle_sha256_snapshot,
-        rubric_version_snapshot=submission.rubric_version_snapshot,
-        status=submission.status,
-        created_at=submission.created_at,
-        grade=_to_grade_response(grade),
-    )
-
-
-@app.post("/submissions", response_model=SubmissionResponse)
-async def create_submission(
-    payload: SubmissionCreate,
-    user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> SubmissionResponse:
-    version = await session.scalar(select(ProblemVersion).where(ProblemVersion.id == payload.problem_version_id))
-    if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem version not found")
-    if version.status != ProblemVersionStatus.PUBLISHED.value:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Problem version is not published")
-
-    submitted_text = payload.code_text if payload.code_text is not None else payload.answer_text
-    if submitted_text is None or not submitted_text.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submission answer is required")
-
-    if version.type == "coding":
-        try:
-            queue_depth = int(grading_queue.count)
-        except Exception:
-            queue_depth = 0
-        if queue_depth >= SUBMISSION_QUEUE_MAX_DEPTH:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Grading queue is busy. Please try again shortly.",
-            )
-
-        active_count = await session.scalar(
-            select(func.count(Submission.id)).where(
-                Submission.user_id == user.id,
-                Submission.status.in_([SubmissionStatus.QUEUED.value, SubmissionStatus.RUNNING.value]),
-            )
-        )
-        if int(active_count or 0) >= SUBMISSION_MAX_ACTIVE_PER_USER:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many active submissions in progress. Please wait for grading to finish.",
-            )
-
-        submission = Submission(
-            user_id=user.id,
-            problem_version_id=payload.problem_version_id,
-            code_text=submitted_text,
-            bundle_key_snapshot=version.bundle_key,
-            bundle_sha256_snapshot=version.bundle_sha256,
-            rubric_version_snapshot=version.rubric_version,
-            status=SubmissionStatus.QUEUED.value,
-        )
-        session.add(submission)
-        await session.commit()
-        await session.refresh(submission)
-        grading_queue.enqueue("app.worker_tasks.grade_submission_job", submission.id)
-        return _to_submission_response(submission)
-
-    submission = Submission(
-        user_id=user.id,
-        problem_version_id=payload.problem_version_id,
-        code_text=submitted_text,
-        bundle_key_snapshot=version.bundle_key,
-        bundle_sha256_snapshot=version.bundle_sha256,
-        rubric_version_snapshot=version.rubric_version,
-        status=SubmissionStatus.GRADED.value,
-    )
-    session.add(submission)
-    await session.flush()
-
-    score, feedback_json = _grade_non_coding_submission(version, submitted_text)
-    grade = Grade(
-        submission_id=submission.id,
-        score=score,
-        max_score=version.max_score,
-        feedback_json=feedback_json,
-    )
-    session.add(grade)
-
-    await session.commit()
-    await session.refresh(submission)
-    await session.refresh(grade)
-    return _to_submission_response(submission, grade)
-
-
-@app.get("/submissions/{submission_id}", response_model=SubmissionResponse)
-async def get_submission(
-    submission_id: int,
-    user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> SubmissionResponse:
-    row = await session.execute(
-        select(Submission, Grade)
-        .outerjoin(Grade, Grade.submission_id == Submission.id)
-        .where(Submission.id == submission_id)
-    )
-    result = row.first()
-    if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
-
-    submission, grade = result
-    if submission.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
-
-    return _to_submission_response(submission, grade)
-
-
-@app.get("/admin/submissions/{submission_id}", response_model=AdminSubmissionDetailResponse)
-async def admin_get_submission_detail(
-    submission_id: int,
-    _: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> AdminSubmissionDetailResponse:
-    row = await session.execute(
-        select(Submission, Grade)
-        .outerjoin(Grade, Grade.submission_id == Submission.id)
-        .where(Submission.id == submission_id)
-    )
-    result = row.first()
-    if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
-
-    submission, grade = result
-    runs_rows = await session.execute(
-        select(GradeRun).where(GradeRun.submission_id == submission_id).order_by(GradeRun.id.desc())
-    )
-    runs = runs_rows.scalars().all()
-
-    base = _to_submission_response(submission, grade)
-    return AdminSubmissionDetailResponse(**base.model_dump(), grade_runs=[_to_grade_run_response(run) for run in runs])
-
-
-@app.post("/admin/submissions/{submission_id}/regrade", response_model=RegradeResponse)
-async def admin_regrade_submission(
-    submission_id: int,
-    request: Request,
-    admin_user: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> RegradeResponse:
-    submission = await session.scalar(select(Submission).where(Submission.id == submission_id))
-    if submission is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
-
-    version = await session.scalar(select(ProblemVersion).where(ProblemVersion.id == submission.problem_version_id))
-    if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem version not found")
-
-    if version.type == "coding":
-        submission.status = SubmissionStatus.QUEUED.value
-    else:
-        score, feedback_json = _grade_non_coding_submission(version, submission.code_text)
-        existing_grade = await session.scalar(select(Grade).where(Grade.submission_id == submission.id))
-        if existing_grade is None:
-            existing_grade = Grade(
-                submission_id=submission.id,
-                score=score,
-                max_score=version.max_score,
-                feedback_json=feedback_json,
-            )
-            session.add(existing_grade)
-        else:
-            existing_grade.score = score
-            existing_grade.max_score = version.max_score
-            existing_grade.feedback_json = feedback_json
-        submission.status = SubmissionStatus.GRADED.value
-
-    await _write_admin_audit_log(
-        session=session,
-        request=request,
-        actor_user_id=admin_user.id,
-        action="submission.regrade",
-        resource_type="submission",
-        resource_id=str(submission_id),
-        metadata={"status": submission.status},
-    )
-    await session.commit()
-    if version.type == "coding":
-        grading_queue.enqueue("app.worker_tasks.grade_submission_job", submission.id)
-
-    return RegradeResponse(
-        status="queued" if version.type == "coding" else "graded",
-        submission_id=submission.id,
-        message="Regrade job enqueued" if version.type == "coding" else "Submission regraded immediately",
-    )
-
-
-@app.get("/me/submissions", response_model=list[SubmissionResponse])
-async def get_my_submissions(
-    user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> list[SubmissionResponse]:
-    rows = await session.execute(
-        select(Submission, Grade)
-        .outerjoin(Grade, Grade.submission_id == Submission.id)
-        .where(Submission.user_id == user.id)
-        .order_by(Submission.id.desc())
-        .limit(limit)
-    )
-
-    return [_to_submission_response(submission, grade) for submission, grade in rows.all()]
