@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
@@ -8,9 +8,13 @@ import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+const TRACK_OPTIONS = ["데이터 분석 11기", "QAQC 4기"] as const;
+
 export default function SignupPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
+  const [name, setName] = useState("");
+  const [trackName, setTrackName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -36,6 +40,14 @@ export default function SignupPage() {
     event.preventDefault();
     setError("");
 
+    if (!name.trim()) {
+      setError("이름을 입력해주세요.");
+      return;
+    }
+    if (!trackName) {
+      setError("트랙을 선택해주세요.");
+      return;
+    }
     if (password.length < 8) {
       setError("비밀번호는 8자 이상이어야 합니다.");
       return;
@@ -49,7 +61,7 @@ export default function SignupPage() {
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, name, track_name: trackName, password }),
     });
 
     if (!response.ok) {
@@ -78,7 +90,25 @@ export default function SignupPage() {
           <h1 className="mb-6 mt-2 text-3xl font-bold">회원가입</h1>
           <form onSubmit={onSubmit} className="space-y-4">
             <Input placeholder="아이디" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <Input type="password" placeholder="비밀번호 (8자 이상)" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
+            <select
+              className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
+              value={trackName}
+              onChange={(e) => setTrackName(e.target.value)}
+            >
+              <option value="">트랙 선택</option>
+              {TRACK_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <Input
+              type="password"
+              placeholder="비밀번호 (8자 이상)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
             <Input type="password" placeholder="비밀번호 확인" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button className="w-full" disabled={loading}>
@@ -86,7 +116,9 @@ export default function SignupPage() {
             </Button>
             <p className="text-xs text-muted-foreground">
               이미 계정이 있나요?{" "}
-              <Link href="/login" className="underline">로그인</Link>
+              <Link href="/login" className="underline">
+                로그인
+              </Link>
             </p>
           </form>
         </section>

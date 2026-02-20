@@ -32,6 +32,9 @@ export default async function SubmissionsPage() {
   if (!me) {
     redirect("/login");
   }
+  if (me.role === "admin") {
+    redirect("/admin");
+  }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/me/exam-submissions?limit=50`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -44,7 +47,7 @@ export default async function SubmissionsPage() {
       <section className="qa-card">
         <BackButton />
         <p className="qa-kicker">학습자</p>
-        <h1 className="mt-2 text-3xl font-bold">내 시험 제출 내역</h1>
+        <h1 className="mt-2 text-3xl font-bold">내 시험 제출 이력</h1>
         <p className="mt-2 text-sm text-muted-foreground">{me.username}</p>
       </section>
 

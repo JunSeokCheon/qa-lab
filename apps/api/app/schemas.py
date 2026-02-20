@@ -13,6 +13,8 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     username: str
+    name: str
+    track_name: str
     password: str
 
 
@@ -24,6 +26,8 @@ class AuthTokenResponse(BaseModel):
 class MeResponse(BaseModel):
     id: int
     username: str
+    name: str
+    track_name: str
     role: str
     created_at: datetime
 

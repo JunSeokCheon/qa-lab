@@ -108,6 +108,10 @@ _EXAM_KIND_ALIASES = {
     "성취도평가": "assessment",
     "성취도 평가": "assessment",
 }
+_TRACK_OPTIONS = {
+    "데이터 분석 11기",
+    "QAQC 4기",
+}
 
 
 def _is_login_rate_limited(client_key: str) -> bool:
@@ -375,14 +379,38 @@ async def register(
     existing = await session.scalar(select(User).where(User.username == username))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already in use")
+    display_name = payload.name.strip()
+    if len(display_name) < 2:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name must be at least 2 characters")
+    if len(display_name) > 100:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name must be 100 characters or fewer")
+    track_name = payload.track_name.strip()
+    if track_name not in _TRACK_OPTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Track must be one of: 데이터 분석 11기, QAQC 4기",
+        )
     if len(payload.password) < 8:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
 
-    user = User(username=username, password_hash=hash_password(payload.password), role="user")
+    user = User(
+        username=username,
+        display_name=display_name,
+        track_name=track_name,
+        password_hash=hash_password(payload.password),
+        role="user",
+    )
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    return MeResponse(id=user.id, username=user.username, role=user.role, created_at=user.created_at)
+    return MeResponse(
+        id=user.id,
+        username=user.username,
+        name=user.display_name,
+        track_name=user.track_name,
+        role=user.role,
+        created_at=user.created_at,
+    )
 
 
 @app.post("/auth/password/forgot", response_model=PasswordForgotResponse)
@@ -439,7 +467,14 @@ async def reset_password(
 
 @app.get("/me", response_model=MeResponse)
 async def me(user: Annotated[User, Depends(get_current_user)]) -> MeResponse:
-    return MeResponse(id=user.id, username=user.username, role=user.role, created_at=user.created_at)
+    return MeResponse(
+        id=user.id,
+        username=user.username,
+        name=user.display_name,
+        track_name=user.track_name,
+        role=user.role,
+        created_at=user.created_at,
+    )
 
 
 async def _compute_skill_progress(

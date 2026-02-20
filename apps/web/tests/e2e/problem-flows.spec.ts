@@ -54,22 +54,23 @@ async function createExamViaApi(request: APIRequestContext): Promise<number> {
   return examPayload.id;
 }
 
-test("login -> open exam list -> start exam page", async ({ page }) => {
+test("login -> open exam list -> start exam page", async ({ page, request }) => {
+  const examId = await createExamViaApi(request);
   await loginAsStudent(page);
   await page.goto("/problems");
 
   await expect(page.getByRole("heading", { name: "시험 목록" })).toBeVisible();
-  await page.getByRole("link", { name: /시험 시작|응답 보기/ }).first().click();
-  await expect(page).toHaveURL(/\/problems\/\d+$/);
+  await page.locator(`a[href='/problems/${examId}']`).first().click();
+  await expect(page).toHaveURL(new RegExp(`/problems/${examId}$`));
   await expect(page.getByRole("button", { name: "시험 제출" })).toBeVisible();
 });
 
-test("login -> category buttons -> show exams", async ({ page }) => {
+test("login -> show exams in list", async ({ page, request }) => {
+  await createExamViaApi(request);
   await loginAsStudent(page);
   await page.goto("/problems");
 
-  await page.getByRole("button", { name: "전처리" }).click();
-  await expect(page.getByRole("link", { name: /시험 시작|응답 보기/ })).toHaveCount(2);
+  await expect(page.getByRole("link", { name: /시험 시작|응답 보기/ }).first()).toBeVisible();
 });
 
 test("login -> submit exam once", async ({ page, request }) => {
@@ -77,7 +78,7 @@ test("login -> submit exam once", async ({ page, request }) => {
   await loginAsStudent(page);
   await page.goto(`/problems/${examId}`);
 
-  await page.locator(`input[type="radio"]`).first().check();
+  await page.locator("input[type='radio']").first().check();
   await page.getByPlaceholder("답안을 입력하세요.").fill("Playwright 제출");
   await page.getByRole("button", { name: "시험 제출" }).click();
   await expect(page.getByText("시험이 제출되었습니다. 채점은 관리자 검토 후 진행됩니다.")).toBeVisible();

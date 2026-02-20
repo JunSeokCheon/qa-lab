@@ -3,6 +3,8 @@ const FASTAPI_BASE_URL = process.env.FASTAPI_INTERNAL_URL ?? process.env.FASTAPI
 export type MeResponse = {
   id: number;
   username: string;
+  name: string;
+  track_name: string;
   role: string;
   created_at: string;
 };

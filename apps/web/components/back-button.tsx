@@ -3,8 +3,14 @@
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-export function BackButton({ fallbackHref = "/" }: { fallbackHref?: string }) {
+type BackButtonProps = {
+  fallbackHref?: string;
+  className?: string;
+};
+
+export function BackButton({ fallbackHref = "/", className }: BackButtonProps) {
   const router = useRouter();
 
   const onGoBack = () => {
@@ -16,7 +22,7 @@ export function BackButton({ fallbackHref = "/" }: { fallbackHref?: string }) {
   };
 
   return (
-    <Button type="button" variant="outline" onClick={onGoBack}>
+    <Button type="button" variant="outline" onClick={onGoBack} className={cn("mb-3", className)}>
       뒤로 가기
     </Button>
   );

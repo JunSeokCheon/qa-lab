@@ -15,7 +15,7 @@ export default async function HomePage() {
     <div className="min-h-screen">
       <main className="qa-shell space-y-6">
         <section className="qa-card bg-hero text-hero-foreground">
-          <p className="qa-kicker text-hero-foreground/80">팀스파르타 내일배움캠프 데이터분석 트랙</p>
+          <p className="qa-kicker text-hero-foreground/80">팀스파르타 내일배움캠프</p>
           <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">트랙 QA 스튜디오</h1>
         </section>
 
@@ -26,15 +26,19 @@ export default async function HomePage() {
                 <div>
                   <p className="qa-kicker">로그인 계정</p>
                   <p className="mt-1 text-lg font-semibold">{me.username}</p>
+                  <p className="text-sm text-muted-foreground">이름: {me.name}</p>
+                  <p className="text-sm text-muted-foreground">트랙: {me.track_name}</p>
                   <p className="text-sm text-muted-foreground">권한: {roleLabel}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Link href="/problems">
                     <Button variant="outline">시험 목록</Button>
                   </Link>
-                  <Link href="/submissions">
-                    <Button variant="outline">내 제출</Button>
-                  </Link>
+                  {me.role !== "admin" ? (
+                    <Link href="/submissions">
+                      <Button variant="outline">내 제출</Button>
+                    </Link>
+                  ) : null}
                   {me.role === "admin" ? (
                     <Link href="/admin">
                       <Button variant="outline">관리자</Button>
