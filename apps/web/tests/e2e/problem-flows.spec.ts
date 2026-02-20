@@ -1,6 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const problemId = process.env.PW_PROBLEM_ID ?? "1";
+const apiBaseUrl = process.env.PW_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+async function resolveProblemId(page: Page): Promise<string> {
+  if (process.env.PW_PROBLEM_ID) return process.env.PW_PROBLEM_ID;
+
+  const response = await page.request.get(`${apiBaseUrl}/problems`);
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as Array<{ id: number }>;
+  expect(payload.length).toBeGreaterThan(0);
+  return String(payload[0].id);
+}
 
 async function loginAsStudent(page: Page) {
   await page.goto("/login");
@@ -19,6 +29,7 @@ async function loginAsAdmin(page: Page) {
 }
 
 async function openProblemPage(page: Page) {
+  const problemId = await resolveProblemId(page);
   await page.getByTestId("problem-id-input").fill(problemId);
   await page.getByTestId("open-problem-button").click();
   await expect(page).toHaveURL(new RegExp(`/problems/${problemId}$`));
