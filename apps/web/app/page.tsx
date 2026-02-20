@@ -28,7 +28,7 @@ export default async function HomePage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="qa-kicker">Signed In</p>
-                  <p className="mt-1 text-lg font-semibold">{me.email}</p>
+                  <p className="mt-1 text-lg font-semibold">{me.username}</p>
                   <p className="text-sm text-muted-foreground">role: {me.role}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">

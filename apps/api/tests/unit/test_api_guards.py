@@ -59,10 +59,10 @@ def _make_zip_with_signature(sig: bytes, filename: str = "starter/bad.bin") -> b
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def _override_user() -> object:
-        return SimpleNamespace(id=100, email="user@example.com", role="user")
+        return SimpleNamespace(id=100, username="user", role="user")
 
     async def _override_admin() -> object:
-        return SimpleNamespace(id=1, email="admin@example.com", role="admin")
+        return SimpleNamespace(id=1, username="admin", role="admin")
 
     async def _override_session() -> AsyncGenerator[_FakeSession]:
         yield _FakeSession()

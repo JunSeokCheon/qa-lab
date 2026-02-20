@@ -3,16 +3,16 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str
     password: str
 
 
 class RegisterRequest(BaseModel):
-    email: EmailStr
+    username: str
     password: str
 
 
@@ -23,13 +23,13 @@ class AuthTokenResponse(BaseModel):
 
 class MeResponse(BaseModel):
     id: int
-    email: EmailStr
+    username: str
     role: str
     created_at: datetime
 
 
 class PasswordForgotRequest(BaseModel):
-    email: EmailStr
+    username: str
 
 
 class PasswordForgotResponse(BaseModel):

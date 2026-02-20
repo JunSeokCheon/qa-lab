@@ -34,10 +34,10 @@ export default async function AdminPage() {
       <main className="qa-shell">
         <section className="qa-card">
           <BackButton />
-          <h1 className="text-2xl font-semibold">Admin 페이지</h1>
-          <p className="mt-4">현재 계정은 admin 권한이 없어 접근할 수 없습니다. (403)</p>
+          <h1 className="text-2xl font-semibold">Admin</h1>
+          <p className="mt-4">Current account does not have admin permissions. (403)</p>
           <Link href="/" className="mt-4 inline-block underline">
-            홈으로 이동
+            Go home
           </Link>
         </section>
       </main>
@@ -48,17 +48,17 @@ export default async function AdminPage() {
     <main className="qa-shell">
       <section className="qa-card space-y-3">
         <BackButton />
-        <h1 className="text-2xl font-semibold">Admin 페이지</h1>
-        <p>로그인 계정: {me.email}</p>
-        <p>역할: {me.role}</p>
-        <p className="text-green-700">Admin API 접근 성공</p>
+        <h1 className="text-2xl font-semibold">Admin</h1>
+        <p>Signed in as: {me.username}</p>
+        <p>Role: {me.role}</p>
+        <p className="text-green-700">Admin API access confirmed</p>
 
         <div className="flex flex-wrap gap-3 pt-2 text-sm">
           <Link href="/admin/problems" className="underline">
-            문제/번들 관리
+            Problem/Bundle Manager
           </Link>
           <Link href="/admin/submissions/1" className="underline">
-            제출 상세 예시(/admin/submissions/1)
+            Submission detail sample (/admin/submissions/1)
           </Link>
         </div>
       </section>

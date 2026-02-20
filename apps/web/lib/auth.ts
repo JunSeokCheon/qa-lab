@@ -2,7 +2,7 @@
 
 export type MeResponse = {
   id: number;
-  email: string;
+  username: string;
   role: string;
   created_at: string;
 };

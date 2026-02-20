@@ -31,7 +31,7 @@ async def get_current_user(
     if not subject:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
-    result = await session.execute(select(User).where(User.email == subject))
+    result = await session.execute(select(User).where(User.username == subject))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")

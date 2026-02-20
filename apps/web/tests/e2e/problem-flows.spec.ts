@@ -4,7 +4,7 @@ const problemId = process.env.PW_PROBLEM_ID ?? "1";
 
 async function loginAsStudent(page: Page) {
   await page.goto("/login");
-  await page.getByPlaceholder("email").fill("user@example.com");
+  await page.getByPlaceholder("username").fill("user");
   await page.getByPlaceholder("password").fill("user1234");
   await page.getByRole("button", { name: /로그인|login/i }).click();
   await expect(page).toHaveURL(/\/$/);
@@ -12,7 +12,7 @@ async function loginAsStudent(page: Page) {
 
 async function loginAsAdmin(page: Page) {
   await page.goto("/login");
-  await page.getByPlaceholder("email").fill("admin@example.com");
+  await page.getByPlaceholder("username").fill("admin");
   await page.getByPlaceholder("password").fill("admin1234");
   await page.getByRole("button", { name: /로그인|login/i }).click();
   await expect(page).toHaveURL(/\/$/);

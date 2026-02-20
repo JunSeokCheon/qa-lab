@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
@@ -13,7 +13,7 @@ type ForgotResponse = {
 };
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [message, setMessage] = useState("");
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,11 +27,11 @@ export default function ForgotPasswordPage() {
     const response = await fetch("/api/auth/password/forgot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ username }),
     });
     const payload = (await response.json().catch(() => ({}))) as ForgotResponse;
 
-    setMessage(payload.message ?? (response.ok ? "요청이 접수되었습니다." : "요청에 실패했습니다."));
+    setMessage(payload.message ?? (response.ok ? "Request accepted." : "Request failed."));
     if (payload.reset_token) {
       setToken(payload.reset_token);
     }
@@ -44,25 +44,25 @@ export default function ForgotPasswordPage() {
         <section className="qa-card w-full max-w-md space-y-4">
           <BackButton />
           <p className="qa-kicker">Password Recovery</p>
-          <h1 className="text-3xl font-bold">비밀번호 재설정</h1>
+          <h1 className="text-3xl font-bold">Reset Password</h1>
           <form onSubmit={onSubmit} className="space-y-3">
-            <Input placeholder="가입 이메일" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
             <Button className="w-full" disabled={loading}>
-              {loading ? "요청 중..." : "재설정 토큰 요청"}
+              {loading ? "Requesting..." : "Request reset token"}
             </Button>
           </form>
           {message ? <p className="text-sm">{message}</p> : null}
           {token ? (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs">
-              <p className="font-semibold">개발모드 재설정 토큰</p>
+              <p className="font-semibold">Development reset token</p>
               <p className="mt-1 break-all">{token}</p>
               <Link href={`/reset-password?token=${token}`} className="mt-2 inline-block underline">
-                이 토큰으로 비밀번호 변경하기
+                Use this token to reset password
               </Link>
             </div>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            로그인으로 돌아가기:{" "}
+            Back to login{" "}
             <Link href="/login" className="underline">
               /login
             </Link>

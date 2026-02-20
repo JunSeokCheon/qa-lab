@@ -30,10 +30,10 @@ def _wait_for_api() -> None:
     raise AssertionError(f"API health check timed out: {last_error}")
 
 
-def _login(email: str, password: str) -> str:
+def _login(username: str, password: str) -> str:
     response = requests.post(
         f"{API_BASE_URL}/auth/login",
-        json={"email": email, "password": password},
+        json={"username": username, "password": password},
         timeout=REQUEST_TIMEOUT,
     )
     assert response.status_code == 200, response.text
@@ -224,8 +224,8 @@ def _admin_submission_debug(admin_token: str, submission_id: int) -> dict[str, A
 @pytest.fixture(scope="module")
 def tokens() -> tuple[str, str]:
     _wait_for_api()
-    admin = _login("admin@example.com", "admin1234")
-    student = _login("user@example.com", "user1234")
+    admin = _login("admin", "admin1234")
+    student = _login("user", "user1234")
     return admin, student
 
 
@@ -495,12 +495,12 @@ def test_e_mastery_model_weighted_formula(tokens: tuple[str, str]) -> None:
 
 
 def test_f_login_rate_limit_applies() -> None:
-    email = f"rate-limit-{uuid.uuid4().hex[:10]}@example.com"
+    username = f"rate-limit-{uuid.uuid4().hex[:10]}"
     last_status = None
     for _ in range(12):
         response = requests.post(
             f"{API_BASE_URL}/auth/login",
-            json={"email": email, "password": "wrong-password"},
+            json={"username": username, "password": "wrong-password"},
             timeout=REQUEST_TIMEOUT,
         )
         last_status = response.status_code
@@ -509,27 +509,27 @@ def test_f_login_rate_limit_applies() -> None:
 
 
 def test_g_register_and_password_reset_flow() -> None:
-    email = f"user-{uuid.uuid4().hex[:8]}@example.com"
+    username = f"user-{uuid.uuid4().hex[:8]}"
     initial_password = "start1234"
     new_password = "changed1234"
 
     register = requests.post(
         f"{API_BASE_URL}/auth/register",
-        json={"email": email, "password": initial_password},
+        json={"username": username, "password": initial_password},
         timeout=REQUEST_TIMEOUT,
     )
     assert register.status_code == 201, register.text
 
     login_before = requests.post(
         f"{API_BASE_URL}/auth/login",
-        json={"email": email, "password": initial_password},
+        json={"username": username, "password": initial_password},
         timeout=REQUEST_TIMEOUT,
     )
     assert login_before.status_code == 200, login_before.text
 
     forgot = requests.post(
         f"{API_BASE_URL}/auth/password/forgot",
-        json={"email": email},
+        json={"username": username},
         timeout=REQUEST_TIMEOUT,
     )
     assert forgot.status_code == 200, forgot.text
@@ -546,14 +546,14 @@ def test_g_register_and_password_reset_flow() -> None:
 
     login_old = requests.post(
         f"{API_BASE_URL}/auth/login",
-        json={"email": email, "password": initial_password},
+        json={"username": username, "password": initial_password},
         timeout=REQUEST_TIMEOUT,
     )
     assert login_old.status_code == 401, login_old.text
 
     login_new = requests.post(
         f"{API_BASE_URL}/auth/login",
-        json={"email": email, "password": new_password},
+        json={"username": username, "password": new_password},
         timeout=REQUEST_TIMEOUT,
     )
     assert login_new.status_code == 200, login_new.text

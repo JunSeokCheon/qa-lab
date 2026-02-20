@@ -117,8 +117,8 @@ pnpm dev
 - URL: `http://localhost:3000/login`
 - 회원가입: `http://localhost:3000/signup`
 - 비밀번호 재설정: `http://localhost:3000/forgot-password` -> `http://localhost:3000/reset-password`
-- 일반 사용자: `user@example.com` / `user1234`
-- 관리자: `admin@example.com` / `admin1234`
+- 일반 사용자: `user` / `user1234`
+- 관리자: `admin` / `admin1234`
 
 5) 동작 확인:
 - 로그인 후 새로고침해도 로그인 유지(httpOnly 쿠키)
@@ -149,7 +149,7 @@ alembic upgrade head
 ```bash
 curl -X POST "http://127.0.0.1:8000/auth/login" ^
   -H "Content-Type: application/json" ^
-  -d "{\"email\":\"admin@example.com\",\"password\":\"admin1234\"}"
+  -d "{\"username\":\"admin\",\"password\":\"admin1234\"}"
 ```
 
 1) 스킬 생성:
@@ -220,7 +220,7 @@ Worker bundle 처리:
 ```bash
 curl -X POST "http://127.0.0.1:8000/auth/login" ^
   -H "Content-Type: application/json" ^
-  -d "{\"email\":\"user@example.com\",\"password\":\"user1234\"}"
+  -d "{\"username\":\"user\",\"password\":\"user1234\"}"
 ```
 
 1) 제출 생성 (`status=QUEUED`):

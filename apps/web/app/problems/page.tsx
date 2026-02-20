@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -31,13 +31,13 @@ export default async function ProblemsPage() {
       <section className="qa-card">
         <BackButton />
         <p className="qa-kicker">Student</p>
-        <h1 className="mt-2 text-3xl font-bold">문제 목록</h1>
-        <p className="mt-2 text-sm text-muted-foreground">로그인 계정: {me.email}</p>
+        <h1 className="mt-2 text-3xl font-bold">Problems</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Signed in as: {me.username}</p>
       </section>
 
       <section className="qa-card">
         {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">등록된 문제가 없습니다.</p>
+          <p className="text-sm text-muted-foreground">No problems available yet.</p>
         ) : (
           <div className="space-y-3">
             {items.map((problem) => (
@@ -48,12 +48,12 @@ export default async function ProblemsPage() {
                     <p className="text-xs text-muted-foreground">
                       Problem #{problem.id}{" "}
                       {problem.latest_version
-                        ? `· v${problem.latest_version.version} · ${problem.latest_version.difficulty} · ${problem.latest_version.max_score}점`
-                        : "· 버전 없음"}
+                        ? `| v${problem.latest_version.version} | ${problem.latest_version.difficulty} | ${problem.latest_version.max_score}pt`
+                        : "| No published version"}
                     </p>
                   </div>
                   <Link href={`/problems/${problem.id}`} className="underline">
-                    문제 풀기
+                    Open
                   </Link>
                 </div>
               </article>

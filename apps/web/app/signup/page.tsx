@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -49,7 +49,7 @@ export default function SignupPage() {
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
 
     if (!response.ok) {
@@ -62,7 +62,7 @@ export default function SignupPage() {
     await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
 
     router.push("/");
@@ -77,7 +77,7 @@ export default function SignupPage() {
           <p className="qa-kicker">New Account</p>
           <h1 className="mb-6 mt-2 text-3xl font-bold">회원가입</h1>
           <form onSubmit={onSubmit} className="space-y-4">
-            <Input placeholder="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
             <Input type="password" placeholder="password (8+)" value={password} onChange={(e) => setPassword(e.target.value)} />
             <Input type="password" placeholder="confirm password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}

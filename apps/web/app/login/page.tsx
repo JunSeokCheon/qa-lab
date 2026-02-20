@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("user@example.com");
+  const [username, setUsername] = useState("user");
   const [password, setPassword] = useState("user1234");
   const [error, setError] = useState("");
   const [failedCount, setFailedCount] = useState(0);
@@ -26,7 +26,7 @@ export default function LoginPage() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
 
     if (!response.ok) {
@@ -49,7 +49,7 @@ export default function LoginPage() {
           <p className="qa-kicker">Welcome Back</p>
           <h1 className="mb-6 mt-2 text-3xl font-bold">Login</h1>
           <form onSubmit={onSubmit} className="space-y-4">
-            <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
+            <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" />
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
             {failedCount > 0 ? <p className="text-xs text-muted-foreground">로그인 실패 횟수: {failedCount}</p> : null}

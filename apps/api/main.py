@@ -322,18 +322,21 @@ async def login(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> AuthTokenResponse:
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required")
     client_host = request.client.host if request.client else "unknown"
-    client_key = f"{client_host}:{payload.email.lower()}"
+    client_key = f"{client_host}:{username.lower()}"
     if _is_login_rate_limited(client_key):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts. Try again later.")
 
-    result = await session.execute(select(User).where(User.email == payload.email))
+    result = await session.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
 
     _reset_login_attempts(client_key)
-    token = create_access_token(subject=user.email, role=user.role, expires_delta=access_token_ttl())
+    token = create_access_token(subject=user.username, role=user.role, expires_delta=access_token_ttl())
     return AuthTokenResponse(access_token=token, token_type="bearer")
 
 
@@ -347,17 +350,23 @@ async def register(
     payload: RegisterRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> MeResponse:
-    existing = await session.scalar(select(User).where(User.email == payload.email))
+    username = payload.username.strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username must be at least 3 characters")
+    if len(username) > 50:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username must be 50 characters or fewer")
+
+    existing = await session.scalar(select(User).where(User.username == username))
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already in use")
     if len(payload.password) < 8:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
 
-    user = User(email=payload.email, password_hash=hash_password(payload.password), role="user")
+    user = User(username=username, password_hash=hash_password(payload.password), role="user")
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    return MeResponse(id=user.id, email=user.email, role=user.role, created_at=user.created_at)
+    return MeResponse(id=user.id, username=user.username, role=user.role, created_at=user.created_at)
 
 
 @app.post("/auth/password/forgot", response_model=PasswordForgotResponse)
@@ -365,7 +374,8 @@ async def forgot_password(
     payload: PasswordForgotRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> PasswordForgotResponse:
-    user = await session.scalar(select(User).where(User.email == payload.email))
+    username = payload.username.strip()
+    user = await session.scalar(select(User).where(User.username == username))
     if user is None:
         return PasswordForgotResponse(message="If the account exists, reset instructions were generated.")
 
@@ -413,7 +423,7 @@ async def reset_password(
 
 @app.get("/me", response_model=MeResponse)
 async def me(user: Annotated[User, Depends(get_current_user)]) -> MeResponse:
-    return MeResponse(id=user.id, email=user.email, role=user.role, created_at=user.created_at)
+    return MeResponse(id=user.id, username=user.username, role=user.role, created_at=user.created_at)
 
 
 async def _compute_skill_progress(

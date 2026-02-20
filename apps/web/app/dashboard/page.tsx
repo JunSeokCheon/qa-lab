@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -38,9 +38,9 @@ export default async function DashboardPage() {
         <section className="qa-card">
           <BackButton />
           <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="mt-4">진행 정보를 불러오지 못했습니다.</p>
+          <p className="mt-4">Failed to load progress data.</p>
           <Link href="/" className="mt-4 inline-block underline">
-            홈으로 이동
+            Back to home
           </Link>
         </section>
       </main>
@@ -53,15 +53,13 @@ export default async function DashboardPage() {
         <BackButton />
         <p className="qa-kicker">Progress</p>
         <h1 className="mt-2 text-3xl font-bold">Skill Dashboard</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{me.email}의 현재 역량 상태입니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">{me.username}'s current mastery snapshot.</p>
       </section>
 
       <section className="qa-card">
         <h2 className="text-xl font-semibold">Skill Heatmap</h2>
         {progress.skills.length === 0 ? (
-          <p className="mt-3 rounded-2xl border border-border/70 bg-surface-muted p-4">
-            채점된 제출이 아직 없습니다.
-          </p>
+          <p className="mt-3 rounded-2xl border border-border/70 bg-surface-muted p-4">No graded submissions yet.</p>
         ) : (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {progress.skills.map((skill) => (
@@ -83,7 +81,7 @@ export default async function DashboardPage() {
       </section>
 
       <section className="qa-card">
-        <h2 className="text-xl font-semibold">최근 제출 10개</h2>
+        <h2 className="text-xl font-semibold">Recent 10 submissions</h2>
         <div className="mt-3 overflow-x-auto rounded-2xl border border-border/70">
           <table className="min-w-full text-sm">
             <thead className="bg-surface-muted text-left">
@@ -98,9 +96,7 @@ export default async function DashboardPage() {
               {progress.recent_submissions.map((item) => (
                 <tr key={item.submission_id} className="border-t border-border/70">
                   <td className="px-3 py-2">#{item.submission_id}</td>
-                  <td className="px-3 py-2">
-                    {item.problem_title} (v{item.problem_version})
-                  </td>
+                  <td className="px-3 py-2">{item.problem_title} (v{item.problem_version})</td>
                   <td className="px-3 py-2">{item.status}</td>
                   <td className="px-3 py-2">
                     {item.score === null || item.max_score === null ? "-" : `${item.score}/${item.max_score}`}

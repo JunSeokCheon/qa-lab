@@ -16,7 +16,7 @@ TIMEOUT = 10
 def _login_admin() -> str:
     response = requests.post(
         f"{API_BASE_URL}/auth/login",
-        json={"email": "admin@example.com", "password": "admin1234"},
+        json={"username": "admin", "password": "admin1234"},
         timeout=TIMEOUT,
     )
     response.raise_for_status()
