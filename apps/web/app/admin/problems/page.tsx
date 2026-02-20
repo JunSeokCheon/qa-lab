@@ -27,9 +27,7 @@ async function fetchFolders(token: string): Promise<Folder[]> {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
-  if (!response.ok) {
-    return [];
-  }
+  if (!response.ok) return [];
   return (await response.json().catch(() => [])) as Folder[];
 }
 

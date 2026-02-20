@@ -103,7 +103,7 @@ export function AdminExamBuilder({
   initialFolders: Folder[];
   initialExams: ExamSummary[];
 }) {
-  const [folders] = useState(initialFolders);
+  const [folders, setFolders] = useState(initialFolders);
   const [exams, setExams] = useState(initialExams);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -122,6 +122,18 @@ export function AdminExamBuilder({
   const [resourceRows, setResourceRows] = useState<ExamResource[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (folders.length > 0) return;
+    void (async () => {
+      const response = await fetch("/api/admin/problem-folders", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json().catch(() => [])) as Folder[];
+      if (payload.length === 0) return;
+      setFolders(payload);
+      setFolderId(String(payload[0].id));
+    })();
+  }, [folders.length]);
 
   useEffect(() => {
     if (resourceExamId !== null) return;
@@ -177,7 +189,7 @@ export function AdminExamBuilder({
     const payload = (await response.json().catch(() => [])) as ExamResource[] | { detail?: string; message?: string };
     if (!response.ok) {
       const messagePayload = payload as { detail?: string; message?: string };
-      throw new Error(messagePayload.detail ?? messagePayload.message ?? "시험 자료를 불러오지 못했습니다.");
+      throw new Error(messagePayload.detail ?? messagePayload.message ?? "코딩 문제 리소스를 불러오지 못했습니다.");
     }
     setResourceRows(payload as ExamResource[]);
   };
@@ -209,7 +221,7 @@ export function AdminExamBuilder({
         setError(reason.message);
         return;
       }
-      setError("시험 자료를 불러오지 못했습니다.");
+      setError("코딩 문제 리소스를 불러오지 못했습니다.");
     });
   }, [resourceExamId]);
 
@@ -274,7 +286,7 @@ export function AdminExamBuilder({
   const onUploadResource = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (resourceExamId === null) {
-      setError("자료를 업로드할 시험을 먼저 선택해 주세요.");
+      setError("리소스를 업로드할 시험을 먼저 선택해 주세요.");
       return;
     }
     if (!uploadFile) {
@@ -301,7 +313,7 @@ export function AdminExamBuilder({
 
     setUploadFile(null);
     await loadResources(resourceExamId);
-    setMessage("시험 자료를 업로드했습니다.");
+    setMessage("코딩 문제 리소스를 업로드했습니다.");
     setUploading(false);
   };
 
@@ -354,7 +366,9 @@ export function AdminExamBuilder({
         <BackButton fallbackHref="/admin" />
         <p className="qa-kicker mt-3">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
-        <p className="mt-2 text-sm text-muted-foreground">시험 생성, 자료 업로드, 응답 통계를 한 화면에서 확인할 수 있습니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          코딩 문항에서 사용할 데이터셋/파일(리소스)과 시험 문항을 함께 관리합니다.
+        </p>
       </section>
 
       {error ? <p className="qa-card text-sm text-destructive">{error}</p> : null}
@@ -429,7 +443,7 @@ export function AdminExamBuilder({
                       />
                     </div>
                   ))}
-                  <p className="text-xs text-muted-foreground">응시자는 객관식 문항당 한 개만 선택할 수 있습니다.</p>
+                  <p className="text-xs text-muted-foreground">응시자는 객관식 문항당 하나의 선택지만 고를 수 있습니다.</p>
                 </div>
               ) : null}
               <label className="mt-2 flex items-center gap-2 text-xs">
@@ -451,7 +465,10 @@ export function AdminExamBuilder({
       </form>
 
       <section className="qa-card space-y-3">
-        <h2 className="text-lg font-semibold">시험 자료 업로드</h2>
+        <h2 className="text-lg font-semibold">코딩 문제 리소스(데이터셋/파일)</h2>
+        <p className="text-xs text-muted-foreground">
+          코딩 문항 풀이에 필요한 파일을 업로드하세요. 응시자는 문제 화면에서 다운로드해 사용할 수 있습니다.
+        </p>
         {exams.length === 0 ? (
           <p className="text-sm text-muted-foreground">먼저 시험을 생성해 주세요.</p>
         ) : (
@@ -477,11 +494,11 @@ export function AdminExamBuilder({
                 onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
               />
               <Button type="submit" disabled={uploading}>
-                {uploading ? "업로드 중..." : "자료 업로드"}
+                {uploading ? "업로드 중..." : "리소스 업로드"}
               </Button>
             </form>
             {resourceRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">업로드된 자료가 없습니다.</p>
+              <p className="text-sm text-muted-foreground">업로드된 리소스가 없습니다.</p>
             ) : (
               <div className="space-y-2">
                 {resourceRows.map((resource) => (
