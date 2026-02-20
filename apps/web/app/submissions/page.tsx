@@ -5,20 +5,20 @@ import { redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
-type MySubmissionItem = {
+type ExamSubmissionItem = {
   id: number;
-  problem_version_id: number;
+  exam_id: number;
+  exam_title: string;
+  exam_kind: string;
+  folder_path: string | null;
   status: string;
-  created_at: string;
-  grade: { score: number; max_score: number } | null;
+  submitted_at: string;
 };
 
-function statusLabel(status: string): string {
-  if (status === "QUEUED") return "대기";
-  if (status === "RUNNING") return "채점 중";
-  if (status === "GRADED") return "채점 완료";
-  if (status === "FAILED") return "채점 실패";
-  return status;
+function examKindLabel(kind: string): string {
+  if (kind === "quiz") return "퀴즈";
+  if (kind === "assessment") return "성취도 평가";
+  return kind;
 }
 
 export default async function SubmissionsPage() {
@@ -33,44 +33,44 @@ export default async function SubmissionsPage() {
     redirect("/login");
   }
 
-  const response = await fetch(`${FASTAPI_BASE_URL}/me/submissions?limit=50`, {
+  const response = await fetch(`${FASTAPI_BASE_URL}/me/exam-submissions?limit=50`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
-  const submissions = (await response.json().catch(() => [])) as MySubmissionItem[];
+  const submissions = (await response.json().catch(() => [])) as ExamSubmissionItem[];
 
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card">
         <BackButton />
         <p className="qa-kicker">학습자</p>
-        <h1 className="mt-2 text-3xl font-bold">내 제출 내역</h1>
+        <h1 className="mt-2 text-3xl font-bold">내 시험 제출 내역</h1>
         <p className="mt-2 text-sm text-muted-foreground">{me.username}</p>
       </section>
 
       <section className="qa-card">
         {submissions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">아직 제출 내역이 없습니다.</p>
+          <p className="text-sm text-muted-foreground">아직 제출한 시험이 없습니다.</p>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-border/70">
             <table className="min-w-full text-sm">
               <thead className="bg-surface-muted text-left">
                 <tr>
-                  <th className="px-3 py-2">제출</th>
-                  <th className="px-3 py-2">문제 버전</th>
+                  <th className="px-3 py-2">시험</th>
+                  <th className="px-3 py-2">유형</th>
+                  <th className="px-3 py-2">카테고리</th>
                   <th className="px-3 py-2">상태</th>
-                  <th className="px-3 py-2">점수</th>
                   <th className="px-3 py-2">제출 시각</th>
                 </tr>
               </thead>
               <tbody>
                 {submissions.map((item) => (
                   <tr key={item.id} className="border-t border-border/70">
-                    <td className="px-3 py-2">#{item.id}</td>
-                    <td className="px-3 py-2">v{item.problem_version_id}</td>
-                    <td className="px-3 py-2">{statusLabel(item.status)}</td>
-                    <td className="px-3 py-2">{item.grade ? `${item.grade.score}/${item.grade.max_score}` : "-"}</td>
-                    <td className="px-3 py-2">{new Date(item.created_at).toLocaleString()}</td>
+                    <td className="px-3 py-2">{item.exam_title}</td>
+                    <td className="px-3 py-2">{examKindLabel(item.exam_kind)}</td>
+                    <td className="px-3 py-2">{item.folder_path ?? "미분류"}</td>
+                    <td className="px-3 py-2">{item.status}</td>
+                    <td className="px-3 py-2">{new Date(item.submitted_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -78,7 +78,7 @@ export default async function SubmissionsPage() {
           </div>
         )}
         <Link href="/problems" className="mt-4 inline-block underline">
-          문제 목록으로 이동
+          시험 목록으로 이동
         </Link>
       </section>
     </main>

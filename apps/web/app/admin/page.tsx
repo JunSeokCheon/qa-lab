@@ -56,10 +56,7 @@ export default async function AdminPage() {
 
         <div className="flex flex-wrap gap-3 pt-2 text-sm">
           <Link href="/admin/problems" className="underline">
-            문제/번들 관리
-          </Link>
-          <Link href="/admin/submissions/1" className="underline">
-            제출 상세 예시 (/admin/submissions/1)
+            시험지 관리
           </Link>
         </div>
       </section>

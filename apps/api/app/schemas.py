@@ -305,3 +305,93 @@ class ProgressTrendItem(BaseModel):
     skill_id: int
     skill_name: str
     points: list[ProgressTrendPoint]
+
+
+class ExamQuestionCreate(BaseModel):
+    type: str
+    prompt_md: str
+    required: bool = True
+    choices: list[str] | None = None
+
+
+class ExamCreate(BaseModel):
+    title: str
+    description: str | None = None
+    folder_id: int | None = None
+    exam_kind: str = "quiz"
+    status: str = "published"
+    questions: list[ExamQuestionCreate]
+
+
+class ExamQuestionSummary(BaseModel):
+    id: int
+    order_index: int
+    type: str
+    prompt_md: str
+    required: bool
+    choices: list[str] | None = None
+
+
+class ExamSummary(BaseModel):
+    id: int
+    title: str
+    description: str | None = None
+    folder_id: int | None = None
+    folder_path: str | None = None
+    exam_kind: str
+    status: str
+    question_count: int
+    submitted: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExamDetail(ExamSummary):
+    questions: list[ExamQuestionSummary]
+
+
+class ExamAnswerInput(BaseModel):
+    question_id: int
+    answer_text: str | None = None
+    selected_choice_index: int | None = None
+
+
+class ExamSubmitRequest(BaseModel):
+    answers: list[ExamAnswerInput]
+
+
+class ExamSubmitResponse(BaseModel):
+    submission_id: int
+    exam_id: int
+    status: str
+    submitted_at: datetime
+
+
+class ExamSubmissionSummary(BaseModel):
+    id: int
+    exam_id: int
+    exam_title: str
+    exam_kind: str
+    folder_path: str | None = None
+    status: str
+    submitted_at: datetime
+
+
+class AdminExamSubmissionAnswer(BaseModel):
+    question_id: int
+    question_order: int
+    question_type: str
+    prompt_md: str
+    answer_text: str | None = None
+    selected_choice_index: int | None = None
+
+
+class AdminExamSubmissionDetail(BaseModel):
+    submission_id: int
+    exam_id: int
+    exam_title: str
+    user_id: int
+    username: str
+    status: str
+    submitted_at: datetime
+    answers: list[AdminExamSubmissionAnswer]

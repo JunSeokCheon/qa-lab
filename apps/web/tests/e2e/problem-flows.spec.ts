@@ -1,16 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const apiBaseUrl = process.env.PW_API_BASE_URL ?? "http://127.0.0.1:8000";
-
-async function resolveProblemId(page: Page): Promise<string> {
-  if (process.env.PW_PROBLEM_ID) return process.env.PW_PROBLEM_ID;
-
-  const response = await page.request.get(`${apiBaseUrl}/problems`);
-  expect(response.ok()).toBeTruthy();
-  const payload = (await response.json()) as Array<{ id: number }>;
-  expect(payload.length).toBeGreaterThan(0);
-  return String(payload[0].id);
-}
 
 async function loginAsStudent(page: Page) {
   await page.goto("/login");
@@ -28,73 +18,79 @@ async function loginAsAdmin(page: Page) {
   await expect(page).toHaveURL(/\/$/);
 }
 
-async function openProblemPage(page: Page) {
-  const problemId = await resolveProblemId(page);
-  await page.getByTestId("problem-id-input").fill(problemId);
-  await page.getByTestId("open-problem-button").click();
-  await expect(page).toHaveURL(new RegExp(`/problems/${problemId}$`));
-  await expect(page.getByTestId("problem-workbench")).toBeVisible();
-  await expect(page.getByTestId("workbench-ready")).toHaveAttribute("data-ready", "1");
+async function createExamViaApi(request: APIRequestContext): Promise<number> {
+  const loginResponse = await request.post(`${apiBaseUrl}/auth/login`, {
+    data: { username: "admin", password: "admin1234" },
+  });
+  expect(loginResponse.ok()).toBeTruthy();
+  const loginPayload = (await loginResponse.json()) as { access_token: string };
+
+  const examResponse = await request.post(`${apiBaseUrl}/admin/exams`, {
+    headers: {
+      Authorization: `Bearer ${loginPayload.access_token}`,
+    },
+    data: {
+      title: `playwright 시험 ${Date.now()}`,
+      description: "e2e 제출 테스트용",
+      exam_kind: "quiz",
+      status: "published",
+      questions: [
+        {
+          type: "multiple_choice",
+          prompt_md: "다음 중 정답을 고르세요.",
+          required: true,
+          choices: ["A", "B", "C"],
+        },
+        {
+          type: "subjective",
+          prompt_md: "간단한 소감을 작성하세요.",
+          required: true,
+        },
+      ],
+    },
+  });
+  expect(examResponse.ok()).toBeTruthy();
+  const examPayload = (await examResponse.json()) as { id: number };
+  return examPayload.id;
 }
 
-async function answerCurrentProblem(page: Page) {
-  const radioOptions = page.locator(`input[type="radio"]`);
-  if ((await radioOptions.count()) > 0) {
-    await radioOptions.first().check();
-    return;
-  }
-
-  const codeEditor = page.getByTestId("code-input");
-  if (await codeEditor.isVisible()) {
-    return;
-  }
-
-  const subjective = page.getByPlaceholder("답안을 입력하세요.");
-  if (await subjective.isVisible()) {
-    await subjective.fill("정답");
-  }
-}
-
-test("login -> open problem -> show submit workbench", async ({ page }) => {
+test("login -> open exam list -> start exam page", async ({ page }) => {
   await loginAsStudent(page);
-  await openProblemPage(page);
+  await page.goto("/problems");
 
-  await expect(page.getByTestId("submit-button")).toBeVisible();
-  await expect(page.getByTestId("submission-status-timeline")).toContainText("-");
+  await expect(page.getByRole("heading", { name: "시험 목록" })).toBeVisible();
+  await page.getByRole("link", { name: /시험 시작|응답 보기/ }).first().click();
+  await expect(page).toHaveURL(/\/problems\/\d+$/);
+  await expect(page.getByRole("button", { name: "시험 제출" })).toBeVisible();
 });
 
-test("login -> category buttons -> show filtered problems", async ({ page }) => {
+test("login -> category buttons -> show exams", async ({ page }) => {
   await loginAsStudent(page);
   await page.goto("/problems");
 
   await page.getByRole("button", { name: "전처리" }).click();
-  await expect(page.getByRole("link", { name: "문제 풀기" })).toHaveCount(2);
+  await expect(page.getByRole("link", { name: /시험 시작|응답 보기/ })).toHaveCount(2);
 });
 
-test("login -> submit -> status transition -> show score", async ({ page }) => {
+test("login -> submit exam once", async ({ page, request }) => {
+  const examId = await createExamViaApi(request);
   await loginAsStudent(page);
-  await openProblemPage(page);
-  await answerCurrentProblem(page);
+  await page.goto(`/problems/${examId}`);
 
-  await page.getByTestId("submit-button").click();
-
-  const timeline = page.getByTestId("submission-status-timeline");
-  await expect(timeline).toContainText(/대기|채점 완료|채점 실패|QUEUED|GRADED|FAILED/, { timeout: 20_000 });
-  await expect(timeline).toContainText(/채점 완료|채점 실패|GRADED|FAILED/, { timeout: 90_000 });
-
-  const score = page.getByTestId("submission-score");
-  await expect(score).toContainText(/\d+\/\d+/, { timeout: 90_000 });
+  await page.locator(`input[type="radio"]`).first().check();
+  await page.getByPlaceholder("답안을 입력하세요.").fill("Playwright 제출");
+  await page.getByRole("button", { name: "시험 제출" }).click();
+  await expect(page.getByText("시험이 제출되었습니다. 채점은 관리자 검토 후 진행됩니다.")).toBeVisible();
 });
 
-test("admin -> problems manager -> create skill success", async ({ page }) => {
+test("admin -> create exam via builder", async ({ page }) => {
   await loginAsAdmin(page);
   await page.goto("/admin/problems");
-  await expect(page.getByRole("heading", { name: "문제/번들 관리" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "시험지 관리" })).toBeVisible();
 
-  const skillName = `pw-skill-${Date.now()}`;
-  await page.getByPlaceholder("스킬 이름").fill(skillName);
-  await page.getByPlaceholder("설명 (선택)").fill("playwright admin flow");
-  await page.getByRole("button", { name: "스킬 생성" }).click();
-
-  await expect(page.getByText(/스킬 생성 완료 \(id=\d+\)/)).toBeVisible({ timeout: 30_000 });
+  const examName = `관리자 생성 시험 ${Date.now()}`;
+  await page.getByPlaceholder("시험 제목 (예: 파이썬 퀴즈)").fill(examName);
+  await page.getByPlaceholder("문항 내용을 입력하세요.").first().fill("관리자 문항 테스트");
+  await page.getByRole("button", { name: "시험지 생성" }).click();
+  await expect(page.getByText(/시험이 생성되었습니다\. \(시험 ID:/)).toBeVisible({ timeout: 30_000 });
 });

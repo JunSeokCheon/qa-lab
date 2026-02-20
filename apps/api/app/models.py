@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -31,6 +31,12 @@ class User(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     submissions: Mapped[list["Submission"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    exam_submissions: Mapped[list["ExamSubmission"]] = relationship(
+        "ExamSubmission",
+        foreign_keys="ExamSubmission.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -80,6 +86,7 @@ class ProblemFolder(Base):
         cascade="all, delete-orphan",
     )
     problems: Mapped[list["Problem"]] = relationship(back_populates="folder")
+    exams: Mapped[list["Exam"]] = relationship(back_populates="folder")
 
 
 class Problem(Base):
@@ -139,6 +146,86 @@ class ProblemVersionSkill(Base):
 
     problem_version: Mapped["ProblemVersion"] = relationship(back_populates="skill_weights")
     skill: Mapped["Skill"] = relationship()
+
+
+class Exam(Base):
+    __tablename__ = "exams"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("problem_folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    exam_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="quiz")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    folder: Mapped["ProblemFolder | None"] = relationship(back_populates="exams")
+    questions: Mapped[list["ExamQuestion"]] = relationship(
+        back_populates="exam", cascade="all, delete-orphan", order_by="ExamQuestion.order_index.asc()"
+    )
+    submissions: Mapped[list["ExamSubmission"]] = relationship(back_populates="exam", cascade="all, delete-orphan")
+
+
+class ExamQuestion(Base):
+    __tablename__ = "exam_questions"
+    __table_args__ = (UniqueConstraint("exam_id", "order_index", name="uq_exam_questions_exam_order"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
+    prompt_md: Mapped[str] = mapped_column(Text, nullable=False)
+    choices_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    exam: Mapped["Exam"] = relationship(back_populates="questions")
+    answers: Mapped[list["ExamAnswer"]] = relationship(back_populates="question")
+
+
+class ExamSubmission(Base):
+    __tablename__ = "exam_submissions"
+    __table_args__ = (UniqueConstraint("exam_id", "user_id", name="uq_exam_submissions_exam_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="SUBMITTED")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    reviewed_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    exam: Mapped["Exam"] = relationship(back_populates="submissions")
+    user: Mapped["User"] = relationship(foreign_keys=[user_id], back_populates="exam_submissions")
+    reviewed_by: Mapped["User | None"] = relationship(foreign_keys=[reviewed_by_user_id])
+    answers: Mapped[list["ExamAnswer"]] = relationship(back_populates="submission", cascade="all, delete-orphan")
+
+
+class ExamAnswer(Base):
+    __tablename__ = "exam_answers"
+    __table_args__ = (UniqueConstraint("exam_submission_id", "exam_question_id", name="uq_exam_answers_submission_question"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    exam_submission_id: Mapped[int] = mapped_column(
+        ForeignKey("exam_submissions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    exam_question_id: Mapped[int] = mapped_column(
+        ForeignKey("exam_questions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selected_choice_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    submission: Mapped["ExamSubmission"] = relationship(back_populates="answers")
+    question: Mapped["ExamQuestion"] = relationship(back_populates="answers")
 
 
 class Submission(Base):

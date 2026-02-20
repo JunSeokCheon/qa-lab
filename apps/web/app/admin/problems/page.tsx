@@ -1,11 +1,18 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { AdminProblemsManager } from "@/components/admin-problems-manager";
+import { AdminExamBuilder } from "@/components/admin-exam-builder";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
-type Skill = { id: number; name: string; description?: string | null };
-type Folder = { id: number; name: string; slug: string; parent_id: number | null; sort_order: number; path: string };
+type Folder = { id: number; path: string };
+type ExamSummary = {
+  id: number;
+  title: string;
+  exam_kind: string;
+  question_count: number;
+  folder_path: string | null;
+  status: string;
+};
 
 export default async function AdminProblemsPage() {
   const cookieStore = await cookies();
@@ -20,17 +27,17 @@ export default async function AdminProblemsPage() {
     redirect("/admin");
   }
 
-  const response = await fetch(`${FASTAPI_BASE_URL}/admin/skills`, {
+  const folderResponse = await fetch(`${FASTAPI_BASE_URL}/admin/problem-folders`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
+  const initialFolders = (await folderResponse.json().catch(() => [])) as Folder[];
 
-  const initialSkills = (await response.json().catch(() => [])) as Skill[];
-  const foldersResponse = await fetch(`${FASTAPI_BASE_URL}/admin/problem-folders`, {
+  const examsResponse = await fetch(`${FASTAPI_BASE_URL}/admin/exams`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
-  const initialFolders = (await foldersResponse.json().catch(() => [])) as Folder[];
+  const initialExams = (await examsResponse.json().catch(() => [])) as ExamSummary[];
 
-  return <AdminProblemsManager initialSkills={initialSkills} initialFolders={initialFolders} />;
+  return <AdminExamBuilder initialFolders={initialFolders} initialExams={initialExams} />;
 }

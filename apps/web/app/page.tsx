@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/logout-button";
-import { ProblemOpen } from "@/components/problem-open";
 import { fetchMeWithToken } from "@/lib/auth";
 
 export default async function HomePage() {
@@ -31,7 +30,7 @@ export default async function HomePage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Link href="/problems">
-                    <Button variant="outline">문제 목록</Button>
+                    <Button variant="outline">시험 목록</Button>
                   </Link>
                   <Link href="/submissions">
                     <Button variant="outline">내 제출</Button>
@@ -48,7 +47,6 @@ export default async function HomePage() {
                 </div>
               </div>
             </section>
-            <ProblemOpen />
           </>
         ) : (
           <section className="qa-card">

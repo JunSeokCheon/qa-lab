@@ -38,6 +38,10 @@ from app.db import check_db_connection, get_async_session
 from app.deps import get_current_user, require_admin
 from app.models import (
     AdminAuditLog,
+    Exam,
+    ExamAnswer,
+    ExamQuestion,
+    ExamSubmission,
     Grade,
     GradeRun,
     MasterySnapshot,
@@ -57,9 +61,18 @@ from app.observability import get_logger, log_event
 from app.queue import check_redis_connection, clear_rate_limit, grading_queue, increment_rate_limit
 from app.schemas import (
     AdminAuditLogResponse,
+    AdminExamSubmissionDetail,
+    AdminExamSubmissionAnswer,
     AuthTokenResponse,
     AdminSubmissionDetailResponse,
     BundleUploadResponse,
+    ExamCreate,
+    ExamDetail,
+    ExamSubmitRequest,
+    ExamSubmitResponse,
+    ExamSubmissionSummary,
+    ExamSummary,
+    ExamQuestionSummary,
     GradeResponse,
     GradeRunResponse,
     LoginRequest,
@@ -146,6 +159,22 @@ _PROBLEM_TYPE_ALIASES = {
     "objective": "multiple_choice",
     "subjective": "subjective",
     "short_answer": "subjective",
+}
+_EXAM_QUESTION_TYPE_ALIASES = {
+    "multiple_choice": "multiple_choice",
+    "objective": "multiple_choice",
+    "mcq": "multiple_choice",
+    "subjective": "subjective",
+    "short_answer": "subjective",
+    "coding": "coding",
+    "code": "coding",
+}
+_EXAM_KIND_ALIASES = {
+    "quiz": "quiz",
+    "퀴즈": "quiz",
+    "assessment": "assessment",
+    "성취도평가": "assessment",
+    "성취도 평가": "assessment",
 }
 
 
@@ -239,6 +268,45 @@ def _normalize_problem_type(raw_type: str) -> str:
             detail="Unsupported problem type. Use coding, multiple_choice, or subjective.",
         )
     return normalized
+
+
+def _normalize_exam_question_type(raw_type: str) -> str:
+    normalized = _EXAM_QUESTION_TYPE_ALIASES.get(raw_type.strip().lower())
+    if normalized is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="지원하지 않는 문항 유형입니다. multiple_choice, subjective, coding 중에서 선택하세요.",
+        )
+    return normalized
+
+
+def _normalize_exam_kind(raw_kind: str) -> str:
+    normalized = _EXAM_KIND_ALIASES.get(raw_kind.strip().lower())
+    if normalized is not None:
+        return normalized
+    cleaned = raw_kind.strip().lower()
+    if cleaned in {"quiz", "assessment"}:
+        return cleaned
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="시험 유형은 quiz(퀴즈) 또는 assessment(성취도 평가)만 가능합니다.",
+    )
+
+
+def _sanitize_exam_status(raw_status: str) -> str:
+    status_value = raw_status.strip().lower()
+    if status_value not in {"draft", "published"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 상태는 draft 또는 published만 가능합니다.")
+    return status_value
+
+
+def _sanitize_exam_question_choices(question_type: str, choices: list[str] | None) -> list[str] | None:
+    if question_type != "multiple_choice":
+        return None
+    normalized_choices = [choice.strip() for choice in (choices or []) if choice.strip()]
+    if len(normalized_choices) < 2:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 선택지 2개 이상이 필요합니다.")
+    return normalized_choices
 
 
 def _sanitize_question_meta(problem_type: str, question_meta_json: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -402,6 +470,39 @@ def _to_problem_folder_response(folder: ProblemFolder, path_map: dict[int, str])
         parent_id=folder.parent_id,
         sort_order=folder.sort_order,
         path=path_map.get(folder.id, folder.name),
+    )
+
+
+def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
+    return ExamQuestionSummary(
+        id=question.id,
+        order_index=question.order_index,
+        type=question.type,
+        prompt_md=question.prompt_md,
+        required=question.required,
+        choices=list(question.choices_json or []) if question.choices_json is not None else None,
+    )
+
+
+def _to_exam_summary(
+    exam: Exam,
+    *,
+    folder_path_map: dict[int, str],
+    question_count: int,
+    submitted: bool,
+) -> ExamSummary:
+    return ExamSummary(
+        id=exam.id,
+        title=exam.title,
+        description=exam.description,
+        folder_id=exam.folder_id,
+        folder_path=folder_path_map.get(exam.folder_id) if exam.folder_id is not None else None,
+        exam_kind=exam.exam_kind,
+        status=exam.status,
+        question_count=question_count,
+        submitted=submitted,
+        created_at=exam.created_at,
+        updated_at=exam.updated_at,
     )
 
 
@@ -1050,6 +1151,329 @@ async def list_problem_folders(session: Annotated[AsyncSession, Depends(get_asyn
     ).scalars().all()
     path_map = await _load_folder_path_map(session)
     return [_to_problem_folder_response(folder, path_map) for folder in folders]
+
+
+@app.post("/admin/exams", response_model=ExamDetail, status_code=status.HTTP_201_CREATED)
+async def create_exam(
+    payload: ExamCreate,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ExamDetail:
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 제목은 필수입니다.")
+    if len(payload.questions) == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험에는 최소 1개 이상의 문항이 필요합니다.")
+
+    folder_id = payload.folder_id
+    if folder_id is not None:
+        folder = await session.scalar(select(ProblemFolder).where(ProblemFolder.id == folder_id))
+        if folder is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="카테고리(폴더)를 찾을 수 없습니다.")
+
+    exam = Exam(
+        title=title,
+        description=payload.description.strip() if payload.description else None,
+        folder_id=folder_id,
+        exam_kind=_normalize_exam_kind(payload.exam_kind),
+        status=_sanitize_exam_status(payload.status),
+    )
+    session.add(exam)
+    await session.flush()
+
+    questions: list[ExamQuestion] = []
+    for index, question_payload in enumerate(payload.questions, start=1):
+        question_type = _normalize_exam_question_type(question_payload.type)
+        prompt_md = question_payload.prompt_md.strip()
+        if not prompt_md:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{index}번 문항의 내용이 비어 있습니다.")
+        choices = _sanitize_exam_question_choices(question_type, question_payload.choices)
+        question = ExamQuestion(
+            exam_id=exam.id,
+            order_index=index,
+            type=question_type,
+            prompt_md=prompt_md,
+            required=bool(question_payload.required),
+            choices_json=choices,
+        )
+        session.add(question)
+        questions.append(question)
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.create",
+        resource_type="exam",
+        resource_id=str(exam.id),
+        metadata={"title": exam.title, "question_count": len(questions), "exam_kind": exam.exam_kind},
+    )
+    await session.commit()
+    await session.refresh(exam)
+
+    folder_path_map = await _load_folder_path_map(session)
+    return ExamDetail(
+        **_to_exam_summary(exam, folder_path_map=folder_path_map, question_count=len(questions), submitted=False).model_dump(),
+        questions=[_to_exam_question_summary(question) for question in questions],
+    )
+
+
+@app.get("/admin/exams", response_model=list[ExamSummary])
+async def list_admin_exams(
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[ExamSummary]:
+    exams = (await session.execute(select(Exam).order_by(Exam.id.desc()))).scalars().all()
+    if not exams:
+        return []
+    folder_path_map = await _load_folder_path_map(session)
+    question_count_rows = await session.execute(
+        select(ExamQuestion.exam_id, func.count(ExamQuestion.id)).group_by(ExamQuestion.exam_id)
+    )
+    question_count_map = {exam_id: int(count) for exam_id, count in question_count_rows.all()}
+    return [
+        _to_exam_summary(
+            exam,
+            folder_path_map=folder_path_map,
+            question_count=question_count_map.get(exam.id, 0),
+            submitted=False,
+        )
+        for exam in exams
+    ]
+
+
+@app.get("/admin/exams/{exam_id}/submissions", response_model=list[AdminExamSubmissionDetail])
+async def list_admin_exam_submissions(
+    exam_id: int,
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[AdminExamSubmissionDetail]:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    rows = await session.execute(
+        select(ExamSubmission, User)
+        .join(User, User.id == ExamSubmission.user_id)
+        .where(ExamSubmission.exam_id == exam_id)
+        .order_by(ExamSubmission.id.desc())
+    )
+    submissions = rows.all()
+    if not submissions:
+        return []
+
+    question_map = {
+        question.id: question
+        for question in (
+            await session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == exam_id))
+        ).scalars().all()
+    }
+
+    payload: list[AdminExamSubmissionDetail] = []
+    for submission, user in submissions:
+        answer_rows = (
+            await session.execute(
+                select(ExamAnswer)
+                .where(ExamAnswer.exam_submission_id == submission.id)
+                .order_by(ExamAnswer.id.asc())
+            )
+        ).scalars().all()
+        answers: list[AdminExamSubmissionAnswer] = []
+        for answer in answer_rows:
+            question = question_map.get(answer.exam_question_id)
+            if question is None:
+                continue
+            answers.append(
+                AdminExamSubmissionAnswer(
+                    question_id=question.id,
+                    question_order=question.order_index,
+                    question_type=question.type,
+                    prompt_md=question.prompt_md,
+                    answer_text=answer.answer_text,
+                    selected_choice_index=answer.selected_choice_index,
+                )
+            )
+        payload.append(
+            AdminExamSubmissionDetail(
+                submission_id=submission.id,
+                exam_id=exam.id,
+                exam_title=exam.title,
+                user_id=user.id,
+                username=user.username,
+                status=submission.status,
+                submitted_at=submission.submitted_at,
+                answers=answers,
+            )
+        )
+    return payload
+
+
+@app.get("/exams", response_model=list[ExamSummary])
+async def list_exams(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[ExamSummary]:
+    exams = (
+        await session.execute(select(Exam).where(Exam.status == "published").order_by(Exam.id.asc()))
+    ).scalars().all()
+    if not exams:
+        return []
+
+    folder_path_map = await _load_folder_path_map(session)
+    question_count_rows = await session.execute(
+        select(ExamQuestion.exam_id, func.count(ExamQuestion.id)).group_by(ExamQuestion.exam_id)
+    )
+    question_count_map = {exam_id: int(count) for exam_id, count in question_count_rows.all()}
+    submitted_rows = await session.execute(
+        select(ExamSubmission.exam_id).where(ExamSubmission.user_id == user.id)
+    )
+    submitted_exam_ids = {int(exam_id) for exam_id in submitted_rows.scalars().all()}
+
+    return [
+        _to_exam_summary(
+            exam,
+            folder_path_map=folder_path_map,
+            question_count=question_count_map.get(exam.id, 0),
+            submitted=exam.id in submitted_exam_ids,
+        )
+        for exam in exams
+    ]
+
+
+@app.get("/exams/{exam_id}", response_model=ExamDetail)
+async def get_exam(
+    exam_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ExamDetail:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None or exam.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    questions = (
+        await session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc()))
+    ).scalars().all()
+    folder_path_map = await _load_folder_path_map(session)
+    submitted = (
+        await session.scalar(
+            select(func.count(ExamSubmission.id)).where(ExamSubmission.exam_id == exam_id, ExamSubmission.user_id == user.id)
+        )
+        or 0
+    ) > 0
+
+    return ExamDetail(
+        **_to_exam_summary(
+            exam,
+            folder_path_map=folder_path_map,
+            question_count=len(questions),
+            submitted=submitted,
+        ).model_dump(),
+        questions=[_to_exam_question_summary(question) for question in questions],
+    )
+
+
+@app.post("/exams/{exam_id}/submit", response_model=ExamSubmitResponse)
+async def submit_exam(
+    exam_id: int,
+    payload: ExamSubmitRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ExamSubmitResponse:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None or exam.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    existing = await session.scalar(
+        select(ExamSubmission).where(ExamSubmission.exam_id == exam_id, ExamSubmission.user_id == user.id)
+    )
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 제출한 시험입니다.")
+
+    questions = (
+        await session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc()))
+    ).scalars().all()
+    if not questions:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 문항이 없습니다.")
+
+    answer_by_question: dict[int, dict[str, Any]] = {}
+    for answer in payload.answers:
+        answer_by_question[answer.question_id] = {
+            "answer_text": answer.answer_text.strip() if answer.answer_text else None,
+            "selected_choice_index": answer.selected_choice_index,
+        }
+
+    submission = ExamSubmission(exam_id=exam_id, user_id=user.id, status="SUBMITTED")
+    session.add(submission)
+    await session.flush()
+
+    for question in questions:
+        submitted = answer_by_question.get(question.id)
+        selected_choice_index: int | None = None
+        answer_text: str | None = None
+
+        if question.type == "multiple_choice":
+            if submitted is not None:
+                selected_choice_index = submitted["selected_choice_index"]
+            choices = list(question.choices_json or [])
+            if question.required and selected_choice_index is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{question.order_index}번 문항 답변이 필요합니다.")
+            if selected_choice_index is not None and (selected_choice_index < 0 or selected_choice_index >= len(choices)):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{question.order_index}번 문항 선택지 번호가 올바르지 않습니다.")
+        else:
+            if submitted is not None:
+                answer_text = submitted["answer_text"]
+            if question.required and not (answer_text and answer_text.strip()):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{question.order_index}번 문항 답변이 필요합니다.")
+
+        session.add(
+            ExamAnswer(
+                exam_submission_id=submission.id,
+                exam_question_id=question.id,
+                answer_text=answer_text,
+                selected_choice_index=selected_choice_index,
+            )
+        )
+
+    await session.commit()
+    await session.refresh(submission)
+    return ExamSubmitResponse(
+        submission_id=submission.id,
+        exam_id=submission.exam_id,
+        status=submission.status,
+        submitted_at=submission.submitted_at,
+    )
+
+
+@app.get("/me/exam-submissions", response_model=list[ExamSubmissionSummary])
+async def get_my_exam_submissions(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[ExamSubmissionSummary]:
+    rows = await session.execute(
+        select(ExamSubmission, Exam)
+        .join(Exam, Exam.id == ExamSubmission.exam_id)
+        .where(ExamSubmission.user_id == user.id)
+        .order_by(ExamSubmission.id.desc())
+        .limit(limit)
+    )
+    items = rows.all()
+    if not items:
+        return []
+    folder_path_map = await _load_folder_path_map(session)
+    return [
+        ExamSubmissionSummary(
+            id=submission.id,
+            exam_id=exam.id,
+            exam_title=exam.title,
+            exam_kind=exam.exam_kind,
+            folder_path=folder_path_map.get(exam.folder_id) if exam.folder_id is not None else None,
+            status=submission.status,
+            submitted_at=submission.submitted_at,
+        )
+        for submission, exam in items
+    ]
 
 
 @app.put("/admin/skills/{skill_id}", response_model=SkillResponse)

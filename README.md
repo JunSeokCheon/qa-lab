@@ -25,6 +25,17 @@ pnpm dev
   - `Ctrl/Cmd + Enter`: 제출
 - 문제 상세 페이지에서 statement를 확인하고 바로 Workbench에서 실행/제출 가능
 
+시험지 UX (신규):
+- 사용자 화면은 `문제 단건`이 아니라 `시험지` 단위로 동작합니다.
+- `http://localhost:3000/problems` 에서 카테고리별 시험(예: `파이썬 퀴즈`, `파이썬 성취도 평가`)을 선택합니다.
+- 시험 상세(`http://localhost:3000/problems/{examId}`)에서 문항을 한 페이지에 작성 후 한 번에 제출합니다.
+- 실시간 채점/점수 노출 없이 `제출 완료` 중심 흐름입니다.
+- 내 제출: `http://localhost:3000/submissions`
+
+관리자 시험지 생성 UX (신규):
+- `http://localhost:3000/admin/problems` 에서 구글 폼처럼 시험지 + 문항(객관식/주관식/코드작성)을 한 번에 생성합니다.
+- 관리자 페이지에서 시험별 제출 내역/응답을 확인할 수 있습니다.
+
 ### API (FastAPI)
 ```bash
 cd apps/api
@@ -128,14 +139,25 @@ pnpm dev
   - 일반 사용자: 403 안내
   - 관리자: Admin API 접근 성공
 - `http://localhost:3000/dashboard` 에서 성취도 히트맵/레벨 확인 가능
-- `http://localhost:3000/problems` 에서 문제 목록 확인 가능
-- `http://localhost:3000/submissions` 에서 내 제출 히스토리 확인 가능
-- `http://localhost:3000/admin/problems` 에서 관리자 문제/버전/번들 관리 가능
+- `http://localhost:3000/problems` 에서 카테고리별 시험 목록 확인 가능
+- `http://localhost:3000/submissions` 에서 내 시험 제출 히스토리 확인 가능
+- `http://localhost:3000/admin/problems` 에서 관리자 시험지/문항 생성 및 제출 확인 가능
 
 회원가입/비밀번호 재설정 API:
 - `POST /auth/register`
 - `POST /auth/password/forgot` (개발모드에서는 응답에 `reset_token` 포함)
 - `POST /auth/password/reset`
+
+시험지 API (신규):
+- 관리자
+  - `POST /admin/exams` (시험 + 문항 일괄 생성)
+  - `GET /admin/exams` (시험 목록)
+  - `GET /admin/exams/{exam_id}/submissions` (시험 제출 응답 조회)
+- 사용자
+  - `GET /exams` (시험 목록)
+  - `GET /exams/{exam_id}` (시험 상세/문항)
+  - `POST /exams/{exam_id}/submit` (시험 일괄 제출)
+  - `GET /me/exam-submissions` (내 시험 제출 목록)
 
 ### 문제은행 API (Problem / ProblemVersion)
 마이그레이션:

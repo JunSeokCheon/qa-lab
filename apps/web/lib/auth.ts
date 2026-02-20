@@ -1,4 +1,4 @@
-﻿const FASTAPI_BASE_URL = process.env.FASTAPI_BASE_URL ?? "http://127.0.0.1:8000";
+const FASTAPI_BASE_URL = process.env.FASTAPI_INTERNAL_URL ?? process.env.FASTAPI_BASE_URL ?? "http://api:8000";
 
 export type MeResponse = {
   id: number;
