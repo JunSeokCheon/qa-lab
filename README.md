@@ -1,11 +1,14 @@
 ﻿# QA Lab Monorepo
 
-Next.js(App Router) + FastAPI + Docker Compose 湲곕컲 QA ?쒕퉬?ㅼ엯?덈떎.
+Next.js(App Router) + FastAPI + Docker Compose 기반 QA 서비스입니다.
 
-## 援ъ꽦
-- `apps/web`: Next.js ?꾨윴?몄뿏??- `apps/api`: FastAPI 諛깆뿏??- `infra/docker-compose.prod.yml`: Docker 諛고룷 援ъ꽦
+## 구성
+- `apps/web`: Next.js 프런트엔드
+- `apps/api`: FastAPI 백엔드
+- `infra/docker-compose.prod.yml`: Docker Compose 배포 구성
+- `grader-images/python/Dockerfile`: 코딩 자동채점 이미지
 
-## 濡쒖뺄 ?ㅽ뻾
+## 로컬 실행
 
 ### 1) API
 ```bash
@@ -24,180 +27,12 @@ pnpm install
 pnpm dev
 ```
 
-### 3) ?묒냽
+### 3) 접속
 - Web: `http://localhost:3000`
 - API Docs: `http://127.0.0.1:8000/docs`
 
-## Docker 諛고룷
-```bash
-docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
-docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
-```
-
-湲곕낯 ?ы듃:
-- Web: `http://localhost:3000`
-- API: `http://localhost:8000`
-
-## 湲곕낯 怨꾩젙
-- 愿由ъ옄: `admin` / `admin1234`
-- ?ъ슜?? `user` / `user1234`
-
-## 二쇱슂 ?붾㈃
-- ?쒗뿕 紐⑸줉(?숈뒿??: `/problems`
-- ?쒗뿕 ?묒떆: `/problems/{examId}`
-- ???쒖텧(?숈뒿??: `/submissions`
-- ?쒗뿕吏 愿由?愿由ъ옄): `/admin/problems`
-- ?쒗뿕 紐⑸줉 愿由?愿由ъ옄): `/admin/exams`
-- ?쒗뿕 ?듦퀎 ??쒕낫??愿由ъ옄): `/dashboard`
-
-## ?쒗뿕 ?댁쁺
-
-### ?쒗뿕吏 愿由?(`/admin/problems`)
-- ?쒗뿕 ?앹꽦(媛앷???二쇨???肄붾뵫)
-- 媛앷??앹? 1~4踰??좏깮吏 + ?뺣떟 踰덊샇 1媛?吏??- ?쒗뿕蹂?肄붾뵫 由ъ냼???곗씠???뚯씪) ?낅줈??
-### ?쒗뿕 紐⑸줉 愿由?(`/admin/exams`)
-- 湲곗〈 ?쒗뿕 硫뷀? ?뺣낫 ?섏젙(?쒕ぉ/?ㅻ챸/移댄뀒怨좊━/?좏삎/?곹깭)
-- 湲곗〈 ?쒗뿕 臾명빆 ?몄쭛 ??`?ъ텧?? 踰꾪듉?쇰줈 ???쒗뿕 ?앹꽦
-- ?ъ텧????湲곗〈 肄붾뵫 由ъ냼??蹂듭궗 ?듭뀡 ?쒓났
-
-### ?쒗뿕 ??쒕낫??(`/dashboard`, 愿由ъ옄)
-- ?쒗뿕 ?좏깮 ?쒕∼?ㅼ슫
-- 臾명빆 ?꾪꽣, ?숈깮 ?꾪꽣
-- 媛앷???蹂닿린蹂??묐떟?????묐떟??紐⑸줉
-- 留욏엺 媛쒖닔蹂??몄썝 遺꾪룷
-- ?숈깮蹂??쒖텧 ?곸꽭
-
-## API ?붿빟
-
-### ?몄쬆
-- `POST /auth/login`
-- `POST /auth/logout`
-- `POST /auth/register`
-- `POST /auth/password/forgot`
-- `POST /auth/password/reset`
-- `GET /me`
-
-### ?쒗뿕 (愿由ъ옄)
-- `POST /admin/exams`
-- `GET /admin/exams`
-- `GET /admin/exams/{exam_id}`
-- `PUT /admin/exams/{exam_id}`
-- `POST /admin/exams/{exam_id}/republish`
-- `GET /admin/exams/{exam_id}/submissions`
-- `GET /admin/exams/{exam_id}/resources`
-- `POST /admin/exams/{exam_id}/resources`
-
-### ?쒗뿕 (?ъ슜??
-- `GET /exams`
-- `GET /exams/{exam_id}`
-- `POST /exams/{exam_id}/submit`
-- `GET /me/exam-submissions`
-- `GET /exams/{exam_id}/resources`
-- `GET /exams/{exam_id}/resources/{resource_id}/download`
-
-## ?먮룞 梨꾩젏/由ъ냼??洹쒖튃 (Exam Coding)
-- 肄붾뵫 臾명빆???덈뒗 ?쒗뿕 ?쒖텧 ??worker ?먮줈 ?먮룞 梨꾩젏 ?묒뾽???깅줉?⑸땲??
-- ?쒗뿕 由ъ냼???낅줈????
-  - `.zip`: 梨꾩젏 踰덈뱾 猷⑦듃濡??뺤텞 ?댁젣
-  - 洹????뚯씪: `resources/` ?꾨옒??諛곗튂
-- ?뚯뒪???먯깋 ?쒖꽌:
-  - `tests/question_{order}`
-  - ?놁쑝硫?`tests/`
-- 肄붾뵫 臾명빆? ?뺣떟 臾몄옄??怨좎젙 鍮꾧탳媛 ?꾨땲???뚯뒪??肄붾뱶 湲곕컲?쇰줈 梨꾩젏?⑸땲??
-
-## 留덉씠洹몃젅?댁뀡
-```bash
-cd apps/api
-alembic upgrade head
-```
-
-?꾩옱 留덉씠洹몃젅?댁뀡:
-- `0016_exam_target_track`
-
-## 寃利??먮룞???뚯뒪?몃뒗 ?꾩옱 ?덊룷?먯꽌 ?쒓굅?섏뿀?듬땲??  
-諛고룷 ??理쒖냼 寃利앹? ?꾨옒 鍮뚮뱶濡?吏꾪뻾?⑸땲??
-
-```bash
-pnpm --filter web build
-```
-
-## 2026-02-20 ?낅뜲?댄듃 ?ㅽ뻾 ?쒖꽌
-?꾨옒 ?쒖꽌濡?理쒖떊 湲곕뒫(?쒗뿕 ???諛??꾪꽣, ?쒗뿕 ??젣, ?쒗뿕 紐⑸줉 由ъ냼???낅줈?? ??쒕낫??洹몃옒????諛섏쁺?????덉뒿?덈떎.
-
-```bash
-cd apps/api
-alembic upgrade head
-
-cd ../..
-pnpm --filter web build
-```
-
-?꾩옱 理쒖떊 留덉씠洹몃젅?댁뀡:
-- `0016_exam_target_track`
-
-## 2026-02-20 Git/Docker 최신화 + 통합검증 실행 명령
-
-```bash
-# 1) Git 최신화
-git fetch --all --prune
-git pull --ff-only
-
-# 2) Docker 최신화 (이미지 pull + build + 재기동)
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
-
-# 3) 채점 컨테이너 이미지 최신화
-docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
-```
-
-```powershell
-# 4) 전체 통합 점검 (가상 사용자 12명, 시험 생성/복제/리소스 업로드/제출/자동채점/권한 필터)
-$env:API_BASE_URL="http://127.0.0.1:8000"
-$env:VIRTUAL_USERS="12"
-node scripts/full_system_check.mjs
-
-# 5) grader 스모크 테스트
-bash scripts/smoke_grader.sh
-
-# 6) 웹 빌드 검증 (PowerShell 정책 이슈 회피용 pnpm.cmd)
-pnpm.cmd --filter web build
-```
-
-## 2026-02-20 신규 기능 사용 방법
-
-### 1) 시험 생성/재출제 시 리소스 동시 업로드
-- `/admin/problems` 에서 새 시험 만들기 폼 안에서 코딩 리소스를 함께 업로드
-- `/admin/exams` 에서 재출제 시 `재출제 시 추가 리소스 업로드`로 새 시험에 바로 업로드
-
-### 2) 관리자 자동 채점 메뉴
-- `/admin/grading`
-- 기능:
-  - 시험/상태 필터
-  - 코딩 문항 제출만 필터
-  - 제출별 `채점 실행` / `강제 재채점`
-  - 일괄 실행
-
-### 3) 사용자 대시보드 시험 결과
-- `/dashboard` (user 계정)
-- 제출 시험 드롭다운 선택
-- 채점 전이면 `아직 평가되지 않았습니다` 표시
-- 채점 완료이면 객관식/코딩 결과 표시
-
-### 4) 테스트 데이터 정리 명령 (가상 사용자 + load-* 시험)
-```bash
-docker exec infra-postgres-1 psql -U qa_lab -d qa_lab -c "DELETE FROM exams WHERE title LIKE 'load-%' OR title LIKE 'invalid-choice-%' OR title = 'test' OR title LIKE 'auto-grade-e2e-%' OR title LIKE 'upload-test-%' OR title LIKE 'republish-src-%' OR title LIKE 'republished-%' OR title LIKE 'leak-check-%'; DELETE FROM users WHERE username LIKE 'vu%';"
-```
-
-## 2026-02-20 UI Update Runbook (Branding + Screen Fix)
-
-### 1) Sync git
-```bash
-git fetch --all --prune
-git pull --ff-only origin main
-```
-
-### 2) Refresh docker images/containers
+## Docker 실행/갱신
+로컬 통합 테스트 기준:
 ```bash
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
@@ -206,66 +41,68 @@ docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
 ```
 
-### 3) Web build validation (pnpm)
+프로덕션 기준:
 ```bash
-pnpm --filter web build
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 ```
 
-### 4) Manual QA check flow
-- Open `http://localhost:3000`
-- Login with:
-  - `admin / admin1234`
-  - `user / user1234`
-- Validate:
-  - Home text: `팀스파르타 내배캠 QA LAB` / `스파르타 QA 시스템`
-  - Role profile fields (user: id/name/track, admin: id/name/role)
-  - User pages header color consistency (`/problems`, `/submissions`, `/dashboard`)
-  - Admin pages header color consistency (`/admin/problems`, `/admin/exams`, `/dashboard`)
-  - Forgot password page (`/forgot-password`) has no bottom `/login` return line
-
-## 2026-02-20 UI Minor Update (User Shortcut + File Picker Button)
-
-```powershell
-# web lint/build check
-pnpm.cmd --filter web lint
-pnpm.cmd --filter web build
-```
-
-## 2026-02-20 Re-Validation (Git + Docker + Full Check)
-
+## Git 최신화
 ```bash
-# git sync
 git fetch --all --prune
 git pull --ff-only origin main
-
-# docker refresh
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
-docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
 ```
 
+## 기본 계정
+- 관리자: `admin` / `admin1234`
+- 사용자: `user` / `user1234`
+
+## 주요 페이지
+- 사용자 시험 목록: `/problems`
+- 사용자 시험 응시: `/problems/{examId}`
+- 사용자 제출 이력: `/submissions`
+- 관리자 시험지 관리: `/admin/problems`
+- 관리자 시험 목록 관리: `/admin/exams`
+- 관리자 시험 대시보드: `/dashboard`
+- 관리자 자동채점: `/admin/grading`
+
+## 관리자 대시보드 CSV/엑셀 내보내기
+경로: `/dashboard` (admin 로그인)
+
+다운로드 컬럼 형식:
+- 행: 응시 수강생 이름
+- 열: 문제 번호(예: `1번`, `2번`, ...)
+- 값: 정답 `1`, 오답 `0`
+- 학생별 우측 컬럼: `합계`, `정답률(%)`
+- 하단 요약 행:
+  - `합계`: 문제별 정답자 수
+  - `정답률(%)`: 문제별 정답률
+  - `전체 평균 점수(100점)`: 전체 응시자 평균 점수
+
+## 자동채점(코딩) 규칙
+- 코딩 문항 채점은 정답 문자열 비교가 아니라 테스트 코드 실행 기반입니다.
+- 시험 리소스 업로드 시 테스트 파일을 포함해야 자동채점이 가능합니다.
+- 테스트 탐색 순서:
+  - `tests/question_{order}`
+  - 없으면 `tests/`
+- 일반적으로 코딩 문제마다 관리자가 테스트 코드를 작성해야 합니다.
+- 반복 문제 유형은 템플릿 테스트를 복사해서 입력/기대값만 바꿔 재사용할 수 있습니다.
+
+## 검증 명령
 ```powershell
-# app checks
 pnpm.cmd --filter web lint
 pnpm.cmd --filter web build
 
-# full system runtime check
 $env:API_BASE_URL="http://127.0.0.1:8000"
 $env:VIRTUAL_USERS="12"
 node scripts/full_system_check.mjs
 
-# grader smoke
 bash scripts/smoke_grader.sh
 ```
 
-## 2026-02-20 관리자 시험 대시보드 결과 내보내기
-
-- 경로: `/dashboard` (admin 계정 로그인 시)
-- 기능:
-  - 시험 선택 후 `CSV 다운로드`
-  - 시험 선택 후 `엑셀(.xls) 다운로드`
-- 파일 포함 데이터:
-  - 전체 응시자 제출 정보
-  - 문제별 응답/정오답/채점 상태/점수
-
+## 수동 QA 점검 흐름
+1. `http://localhost:3000` 접속 후 `admin`, `user` 계정으로 각각 로그인합니다.
+2. 관리자 `대시보드`에서 시험 선택 후 `CSV 다운로드`, `엑셀(.xls) 다운로드`를 실행합니다.
+3. 파일에서 문제별 `1/0`, 하단 `합계/정답률`, `전체 평균 점수(100점)`을 확인합니다.
+4. 사용자/관리자 화면 공통 텍스트와 헤더 컬러 통일 상태를 확인합니다.
+5. 비밀번호 재설정 화면에서 하단 `/login` 복귀 문구 제거 여부를 확인합니다.

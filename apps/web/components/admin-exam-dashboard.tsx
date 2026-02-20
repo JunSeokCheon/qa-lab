@@ -60,37 +60,25 @@ function examKindLabel(kind: string): string {
 type ExportCell = string | number | null | undefined;
 type ExportRow = Record<string, ExportCell>;
 
-function sanitizeText(value: string | null | undefined): string {
-  return (value ?? "").replace(/\s+/g, " ").trim();
-}
+function toBinaryCorrect(answer: ExamSubmissionAnswer | undefined): number {
+  if (!answer) return 0;
 
-function compactText(value: string | null | undefined, maxLength = 140): string {
-  const text = sanitizeText(value);
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength)}...`;
-}
-
-function choiceLabel(choices: string[] | null, index: number | null): string {
-  if (index === null || index < 0) return "";
-  const choice = choices?.[index];
-  return choice ? `${index + 1}번 (${sanitizeText(choice)})` : `${index + 1}번`;
-}
-
-function multipleChoiceCorrectness(answer: ExamSubmissionAnswer): string {
-  if (answer.selected_choice_index === null) return "미응답";
-  if (answer.correct_choice_index === null) return "-";
-  return answer.selected_choice_index === answer.correct_choice_index ? "정답" : "오답";
-}
-
-function codingCorrectness(answer: ExamSubmissionAnswer): string {
-  if (answer.grading_status === "GRADED") {
-    if (answer.grading_score === null || answer.grading_max_score === null) return "미채점";
-    if (answer.grading_score === answer.grading_max_score) return "정답";
-    if (answer.grading_score > 0) return "부분정답";
-    return "오답";
+  if (answer.question_type === "multiple_choice") {
+    if (answer.correct_choice_index === null || answer.selected_choice_index === null) return 0;
+    return answer.selected_choice_index === answer.correct_choice_index ? 1 : 0;
   }
-  if (answer.grading_status === "FAILED") return "오답";
-  return "미채점";
+
+  if (answer.question_type === "coding") {
+    if (answer.grading_status !== "GRADED") return 0;
+    if (answer.grading_score === null || answer.grading_max_score === null) return 0;
+    return answer.grading_score === answer.grading_max_score ? 1 : 0;
+  }
+
+  return 0;
+}
+
+function formatPercent(value: number): string {
+  return value.toFixed(1);
 }
 
 function csvCell(value: ExportCell): string {
@@ -289,144 +277,107 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   );
 
   const exportQuestions = useMemo(() => {
-    const byQuestion = new Map<number, ExamSubmissionAnswer>();
+    const byQuestion = new Map<number, { id: number; order: number; type: string }>();
     for (const submission of submissions) {
       for (const answer of submission.answers) {
+        if (answer.question_type !== "multiple_choice" && answer.question_type !== "coding") continue;
         if (!byQuestion.has(answer.question_id)) {
-          byQuestion.set(answer.question_id, answer);
+          byQuestion.set(answer.question_id, {
+            id: answer.question_id,
+            order: answer.question_order,
+            type: answer.question_type,
+          });
         }
       }
     }
-    return [...byQuestion.values()].sort((a, b) => a.question_order - b.question_order);
+    return [...byQuestion.values()].sort((a, b) => a.order - b.order);
   }, [submissions]);
 
+  const exportQuestionHeaders = useMemo(
+    () => exportQuestions.map((question) => `${question.order}번`),
+    [exportQuestions]
+  );
+
   const exportHeaders = useMemo(() => {
-    const baseHeaders = [
-      "제출ID",
-      "응시자명",
-      "아이디",
-      "제출시각",
-      "제출상태",
-      "객관식_정답수",
-      "객관식_총문항",
-      "객관식_정답률(%)",
-      "코딩_채점점수",
-      "코딩_만점합",
-      "코딩_채점상태",
-    ];
+    return ["수강생", ...exportQuestionHeaders, "합계", "정답률(%)"];
+  }, [exportQuestionHeaders]);
 
-    for (const question of exportQuestions) {
-      const prefix = `Q${question.question_order}`;
-      baseHeaders.push(
-        `${prefix}_유형`,
-        `${prefix}_문항`,
-        `${prefix}_응답`,
-        `${prefix}_정답`,
-        `${prefix}_정오답`,
-        `${prefix}_채점상태`,
-        `${prefix}_점수`
-      );
-    }
-    return baseHeaders;
-  }, [exportQuestions]);
-
-  const exportRows = useMemo(() => {
+  const studentScoreRows = useMemo(() => {
+    const questionCount = exportQuestions.length;
     return submissions.map((submission) => {
       const answerMap = new Map<number, ExamSubmissionAnswer>(
         submission.answers.map((answer) => [answer.question_id, answer])
       );
-
-      let objectiveTotal = 0;
-      let objectiveCorrect = 0;
-      let codingScore = 0;
-      let codingMax = 0;
-      let codingGraded = 0;
-      let codingFailed = 0;
-      let codingPending = 0;
-
-      const row: ExportRow = {
-        제출ID: submission.submission_id,
-        응시자명: submission.user_name,
-        아이디: submission.username,
-        제출시각: new Date(submission.submitted_at).toLocaleString(),
-        제출상태: submission.status,
+      const values = exportQuestions.map((question) => toBinaryCorrect(answerMap.get(question.id)));
+      const total = values.reduce((sum, value) => sum + value, 0);
+      const rate = questionCount > 0 ? (total / questionCount) * 100 : 0;
+      return {
+        userName: submission.user_name,
+        values,
+        total,
+        rate,
       };
-
-      for (const question of exportQuestions) {
-        const answer = answerMap.get(question.question_id);
-        const prefix = `Q${question.question_order}`;
-        const type = answer?.question_type ?? question.question_type;
-
-        row[`${prefix}_유형`] = type;
-        row[`${prefix}_문항`] = compactText(question.prompt_md, 180);
-
-        if (!answer) {
-          row[`${prefix}_응답`] = "";
-          row[`${prefix}_정답`] = "";
-          row[`${prefix}_정오답`] = "미응답";
-          row[`${prefix}_채점상태`] = "";
-          row[`${prefix}_점수`] = "";
-          if (type === "multiple_choice" && question.correct_choice_index !== null) {
-            objectiveTotal += 1;
-          }
-          if (type === "coding") {
-            codingPending += 1;
-          }
-          continue;
-        }
-
-        if (type === "multiple_choice") {
-          const correct = multipleChoiceCorrectness(answer);
-          if (answer.correct_choice_index !== null) {
-            objectiveTotal += 1;
-            if (correct === "정답") objectiveCorrect += 1;
-          }
-          row[`${prefix}_응답`] = choiceLabel(answer.choices, answer.selected_choice_index);
-          row[`${prefix}_정답`] = choiceLabel(answer.choices, answer.correct_choice_index);
-          row[`${prefix}_정오답`] = correct;
-          row[`${prefix}_채점상태`] = "완료";
-          row[`${prefix}_점수`] = correct === "정답" ? "1/1" : "0/1";
-          continue;
-        }
-
-        if (type === "coding") {
-          const correctness = codingCorrectness(answer);
-          if (answer.grading_status === "GRADED") {
-            codingGraded += 1;
-            if (answer.grading_score !== null) codingScore += answer.grading_score;
-            if (answer.grading_max_score !== null) codingMax += answer.grading_max_score;
-          } else if (answer.grading_status === "FAILED") {
-            codingFailed += 1;
-          } else {
-            codingPending += 1;
-          }
-          row[`${prefix}_응답`] = compactText(answer.answer_text, 180);
-          row[`${prefix}_정답`] = "테스트 케이스 기준";
-          row[`${prefix}_정오답`] = correctness;
-          row[`${prefix}_채점상태`] = answer.grading_status ?? "미채점";
-          row[`${prefix}_점수`] =
-            answer.grading_score !== null && answer.grading_max_score !== null
-              ? `${answer.grading_score}/${answer.grading_max_score}`
-              : "";
-          continue;
-        }
-
-        row[`${prefix}_응답`] = compactText(answer.answer_text, 180);
-        row[`${prefix}_정답`] = "수동 검토";
-        row[`${prefix}_정오답`] = "-";
-        row[`${prefix}_채점상태`] = "-";
-        row[`${prefix}_점수`] = "";
-      }
-
-      row["객관식_정답수"] = objectiveCorrect;
-      row["객관식_총문항"] = objectiveTotal;
-      row["객관식_정답률(%)"] = objectiveTotal > 0 ? ((objectiveCorrect / objectiveTotal) * 100).toFixed(1) : "";
-      row["코딩_채점점수"] = codingScore > 0 ? codingScore : "";
-      row["코딩_만점합"] = codingMax > 0 ? codingMax : "";
-      row["코딩_채점상태"] = `완료 ${codingGraded}, 실패 ${codingFailed}, 대기 ${codingPending}`;
-      return row;
     });
   }, [exportQuestions, submissions]);
+
+  const questionSums = useMemo(() => {
+    const sums = new Array(exportQuestions.length).fill(0);
+    for (const row of studentScoreRows) {
+      row.values.forEach((value, index) => {
+        sums[index] += value;
+      });
+    }
+    return sums;
+  }, [exportQuestions.length, studentScoreRows]);
+
+  const questionRates = useMemo(() => {
+    if (studentScoreRows.length === 0) return questionSums.map(() => 0);
+    return questionSums.map((sum) => (sum / studentScoreRows.length) * 100);
+  }, [questionSums, studentScoreRows.length]);
+
+  const overallAverageScore = useMemo(() => {
+    if (studentScoreRows.length === 0) return 0;
+    const totalRate = studentScoreRows.reduce((sum, row) => sum + row.rate, 0);
+    return totalRate / studentScoreRows.length;
+  }, [studentScoreRows]);
+
+  const exportRows = useMemo(() => {
+    const rows: ExportRow[] = studentScoreRows.map((student) => {
+      const row: ExportRow = {
+        수강생: student.userName,
+      };
+      exportQuestionHeaders.forEach((header, index) => {
+        row[header] = student.values[index];
+      });
+      row["합계"] = student.total;
+      row["정답률(%)"] = formatPercent(student.rate);
+      return row;
+    });
+
+    const sumRow: ExportRow = { 수강생: "합계" };
+    exportQuestionHeaders.forEach((header, index) => {
+      sumRow[header] = questionSums[index];
+    });
+    sumRow["합계"] = studentScoreRows.reduce((sum, student) => sum + student.total, 0);
+    sumRow["정답률(%)"] = "";
+
+    const rateRow: ExportRow = { 수강생: "정답률(%)" };
+    exportQuestionHeaders.forEach((header, index) => {
+      rateRow[header] = formatPercent(questionRates[index]);
+    });
+    rateRow["합계"] = formatPercent(overallAverageScore);
+    rateRow["정답률(%)"] = formatPercent(overallAverageScore);
+
+    const averageRow: ExportRow = { 수강생: "전체 평균 점수(100점)" };
+    exportQuestionHeaders.forEach((header) => {
+      averageRow[header] = "";
+    });
+    averageRow["합계"] = formatPercent(overallAverageScore);
+    averageRow["정답률(%)"] = formatPercent(overallAverageScore);
+
+    rows.push(sumRow, rateRow, averageRow);
+    return rows;
+  }, [exportQuestionHeaders, overallAverageScore, questionRates, questionSums, studentScoreRows]);
 
   const onDownloadCsv = () => {
     if (!selectedExam || exportRows.length === 0) return;
@@ -528,7 +479,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
             {studentFilter !== "all" ? ` | 필터 적용: ${filteredSubmissions.length}명` : ""}
           </p>
           <p className="text-xs text-muted-foreground">
-            다운로드 파일에는 현재 선택된 시험의 전체 응시자에 대한 문제별 응답/정오답/채점상태가 포함됩니다.
+            다운로드 파일은 수강생 X 문항 1/0 매트릭스와 하단 합계/정답률/전체 평균 점수를 제공합니다.
           </p>
           {loading ? <p className="text-sm text-muted-foreground">불러오는 중...</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
