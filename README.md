@@ -189,3 +189,83 @@ pnpm.cmd --filter web build
 docker exec infra-postgres-1 psql -U qa_lab -d qa_lab -c "DELETE FROM exams WHERE title LIKE 'load-%' OR title LIKE 'invalid-choice-%' OR title = 'test' OR title LIKE 'auto-grade-e2e-%' OR title LIKE 'upload-test-%' OR title LIKE 'republish-src-%' OR title LIKE 'republished-%' OR title LIKE 'leak-check-%'; DELETE FROM users WHERE username LIKE 'vu%';"
 ```
 
+## 2026-02-20 UI Update Runbook (Branding + Screen Fix)
+
+### 1) Sync git
+```bash
+git fetch --all --prune
+git pull --ff-only origin main
+```
+
+### 2) Refresh docker images/containers
+```bash
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
+docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
+```
+
+### 3) Web build validation (pnpm)
+```bash
+pnpm --filter web build
+```
+
+### 4) Manual QA check flow
+- Open `http://localhost:3000`
+- Login with:
+  - `admin / admin1234`
+  - `user / user1234`
+- Validate:
+  - Home text: `팀스파르타 내배캠 QA LAB` / `스파르타 QA 시스템`
+  - Role profile fields (user: id/name/track, admin: id/name/role)
+  - User pages header color consistency (`/problems`, `/submissions`, `/dashboard`)
+  - Admin pages header color consistency (`/admin/problems`, `/admin/exams`, `/dashboard`)
+  - Forgot password page (`/forgot-password`) has no bottom `/login` return line
+
+## 2026-02-20 UI Minor Update (User Shortcut + File Picker Button)
+
+```powershell
+# web lint/build check
+pnpm.cmd --filter web lint
+pnpm.cmd --filter web build
+```
+
+## 2026-02-20 Re-Validation (Git + Docker + Full Check)
+
+```bash
+# git sync
+git fetch --all --prune
+git pull --ff-only origin main
+
+# docker refresh
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
+docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
+```
+
+```powershell
+# app checks
+pnpm.cmd --filter web lint
+pnpm.cmd --filter web build
+
+# full system runtime check
+$env:API_BASE_URL="http://127.0.0.1:8000"
+$env:VIRTUAL_USERS="12"
+node scripts/full_system_check.mjs
+
+# grader smoke
+bash scripts/smoke_grader.sh
+```
+
+## 2026-02-20 관리자 시험 대시보드 결과 내보내기
+
+- 경로: `/dashboard` (admin 계정 로그인 시)
+- 기능:
+  - 시험 선택 후 `CSV 다운로드`
+  - 시험 선택 후 `엑셀(.xls) 다운로드`
+- 파일 포함 데이터:
+  - 전체 응시자 제출 정보
+  - 문제별 응답/정오답/채점 상태/점수
+

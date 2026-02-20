@@ -82,11 +82,11 @@ export default async function DashboardPage() {
 
   return (
     <main className="qa-shell space-y-6">
-      <section className="qa-card">
-        <BackButton />
-        <p className="qa-kicker mt-4">학습 진행</p>
+      <section className="qa-card bg-hero text-hero-foreground">
+        <BackButton tone="hero" />
+        <p className="qa-kicker mt-4 text-hero-foreground/80">학습 진행</p>
         <h1 className="mt-2 text-3xl font-bold">성취도 대시보드</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{me.username} 님의 현재 성취도입니다.</p>
+        <p className="mt-2 text-sm text-hero-foreground/90">{me.username} 님의 현재 성취도입니다.</p>
       </section>
 
       <UserExamResultDashboard results={examResults ?? []} />

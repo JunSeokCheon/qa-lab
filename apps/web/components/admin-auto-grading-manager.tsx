@@ -159,11 +159,11 @@ export function AdminAutoGradingManager({
 
   return (
     <main className="qa-shell space-y-6">
-      <section className="qa-card">
-        <BackButton fallbackHref="/admin" />
-        <p className="qa-kicker mt-4">관리자</p>
+      <section className="qa-card bg-hero text-hero-foreground">
+        <BackButton fallbackHref="/admin" tone="hero" />
+        <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">자동 채점 관리</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-sm text-hero-foreground/90">
           사용자 시험 제출에 대해 자동 채점을 실행하거나 재실행합니다.
         </p>
       </section>

@@ -244,11 +244,11 @@ export function AdminExamBuilder({
 
   return (
     <main className="qa-shell space-y-6">
-      <section className="qa-card">
-        <BackButton fallbackHref="/admin" />
-        <p className="qa-kicker mt-4">관리자</p>
+      <section className="qa-card bg-hero text-hero-foreground">
+        <BackButton fallbackHref="/admin" tone="hero" />
+        <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
-        <p className="mt-3 text-sm text-muted-foreground">
+        <p className="mt-3 text-sm text-hero-foreground/90">
           새 시험 생성 시 코딩 리소스 파일도 함께 업로드할 수 있습니다.
         </p>
       </section>
@@ -380,7 +380,17 @@ export function AdminExamBuilder({
           <p className="mt-1 text-xs text-muted-foreground">
             코딩 문항이 있을 때 권장합니다. 여러 파일 선택 가능, zip 파일도 업로드할 수 있습니다.
           </p>
-          <input ref={fileInputRef} type="file" multiple className="mt-3" onChange={onResourceFileChange} />
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onResourceFileChange} />
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-2"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              파일 선택
+            </Button>
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">
             선택 파일:{" "}
             {resourceFiles.length > 0 ? resourceFiles.map((file) => file.name).join(", ") : "(없음)"}

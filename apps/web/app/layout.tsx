@@ -13,8 +13,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "트랙 QA 스튜디오",
-  description: "내일배움캠프 데이터분석 트랙 학습자용 QA 서비스",
+  title: "팀스파르타 내배캠 QA LAB",
+  description: "스파르타 QA 시스템",
 };
 
 export default function RootLayout({

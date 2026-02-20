@@ -36,11 +36,11 @@ export default async function AdminPage() {
 
   return (
     <main className="qa-shell space-y-4">
-      <section className="qa-card">
-        <BackButton />
-        <p className="qa-kicker mt-4">관리자</p>
+      <section className="qa-card bg-hero text-hero-foreground">
+        <BackButton tone="hero" />
+        <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">관리자 허브</h1>
-        <p className="mt-2 text-sm text-muted-foreground">로그인 계정: {me.username}</p>
+        <p className="mt-2 text-sm text-hero-foreground/90">로그인 계정: {me.username}</p>
       </section>
 
       <section className="qa-card grid gap-2 text-sm md:grid-cols-4">

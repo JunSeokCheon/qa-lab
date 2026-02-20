@@ -8,9 +8,10 @@ import { cn } from "@/lib/utils";
 type BackButtonProps = {
   fallbackHref?: string;
   className?: string;
+  tone?: "default" | "hero";
 };
 
-export function BackButton({ fallbackHref = "/", className }: BackButtonProps) {
+export function BackButton({ fallbackHref = "/", className, tone = "default" }: BackButtonProps) {
   const router = useRouter();
 
   const onGoBack = () => {
@@ -22,7 +23,17 @@ export function BackButton({ fallbackHref = "/", className }: BackButtonProps) {
   };
 
   return (
-    <Button type="button" variant="outline" onClick={onGoBack} className={cn("mb-4", className)}>
+    <Button
+      type="button"
+      variant="outline"
+      onClick={onGoBack}
+      className={cn(
+        "mb-4",
+        tone === "hero" &&
+          "border-white/45 bg-white/10 text-hero-foreground hover:bg-white/20 hover:text-hero-foreground",
+        className
+      )}
+    >
       뒤로 가기
     </Button>
   );

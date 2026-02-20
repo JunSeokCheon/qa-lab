@@ -1,6 +1,4 @@
 "use client";
-
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
@@ -64,12 +62,6 @@ export function ResetPasswordClient() {
               {loading ? "변경 중..." : "비밀번호 변경"}
             </Button>
           </form>
-          <p className="text-xs text-muted-foreground">
-            로그인으로 이동:{" "}
-            <Link href="/login" className="underline">
-              /login
-            </Link>
-          </p>
         </section>
       </main>
     </div>

@@ -44,11 +44,10 @@ export default async function SubmissionsPage() {
 
   return (
     <main className="qa-shell space-y-6">
-      <section className="qa-card">
-        <BackButton />
-        <p className="qa-kicker">학습자</p>
+      <section className="qa-card bg-hero text-hero-foreground">
+        <BackButton tone="hero" />
+        <p className="qa-kicker text-hero-foreground/80">학습자</p>
         <h1 className="mt-2 text-3xl font-bold">내 시험 제출 이력</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{me.username}</p>
       </section>
 
       <section className="qa-card">

@@ -35,11 +35,11 @@ export default async function ProblemsPage() {
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
-        <BackButton />
+        <BackButton tone="hero" />
         <p className="qa-kicker text-hero-foreground/80">내일배움캠프 데이터분석 트랙</p>
         <h1 className="mt-2 text-3xl font-bold md:text-4xl">시험 목록</h1>
         <p className="mt-2 text-sm text-hero-foreground/90">
-          카테고리를 선택해 퀴즈/성취도 평가 시험지를 응시하세요. ({me.username})
+          카테고리를 선택해 퀴즈/성취도 평가 시험지를 응시하세요.
         </p>
       </section>
 

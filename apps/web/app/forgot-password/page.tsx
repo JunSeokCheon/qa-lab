@@ -61,12 +61,6 @@ export default function ForgotPasswordPage() {
               </Link>
             </div>
           ) : null}
-          <p className="text-xs text-muted-foreground">
-            로그인으로 돌아가기{" "}
-            <Link href="/login" className="underline">
-              /login
-            </Link>
-          </p>
         </section>
       </main>
     </div>

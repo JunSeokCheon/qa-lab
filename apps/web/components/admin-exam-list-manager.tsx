@@ -471,11 +471,11 @@ export function AdminExamListManager({
 
   return (
     <main className="qa-shell space-y-6">
-      <section className="qa-card">
-        <BackButton fallbackHref="/admin" />
-        <p className="qa-kicker mt-4">관리자</p>
+      <section className="qa-card bg-hero text-hero-foreground">
+        <BackButton fallbackHref="/admin" tone="hero" />
+        <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험 목록 관리</h1>
-        <p className="mt-3 text-sm text-muted-foreground">
+        <p className="mt-3 text-sm text-hero-foreground/90">
           시험 기본 정보 수정, 문항 편집 재출제, 리소스 관리, 시험 삭제를 수행합니다.
         </p>
       </section>
