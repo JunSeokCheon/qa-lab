@@ -59,6 +59,7 @@ def _create_exam(admin_token: str) -> dict[str, Any]:
                     "prompt_md": "1 + 1 = ?",
                     "required": True,
                     "choices": ["1", "2", "3"],
+                    "correct_choice_index": 1,
                 },
                 {
                     "type": "subjective",

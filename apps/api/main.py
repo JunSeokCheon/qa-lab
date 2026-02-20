@@ -56,6 +56,7 @@ from app.schemas import (
     AdminExamSubmissionAnswer,
     AuthTokenResponse,
     ExamCreate,
+    ExamUpdate,
     ExamDetail,
     ExamQuestionSummary,
     ExamResourceSummary,
@@ -186,6 +187,20 @@ def _sanitize_exam_question_choices(question_type: str, choices: list[str] | Non
     if len(normalized_choices) < 2:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 선택지 2개 이상이 필요합니다.")
     return normalized_choices
+
+
+def _sanitize_exam_correct_choice_index(
+    question_type: str, choices: list[str] | None, correct_choice_index: int | None
+) -> int | None:
+    if question_type != "multiple_choice":
+        return None
+    if correct_choice_index is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 정답 번호가 필요합니다.")
+    choice_count = len(choices or [])
+    if correct_choice_index < 0 or correct_choice_index >= choice_count:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 정답 번호가 선택지 범위를 벗어났습니다.")
+    return correct_choice_index
+
 
 async def _load_folder_path_map(session: AsyncSession) -> dict[int, str]:
     rows = (await session.execute(select(ProblemFolder).order_by(ProblemFolder.sort_order.asc(), ProblemFolder.id.asc()))).scalars().all()
@@ -892,6 +907,9 @@ async def create_exam(
             prompt_md=prompt_md,
             required=bool(question_payload.required),
             choices_json=choices,
+            correct_choice_index=_sanitize_exam_correct_choice_index(
+                question_type, choices, question_payload.correct_choice_index
+            ),
         )
         session.add(question)
         questions.append(question)
@@ -937,6 +955,62 @@ async def list_admin_exams(
         )
         for exam in exams
     ]
+
+
+@app.put("/admin/exams/{exam_id}", response_model=ExamSummary)
+async def update_admin_exam(
+    exam_id: int,
+    payload: ExamUpdate,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ExamSummary:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 제목은 필수입니다.")
+    folder_id = payload.folder_id
+    if folder_id is not None:
+        folder = await session.scalar(select(ProblemFolder).where(ProblemFolder.id == folder_id))
+        if folder is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="카테고리(폴더)를 찾을 수 없습니다.")
+
+    exam.title = title
+    exam.description = payload.description.strip() if payload.description else None
+    exam.folder_id = folder_id
+    exam.exam_kind = _normalize_exam_kind(payload.exam_kind)
+    exam.status = _sanitize_exam_status(payload.status)
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.update",
+        resource_type="exam",
+        resource_id=str(exam.id),
+        metadata={
+            "title": exam.title,
+            "exam_kind": exam.exam_kind,
+            "status": exam.status,
+            "folder_id": exam.folder_id,
+        },
+    )
+    await session.commit()
+    await session.refresh(exam)
+
+    question_count = int(
+        (
+            await session.scalar(
+                select(func.count(ExamQuestion.id)).where(ExamQuestion.exam_id == exam.id)
+            )
+        )
+        or 0
+    )
+    folder_path_map = await _load_folder_path_map(session)
+    return _to_exam_summary(exam, folder_path_map=folder_path_map, question_count=question_count, submitted=False)
 
 
 @app.get("/admin/exams/{exam_id}/submissions", response_model=list[AdminExamSubmissionDetail])
@@ -987,6 +1061,7 @@ async def list_admin_exam_submissions(
                     question_type=question.type,
                     prompt_md=question.prompt_md,
                     choices=list(question.choices_json or []) if question.choices_json is not None else None,
+                    correct_choice_index=question.correct_choice_index,
                     answer_text=answer.answer_text,
                     selected_choice_index=answer.selected_choice_index,
                     grading_status=answer.grading_status,

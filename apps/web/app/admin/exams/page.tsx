@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { AdminExamBuilder } from "@/components/admin-exam-builder";
+import { AdminExamListManager } from "@/components/admin-exam-list-manager";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 type Folder = { id: number; path: string };
@@ -10,10 +10,10 @@ type ExamSummary = {
   title: string;
   description: string | null;
   folder_id: number | null;
-  exam_kind: string;
-  question_count: number;
   folder_path: string | null;
+  exam_kind: string;
   status: string;
+  question_count: number;
 };
 
 const DEFAULT_FOLDERS = [
@@ -48,11 +48,12 @@ async function ensureDefaultFolders(token: string): Promise<Folder[]> {
       cache: "no-store",
     });
   }
+
   folders = await fetchFolders(token);
   return folders;
 }
 
-export default async function AdminProblemsPage() {
+export default async function AdminExamListPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) redirect("/login");
@@ -71,5 +72,5 @@ export default async function AdminProblemsPage() {
   ]);
   const initialExams = (await examsResponse.json().catch(() => [])) as ExamSummary[];
 
-  return <AdminExamBuilder initialFolders={initialFolders} initialExams={initialExams} />;
+  return <AdminExamListManager initialFolders={initialFolders} initialExams={initialExams} />;
 }

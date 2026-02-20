@@ -186,6 +186,7 @@ class ExamQuestion(Base):
     type: Mapped[str] = mapped_column(String(30), nullable=False)
     prompt_md: Mapped[str] = mapped_column(Text, nullable=False)
     choices_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    correct_choice_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

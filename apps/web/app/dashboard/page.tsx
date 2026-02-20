@@ -2,8 +2,16 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { AdminExamDashboard } from "@/components/admin-exam-dashboard";
 import { BackButton } from "@/components/back-button";
-import { fetchMeWithToken, fetchMyProgressWithToken } from "@/lib/auth";
+import { FASTAPI_BASE_URL, fetchMeWithToken, fetchMyProgressWithToken } from "@/lib/auth";
+
+type ExamSummary = {
+  id: number;
+  title: string;
+  exam_kind: string;
+  question_count: number;
+};
 
 function masteryLevel(mastery: number): string {
   if (mastery >= 85) return "상";
@@ -30,13 +38,18 @@ function statusLabel(status: string): string {
 export default async function DashboardPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
-  if (!token) {
-    redirect("/login");
-  }
+  if (!token) redirect("/login");
 
   const me = await fetchMeWithToken(token);
-  if (!me) {
-    redirect("/login");
+  if (!me) redirect("/login");
+
+  if (me.role === "admin") {
+    const examsResponse = await fetch(`${FASTAPI_BASE_URL}/admin/exams`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const exams = (await examsResponse.json().catch(() => [])) as ExamSummary[];
+    return <AdminExamDashboard initialExams={exams} />;
   }
 
   const progress = await fetchMyProgressWithToken(token);
@@ -45,7 +58,7 @@ export default async function DashboardPage() {
       <main className="qa-shell">
         <section className="qa-card">
           <BackButton />
-          <h1 className="text-2xl font-semibold">대시보드</h1>
+          <h1 className="mt-4 text-2xl font-semibold">대시보드</h1>
           <p className="mt-4">학습 진행 정보를 불러오지 못했습니다.</p>
           <Link href="/" className="mt-4 inline-block underline">
             홈으로 이동
@@ -59,7 +72,7 @@ export default async function DashboardPage() {
     <main className="qa-shell space-y-6">
       <section className="qa-card">
         <BackButton />
-        <p className="qa-kicker">학습 진행</p>
+        <p className="qa-kicker mt-4">학습 진행</p>
         <h1 className="mt-2 text-3xl font-bold">성취도 대시보드</h1>
         <p className="mt-2 text-sm text-muted-foreground">{me.username}님의 현재 성취도입니다.</p>
       </section>
@@ -67,7 +80,9 @@ export default async function DashboardPage() {
       <section className="qa-card">
         <h2 className="text-xl font-semibold">스킬 히트맵</h2>
         {progress.skills.length === 0 ? (
-          <p className="mt-3 rounded-2xl border border-border/70 bg-surface-muted p-4">아직 채점된 제출이 없습니다.</p>
+          <p className="mt-3 rounded-2xl border border-border/70 bg-surface-muted p-4">
+            아직 채점된 제출이 없습니다.
+          </p>
         ) : (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {progress.skills.map((skill) => (
@@ -104,7 +119,9 @@ export default async function DashboardPage() {
               {progress.recent_submissions.map((item) => (
                 <tr key={item.submission_id} className="border-t border-border/70">
                   <td className="px-3 py-2">#{item.submission_id}</td>
-                  <td className="px-3 py-2">{item.problem_title} (v{item.problem_version})</td>
+                  <td className="px-3 py-2">
+                    {item.problem_title} (v{item.problem_version})
+                  </td>
                   <td className="px-3 py-2">{statusLabel(item.status)}</td>
                   <td className="px-3 py-2">
                     {item.score === null || item.max_score === null ? "-" : `${item.score}/${item.max_score}`}

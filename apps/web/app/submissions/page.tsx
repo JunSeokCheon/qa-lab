@@ -33,7 +33,7 @@ export default async function SubmissionsPage() {
     redirect("/login");
   }
   if (me.role === "admin") {
-    redirect("/admin");
+    redirect("/admin/problems");
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/me/exam-submissions?limit=50`, {

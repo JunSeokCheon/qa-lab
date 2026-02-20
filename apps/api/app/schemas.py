@@ -162,6 +162,7 @@ class ExamQuestionCreate(BaseModel):
     prompt_md: str
     required: bool = True
     choices: list[str] | None = None
+    correct_choice_index: int | None = None
 
 
 class ExamCreate(BaseModel):
@@ -171,6 +172,14 @@ class ExamCreate(BaseModel):
     exam_kind: str = "quiz"
     status: str = "published"
     questions: list[ExamQuestionCreate]
+
+
+class ExamUpdate(BaseModel):
+    title: str
+    description: str | None = None
+    folder_id: int | None = None
+    exam_kind: str = "quiz"
+    status: str = "published"
 
 
 class ExamQuestionSummary(BaseModel):
@@ -241,6 +250,7 @@ class AdminExamSubmissionAnswer(BaseModel):
     question_type: str
     prompt_md: str
     choices: list[str] | None = None
+    correct_choice_index: int | None = None
     answer_text: str | None = None
     selected_choice_index: int | None = None
     grading_status: str | None = None

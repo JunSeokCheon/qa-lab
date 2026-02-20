@@ -39,6 +39,7 @@ def bootstrap() -> dict[str, int]:
                     "prompt_md": "부트스트랩 객관식 문항",
                     "required": True,
                     "choices": ["A", "B", "C"],
+                    "correct_choice_index": 0,
                 },
                 {
                     "type": "subjective",

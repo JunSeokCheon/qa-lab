@@ -40,6 +40,7 @@ async function createExamViaApi(request: APIRequestContext): Promise<number> {
           prompt_md: "다음 중 정답을 고르세요.",
           required: true,
           choices: ["A", "B", "C"],
+          correct_choice_index: 0,
         },
         {
           type: "subjective",

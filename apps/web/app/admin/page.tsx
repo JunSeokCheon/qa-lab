@@ -8,34 +8,23 @@ import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 export default async function AdminPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
-
-  if (!token) {
-    redirect("/login");
-  }
+  if (!token) redirect("/login");
 
   const me = await fetchMeWithToken(token);
-  if (!me) {
-    redirect("/login");
-  }
-  const roleLabel = me.role === "admin" ? "관리자" : "학습자";
+  if (!me) redirect("/login");
 
   const adminResponse = await fetch(`${FASTAPI_BASE_URL}/admin/health`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
 
-  if (adminResponse.status === 401) {
-    redirect("/login");
-  }
-
+  if (adminResponse.status === 401) redirect("/login");
   if (adminResponse.status === 403) {
     return (
       <main className="qa-shell">
         <section className="qa-card">
           <BackButton />
-          <h1 className="text-2xl font-semibold">관리자 페이지</h1>
+          <h1 className="mt-4 text-2xl font-semibold">관리자 페이지</h1>
           <p className="mt-4">현재 계정은 관리자 권한이 없습니다. (403)</p>
           <Link href="/" className="mt-4 inline-block underline">
             홈으로 이동
@@ -46,19 +35,24 @@ export default async function AdminPage() {
   }
 
   return (
-    <main className="qa-shell">
-      <section className="qa-card space-y-3">
+    <main className="qa-shell space-y-4">
+      <section className="qa-card">
         <BackButton />
-        <h1 className="text-2xl font-semibold">관리자 페이지</h1>
-        <p>로그인 계정: {me.username}</p>
-        <p>권한: {roleLabel}</p>
-        <p className="text-green-700">관리자 API 접근 확인</p>
+        <p className="qa-kicker mt-4">관리자</p>
+        <h1 className="mt-2 text-3xl font-bold">관리자 허브</h1>
+        <p className="mt-2 text-sm text-muted-foreground">로그인 계정: {me.username}</p>
+      </section>
 
-        <div className="flex flex-wrap gap-3 pt-2 text-sm">
-          <Link href="/admin/problems" className="underline">
-            시험지 관리
-          </Link>
-        </div>
+      <section className="qa-card grid gap-2 text-sm md:grid-cols-3">
+        <Link href="/admin/problems" className="rounded-xl border border-border/70 bg-surface p-4 underline">
+          시험지 관리
+        </Link>
+        <Link href="/admin/exams" className="rounded-xl border border-border/70 bg-surface p-4 underline">
+          시험 목록 관리
+        </Link>
+        <Link href="/dashboard" className="rounded-xl border border-border/70 bg-surface p-4 underline">
+          시험 대시보드
+        </Link>
       </section>
     </main>
   );

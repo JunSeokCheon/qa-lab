@@ -22,7 +22,7 @@ export function BackButton({ fallbackHref = "/", className }: BackButtonProps) {
   };
 
   return (
-    <Button type="button" variant="outline" onClick={onGoBack} className={cn("mb-3", className)}>
+    <Button type="button" variant="outline" onClick={onGoBack} className={cn("mb-4", className)}>
       뒤로 가기
     </Button>
   );

@@ -1,12 +1,11 @@
 # QA Lab Monorepo
 
 Next.js(App Router) + FastAPI + Docker Compose 기반 QA 서비스입니다.
-현재는 **시험지(Exam) 중심 구조**로 운영됩니다.
 
 ## 구성
-- `apps/web`: Next.js 프론트엔드
+- `apps/web`: Next.js 프런트엔드
 - `apps/api`: FastAPI 백엔드
-- `infra/docker-compose.prod.yml`: 배포용 Compose
+- `infra/docker-compose.prod.yml`: Docker 배포 구성
 
 ## 로컬 실행
 
@@ -20,7 +19,7 @@ alembic upgrade head
 fastapi dev main.py
 ```
 
-### 2) Web
+### 2) Web (pnpm)
 ```bash
 cd apps/web
 pnpm install
@@ -31,9 +30,7 @@ pnpm dev
 - Web: `http://localhost:3000`
 - API Docs: `http://127.0.0.1:8000/docs`
 
-## Docker 배포 실행
-
-`infra/.env.prod`를 먼저 설정한 뒤 실행하세요.
+## Docker 배포
 
 ```bash
 docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
@@ -49,10 +46,26 @@ docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 - 사용자: `user` / `user1234`
 
 ## 주요 화면
-- 시험 목록: `/problems`
+- 시험 목록(학습자): `/problems`
 - 시험 응시: `/problems/{examId}`
-- 내 제출 목록: `/submissions`
-- 관리자 시험 관리: `/admin/problems`
+- 내 제출(학습자): `/submissions`
+- 시험지 관리(관리자): `/admin/problems`
+- 시험 목록 관리(관리자): `/admin/exams`
+- 시험 대시보드(관리자): `/dashboard`
+
+## 시험/리소스 운영
+- 시험지 관리(`/admin/problems`)
+  - 문항 생성(객관식/주관식/코딩)
+  - 객관식은 1~4번 선택지 + 정답 번호 1개 지정
+  - 시험별 코딩 리소스(데이터 파일) 업로드
+- 시험 목록(`/admin/exams`)
+  - 생성된 시험 선택 후 제목/설명/카테고리/유형/상태 수정
+- 시험 대시보드(`/dashboard`, 관리자)
+  - 시험 선택 드롭다운
+  - 문항 필터, 학생 필터
+  - 객관식 보기별 응답자 수/응답자 목록
+  - 맞힌 개수별 인원수 분포
+  - 학생별 제출 상세
 
 ## API 요약
 
@@ -64,29 +77,41 @@ docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 - `POST /auth/password/reset`
 - `GET /me`
 
-### 시험
-- 관리자
-  - `POST /admin/exams`
-  - `GET /admin/exams`
-  - `GET /admin/exams/{exam_id}/submissions`
-  - `GET /admin/exams/{exam_id}/resources`
-  - `POST /admin/exams/{exam_id}/resources`
-- 사용자
-  - `GET /exams`
-  - `GET /exams/{exam_id}`
-  - `POST /exams/{exam_id}/submit`
-  - `GET /me/exam-submissions`
-  - `GET /exams/{exam_id}/resources`
-  - `GET /exams/{exam_id}/resources/{resource_id}/download`
+### 시험 (관리자)
+- `POST /admin/exams`
+- `GET /admin/exams`
+- `PUT /admin/exams/{exam_id}`
+- `GET /admin/exams/{exam_id}/submissions`
+- `GET /admin/exams/{exam_id}/resources`
+- `POST /admin/exams/{exam_id}/resources`
 
-### 운영
-- `GET /health`
-- `GET /health/db`
-- `GET /health/redis`
-- `GET /admin/health`
-- `GET /admin/ops/summary`
-- `POST /admin/watchdog/requeue-stale`
-- `GET /admin/audit-logs`
+### 시험 (사용자)
+- `GET /exams`
+- `GET /exams/{exam_id}`
+- `POST /exams/{exam_id}/submit`
+- `GET /me/exam-submissions`
+- `GET /exams/{exam_id}/resources`
+- `GET /exams/{exam_id}/resources/{resource_id}/download`
+
+## 채점/리소스 규칙 (Exam Coding)
+- 코딩 문항이 있는 시험 제출 시 worker 큐로 자동 채점 작업이 등록됩니다.
+- 시험 리소스 업로드 시:
+  - `.zip`: 채점 번들 루트로 압축 해제
+  - 그 외 파일: `resources/` 아래에 배치
+- 테스트 탐색 순서:
+  - `tests/question_{order}`
+  - 없으면 `tests/`
+
+## 마이그레이션
+최신 스키마 반영:
+
+```bash
+cd apps/api
+alembic upgrade head
+```
+
+이번 변경으로 추가된 마이그레이션:
+- `0015_exam_question_correct_choice`
 
 ## 테스트
 
@@ -100,57 +125,7 @@ apps/api/.venv/Scripts/pytest.exe -q apps/api/tests/unit
 apps/api/.venv/Scripts/pytest.exe -q apps/api/tests/e2e/test_full_stack_e2e.py
 ```
 
-### Web 빌드
+### Web 빌드 확인
 ```bash
 pnpm --filter web build
-```
-
-### Web E2E (Playwright)
-```bash
-cd apps/web
-pnpm test:e2e
-```
-
-## 회원가입/로그인 입력값
-- 회원가입: 아이디, 이름, 트랙, 비밀번호, 비밀번호 확인
-- 로그인: 아이디, 비밀번호
-- 트랙 옵션: `데이터 분석 11기`, `QAQC 4기`
-
-## 마이그레이션 반영
-기존 DB를 사용하는 경우 최신 스키마 반영:
-
-```bash
-cd apps/api
-alembic upgrade head
-```
-
-## 시험 자료 업로드/통계
-- 관리자(`/admin/problems`)에서 시험별 자료 파일 업로드 가능
-- 학생(`/problems/{examId}`)에서 업로드된 자료 다운로드 가능
-- 관리자 제출 상세에서 객관식 선택지별 응답자 수/학생 목록 확인 가능
-
-## 환경 변수 (추가)
-- `EXAM_RESOURCE_ROOT` (기본값: `./var/bundles/exam-resources`)
-- `EXAM_RESOURCE_MAX_SIZE_BYTES` (기본값: `20971520`)
-
-## Coding Auto Grading Resource Spec (Exam)
-When an exam has `coding` questions, submit now enqueues a grading job to worker queue `grading`.
-
-### Resource bundle rules
-- Upload one or more resource files on admin exam page.
-- `.zip` resources are extracted into grader bundle root.
-- Non-zip resources are copied under `resources/`.
-
-### Test target resolution
-- First tries `tests/question_{order}` for each coding question (order = 1,2,3...)
-- Falls back to `tests/` if question-specific path does not exist.
-
-### Student code runtime path
-- Student answer is written to `solution.py`.
-- Test code can reference shared data files from `resources/`.
-
-### Required DB migration
-```bash
-cd apps/api
-alembic upgrade head
 ```
