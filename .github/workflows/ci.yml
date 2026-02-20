@@ -34,6 +34,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://devuser:devpass@127.0.0.1:5432/devdb
       REDIS_URL: redis://127.0.0.1:6379/0
+      FASTAPI_INTERNAL_URL: http://127.0.0.1:8000
       BUNDLE_ROOT: ${{ github.workspace }}/apps/api/var/bundles
       BUNDLE_MAX_SIZE_BYTES: "52428800"
       GRADER_IMAGE: qa-lab-grader-python

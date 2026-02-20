@@ -107,3 +107,12 @@ pnpm test:e2e
 ## 참고
 - 시험지 카테고리는 `problem-folders`를 사용합니다.
 - 프론트는 `/api/*` Next Route Handler를 통해 FastAPI와 통신합니다.
+
+## Runtime Env Notes
+- Web server-side API calls use `FASTAPI_INTERNAL_URL` first, then `FASTAPI_BASE_URL`.
+- Local run (PowerShell):
+```powershell
+$env:FASTAPI_INTERNAL_URL="http://127.0.0.1:8000"
+cd apps/web
+pnpm dev
+```
