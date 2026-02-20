@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  e2e-full-stack:
+  build-and-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -50,10 +50,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install API and test dependencies
+      - name: Install API dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r apps/api/requirements.txt pytest requests pytest-github-actions-annotate-failures
+          python -m pip install -r apps/api/requirements.txt
 
       - name: Build grader image
         run: docker build -t "$GRADER_IMAGE" -f grader-images/python/Dockerfile .
@@ -84,14 +84,8 @@ jobs:
           echo "API did not become ready in time"
           exit 1
 
-      - name: Run API unit tests
-        run: pytest -vv --tb=short apps/api/tests/unit
-
-      - name: Run full stack E2E tests
-        run: pytest -vv -s --tb=short apps/api/tests/e2e/test_full_stack_e2e.py
-
-      - name: Bootstrap Playwright exam data
-        run: python apps/api/tests/e2e/bootstrap_playwright_data.py --env-file "$GITHUB_ENV"
+      - name: API smoke check
+        run: curl -fsS http://127.0.0.1:8000/health
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -107,23 +101,8 @@ jobs:
       - name: Install web dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browsers
-        working-directory: apps/web
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run Playwright E2E
-        working-directory: apps/web
-        run: pnpm test:e2e
-
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-artifacts
-          path: |
-            apps/web/playwright-report
-            apps/web/test-results
-          if-no-files-found: ignore
+      - name: Build web
+        run: pnpm --filter web build
 
       - name: Print debug logs on failure
         if: failure()

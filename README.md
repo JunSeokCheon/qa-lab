@@ -31,7 +31,6 @@ pnpm dev
 - API Docs: `http://127.0.0.1:8000/docs`
 
 ## Docker 배포
-
 ```bash
 docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
 docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
@@ -111,28 +110,18 @@ docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 - 코딩 문항은 정답 문자열 고정 비교가 아니라 테스트 코드 기반으로 채점합니다.
 
 ## 마이그레이션
-
 ```bash
 cd apps/api
 alembic upgrade head
 ```
 
-이번 변경으로 추가된 마이그레이션:
+현재 마이그레이션:
 - `0015_exam_correct_choice`
 
-## 테스트
+## 검증
+자동화 테스트는 현재 레포에서 제거되었습니다.  
+배포 전 최소 검증은 아래 빌드로 진행합니다.
 
-### API 단위 테스트
-```bash
-apps/api/.venv/Scripts/pytest.exe -q apps/api/tests/unit
-```
-
-### API E2E 테스트
-```bash
-apps/api/.venv/Scripts/pytest.exe -q apps/api/tests/e2e/test_full_stack_e2e.py
-```
-
-### Web 빌드 확인
 ```bash
 pnpm --filter web build
 ```

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,7 @@ export function AdminExamBuilder({
   const [resourceRows, setResourceRows] = useState<ExamResource[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (folders.length > 0) return;
@@ -237,6 +238,10 @@ export function AdminExamBuilder({
     setError("");
   };
 
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
   const uploadResource = async () => {
     setError("");
     setMessage("");
@@ -267,6 +272,9 @@ export function AdminExamBuilder({
       await loadResources(resourceExamId);
       setMessage("리소스를 업로드했습니다.");
       setUploadFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } finally {
       setUploading(false);
     }
@@ -427,8 +435,11 @@ export function AdminExamBuilder({
             </select>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
-              <input type="file" className="text-sm" onChange={onFileChange} />
-              <Button type="button" onClick={() => void uploadResource()} disabled={uploading}>
+              <input ref={fileInputRef} type="file" className="hidden" onChange={onFileChange} />
+              <Button type="button" variant="outline" onClick={openFilePicker} disabled={uploading}>
+                파일 선택
+              </Button>
+              <Button type="button" onClick={() => void uploadResource()} disabled={uploading || !uploadFile}>
                 {uploading ? "업로드 중..." : "리소스 업로드"}
               </Button>
             </div>
