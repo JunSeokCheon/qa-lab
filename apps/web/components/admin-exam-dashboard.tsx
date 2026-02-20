@@ -8,6 +8,7 @@ type ExamSummary = {
   id: number;
   title: string;
   exam_kind: string;
+  target_track_name?: string | null;
   question_count: number;
 };
 
@@ -23,9 +24,6 @@ type ExamSubmissionAnswer = {
   grading_status: string | null;
   grading_score: number | null;
   grading_max_score: number | null;
-  grading_feedback_json: Record<string, unknown> | null;
-  grading_logs: string | null;
-  graded_at: string | null;
 };
 
 type ExamSubmission = {
@@ -33,6 +31,7 @@ type ExamSubmission = {
   exam_id: number;
   exam_title: string;
   user_id: number;
+  user_name: string;
   username: string;
   status: string;
   submitted_at: string;
@@ -115,12 +114,13 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
         const stat = byQuestion.get(answer.question_id);
         if (!stat) continue;
         const selected = answer.selected_choice_index;
+        const userName = row.user_name;
         if (selected === null || selected < 0 || selected >= stat.choices.length) {
-          stat.unansweredUsers.push(row.username);
+          stat.unansweredUsers.push(userName);
           continue;
         }
         stat.counts[selected] += 1;
-        stat.respondents[selected].push(row.username);
+        stat.respondents[selected].push(userName);
         stat.totalResponses += 1;
       }
     }
@@ -137,7 +137,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   );
 
   const studentOptions = useMemo(() => {
-    const names = new Set(submissions.map((row) => row.username));
+    const names = new Set(submissions.map((row) => row.user_name));
     return [...names].sort((a, b) => a.localeCompare(b, "ko"));
   }, [submissions]);
 
@@ -149,45 +149,48 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
 
   const filteredSubmissions = useMemo(() => {
     if (studentFilter === "all") return submissions;
-    return submissions.filter((row) => row.username === studentFilter);
+    return submissions.filter((row) => row.user_name === studentFilter);
   }, [studentFilter, submissions]);
 
   const correctCountDistribution = useMemo(() => {
     const targetQuestionIds = new Set(
       (questionFilter === "all" ? questionStats : filteredQuestionStats).map((item) => item.questionId)
     );
-    const buckets = new Map<string, { count: number; usernames: string[] }>();
+    const buckets = new Map<number, { count: number; users: string[] }>();
 
     for (const row of filteredSubmissions) {
-      let total = 0;
       let correct = 0;
       for (const answer of row.answers) {
         if (answer.question_type !== "multiple_choice") continue;
         if (!targetQuestionIds.has(answer.question_id)) continue;
         if (answer.correct_choice_index === null) continue;
-        total += 1;
         if (answer.selected_choice_index === answer.correct_choice_index) {
           correct += 1;
         }
       }
-      const key = `${correct}/${total}`;
-      const current = buckets.get(key);
+
+      const current = buckets.get(correct);
       if (!current) {
-        buckets.set(key, { count: 1, usernames: [row.username] });
+        buckets.set(correct, { count: 1, users: [row.user_name] });
       } else {
         current.count += 1;
-        current.usernames.push(row.username);
+        current.users.push(row.user_name);
       }
     }
 
     return [...buckets.entries()]
-      .map(([label, value]) => ({ label, count: value.count, usernames: value.usernames }))
-      .sort((a, b) => {
-        const [aCorrect] = a.label.split("/").map((item) => Number(item));
-        const [bCorrect] = b.label.split("/").map((item) => Number(item));
-        return bCorrect - aCorrect;
-      });
+      .map(([correctCount, value]) => ({
+        correctCount,
+        count: value.count,
+        users: value.users,
+      }))
+      .sort((a, b) => a.correctCount - b.correctCount);
   }, [filteredQuestionStats, filteredSubmissions, questionFilter, questionStats]);
+
+  const maxDistributionCount = useMemo(
+    () => Math.max(1, ...correctCountDistribution.map((bucket) => bucket.count)),
+    [correctCountDistribution]
+  );
 
   return (
     <main className="qa-shell space-y-6">
@@ -196,7 +199,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
         <p className="qa-kicker mt-4">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험 대시보드</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          시험별 제출 현황, 문제 통계, 학생별 상세 제출을 확인합니다.
+          시험별 제출 현황, 객관식 통계, 학생별 상세 답안을 확인합니다.
         </p>
       </section>
 
@@ -219,31 +222,33 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
             >
               {exams.map((exam) => (
                 <option key={exam.id} value={exam.id}>
-                  #{exam.id} {exam.title} ({examKindLabel(exam.exam_kind)})
+                  #{exam.id} {exam.title} ({examKindLabel(exam.exam_kind)} / {exam.target_track_name ?? "미지정"})
                 </option>
               ))}
             </select>
+
             <select
               className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
               value={questionFilter}
               onChange={(event) => setQuestionFilter(event.target.value)}
             >
-              <option value="all">전체 문항</option>
+              <option value="all">전체 객관식 문항</option>
               {questionOptions.map((question) => (
                 <option key={question.value} value={question.value}>
                   {question.label}
                 </option>
               ))}
             </select>
+
             <select
               className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
               value={studentFilter}
               onChange={(event) => setStudentFilter(event.target.value)}
             >
               <option value="all">전체 학생</option>
-              {studentOptions.map((username) => (
-                <option key={username} value={username}>
-                  {username}
+              {studentOptions.map((userName) => (
+                <option key={userName} value={userName}>
+                  {userName}
                 </option>
               ))}
             </select>
@@ -258,27 +263,36 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
       )}
 
       <section className="qa-card space-y-3">
-        <h2 className="text-lg font-semibold">맞힌 개수별 인원수 (객관식 기준)</h2>
+        <h2 className="text-lg font-semibold">맞힌 개수별 인원 수</h2>
+        <p className="text-xs text-muted-foreground">객관식 문항 기준입니다. 막대에 마우스를 올리면 인원 수가 표시됩니다.</p>
         {correctCountDistribution.length === 0 ? (
-          <p className="text-sm text-muted-foreground">표시할 데이터가 없습니다.</p>
+          <p className="text-sm text-muted-foreground">집계할 객관식 제출 데이터가 없습니다.</p>
         ) : (
           <div className="space-y-2">
-            {correctCountDistribution.map((bucket) => (
-              <article key={bucket.label} className="rounded-xl border border-border/70 bg-surface p-3 text-sm">
-                <p className="font-semibold">{bucket.label} 정답</p>
-                <p className="text-xs text-muted-foreground">
-                  {bucket.count}명 ({bucket.usernames.join(", ")})
-                </p>
-              </article>
-            ))}
+            {correctCountDistribution.map((bucket) => {
+              const width = (bucket.count / maxDistributionCount) * 100;
+              return (
+                <div key={bucket.correctCount} className="grid grid-cols-[88px_1fr] items-center gap-3">
+                  <p className="text-sm text-muted-foreground">{bucket.correctCount}개 정답</p>
+                  <div className="h-8 rounded-lg bg-surface-muted px-1 py-1">
+                    <div
+                      className="h-full rounded-md bg-primary"
+                      style={{ width: `${Math.max(4, width)}%` }}
+                      title={`${bucket.count}명`}
+                      aria-label={`${bucket.correctCount}개 정답 인원 ${bucket.count}명`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
 
       <section className="qa-card space-y-3">
-        <h2 className="text-lg font-semibold">문항별 통계</h2>
+        <h2 className="text-lg font-semibold">객관식 문항 통계</h2>
         {filteredQuestionStats.length === 0 ? (
-          <p className="text-sm text-muted-foreground">객관식 응답이 없습니다.</p>
+          <p className="text-sm text-muted-foreground">객관식 응답 데이터가 없습니다.</p>
         ) : (
           <div className="space-y-3">
             {filteredQuestionStats.map((stat) => (
@@ -287,22 +301,33 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                   {stat.questionOrder}. {stat.prompt}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">총 응답 수: {stat.totalResponses}</p>
-                <div className="mt-2 space-y-2">
-                  {stat.choices.map((choice, index) => (
-                    <div key={`${stat.questionId}-${index}`} className="rounded-lg bg-surface-muted p-2 text-xs">
-                      <p>
-                        {index + 1}번: {choice}
-                        {stat.correctChoiceIndex === index ? " (정답)" : ""}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">응답자 수: {stat.counts[index]}명</p>
-                      <p className="mt-1 text-muted-foreground">
-                        응답 학생: {stat.respondents[index].length ? stat.respondents[index].join(", ") : "-"}
-                      </p>
-                    </div>
-                  ))}
+                <div className="mt-2 space-y-3">
+                  {stat.choices.map((choice, index) => {
+                    const count = stat.counts[index];
+                    const ratio = stat.totalResponses === 0 ? 0 : (count / stat.totalResponses) * 100;
+                    return (
+                      <div key={`${stat.questionId}-${index}`} className="rounded-lg bg-surface-muted p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <p>
+                            {index + 1}번 {choice}
+                            {stat.correctChoiceIndex === index ? " (정답)" : ""}
+                          </p>
+                          <p className="text-muted-foreground">
+                            {count}명 ({ratio.toFixed(1)}%)
+                          </p>
+                        </div>
+                        <div className="mt-1 h-2 rounded-full bg-background/70">
+                          <div className="h-2 rounded-full bg-primary" style={{ width: `${ratio}%` }} />
+                        </div>
+                        <p className="mt-1 text-muted-foreground">
+                          응답자: {stat.respondents[index].length ? stat.respondents[index].join(", ") : "-"}
+                        </p>
+                      </div>
+                    );
+                  })}
                   {stat.unansweredUsers.length > 0 ? (
                     <p className="rounded-lg bg-surface-muted p-2 text-xs text-muted-foreground">
-                      미응답 학생: {stat.unansweredUsers.join(", ")}
+                      미응답: {stat.unansweredUsers.join(", ")}
                     </p>
                   ) : null}
                 </div>
@@ -321,13 +346,11 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
             {filteredSubmissions.map((submission) => (
               <article key={submission.submission_id} className="rounded-xl border border-border/70 bg-surface p-3">
                 <p className="text-sm font-semibold">
-                  {submission.username} ({new Date(submission.submitted_at).toLocaleString()})
+                  {submission.user_name} ({new Date(submission.submitted_at).toLocaleString()})
                 </p>
                 <div className="mt-2 space-y-2">
                   {submission.answers
-                    .filter((answer) =>
-                      questionFilter === "all" ? true : answer.question_id === Number(questionFilter)
-                    )
+                    .filter((answer) => (questionFilter === "all" ? true : answer.question_id === Number(questionFilter)))
                     .map((answer) => (
                       <div key={`${submission.submission_id}-${answer.question_id}`} className="rounded-lg bg-surface-muted p-2 text-xs">
                         <p>
@@ -336,12 +359,20 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                         <p className="mt-1 text-muted-foreground">
                           {answer.question_type === "multiple_choice"
                             ? `선택: ${answer.selected_choice_index === null ? "-" : `${answer.selected_choice_index + 1}번`}`
-                            : `답변: ${answer.answer_text ?? "-"}`}
+                            : `답안: ${answer.answer_text ?? "-"}`}
                         </p>
                         {answer.question_type === "multiple_choice" && answer.correct_choice_index !== null ? (
                           <p className="mt-1 text-muted-foreground">
                             정답: {answer.correct_choice_index + 1}번{" "}
                             {answer.selected_choice_index === answer.correct_choice_index ? "(정답)" : "(오답)"}
+                          </p>
+                        ) : null}
+                        {answer.question_type === "coding" ? (
+                          <p className="mt-1 text-muted-foreground">
+                            자동채점: {answer.grading_status ?? "미실행"}
+                            {answer.grading_score !== null && answer.grading_max_score !== null
+                              ? ` (${answer.grading_score}/${answer.grading_max_score})`
+                              : ""}
                           </p>
                         ) : null}
                       </div>

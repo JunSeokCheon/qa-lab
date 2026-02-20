@@ -30,7 +30,7 @@ export default function SignupPage() {
     if (Array.isArray(data.detail)) {
       const first = data.detail[0] as { msg?: unknown } | undefined;
       if (first && typeof first.msg === "string" && first.msg.trim()) return first.msg;
-      return "입력값을 다시 확인해주세요.";
+      return "입력값을 다시 확인해 주세요.";
     }
 
     return "회원가입에 실패했습니다.";
@@ -40,12 +40,24 @@ export default function SignupPage() {
     event.preventDefault();
     setError("");
 
+    if (!username.trim()) {
+      setError("아이디를 입력해 주세요.");
+      return;
+    }
     if (!name.trim()) {
-      setError("이름을 입력해주세요.");
+      setError("이름을 입력해 주세요.");
       return;
     }
     if (!trackName) {
-      setError("트랙을 선택해주세요.");
+      setError("본인 트랙을 선택해 주세요.");
+      return;
+    }
+    if (!password) {
+      setError("비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (!confirm) {
+      setError("비밀번호 확인을 입력해 주세요.");
       return;
     }
     if (password.length < 8) {
@@ -61,7 +73,7 @@ export default function SignupPage() {
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, name, track_name: trackName, password }),
+      body: JSON.stringify({ username: username.trim(), name: name.trim(), track_name: trackName, password }),
     });
 
     if (!response.ok) {
@@ -74,7 +86,7 @@ export default function SignupPage() {
     await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username: username.trim(), password }),
     });
 
     router.push("/");
@@ -86,17 +98,26 @@ export default function SignupPage() {
       <main className="qa-shell flex min-h-screen items-center justify-center py-12">
         <section className="qa-card w-full max-w-md">
           <BackButton />
-          <p className="qa-kicker">새 계정 만들기</p>
+          <p className="qa-kicker mt-4">새 계정 만들기</p>
           <h1 className="mb-6 mt-2 text-3xl font-bold">회원가입</h1>
           <form onSubmit={onSubmit} className="space-y-4">
-            <Input placeholder="아이디" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <Input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              placeholder="아이디"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+            <div className="space-y-1">
+              <Input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} required />
+              <p className="text-xs font-semibold text-destructive">반드시 본인 성명을 정확히 입력해 주세요.</p>
+            </div>
             <select
               className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
               value={trackName}
               onChange={(e) => setTrackName(e.target.value)}
+              required
             >
-              <option value="">트랙 선택</option>
+              <option value="">본인 트랙 선택</option>
               {TRACK_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
@@ -108,8 +129,15 @@ export default function SignupPage() {
               placeholder="비밀번호 (8자 이상)"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
             />
-            <Input type="password" placeholder="비밀번호 확인" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <Input
+              type="password"
+              placeholder="비밀번호 확인"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+            />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button className="w-full" disabled={loading}>
               {loading ? "가입 중..." : "회원가입"}

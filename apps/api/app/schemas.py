@@ -170,6 +170,7 @@ class ExamCreate(BaseModel):
     description: str | None = None
     folder_id: int | None = None
     exam_kind: str = "quiz"
+    target_track_name: str
     status: str = "published"
     questions: list[ExamQuestionCreate]
 
@@ -179,6 +180,7 @@ class ExamUpdate(BaseModel):
     description: str | None = None
     folder_id: int | None = None
     exam_kind: str = "quiz"
+    target_track_name: str
     status: str = "published"
 
 
@@ -187,6 +189,7 @@ class ExamRepublish(BaseModel):
     description: str | None = None
     folder_id: int | None = None
     exam_kind: str = "quiz"
+    target_track_name: str
     status: str = "published"
     questions: list[ExamQuestionCreate]
     copy_resources: bool = True
@@ -216,6 +219,7 @@ class ExamSummary(BaseModel):
     folder_id: int | None = None
     folder_path: str | None = None
     exam_kind: str
+    target_track_name: str | None = None
     status: str
     question_count: int
     submitted: bool = False
@@ -262,6 +266,26 @@ class ExamSubmissionSummary(BaseModel):
     submitted_at: datetime
 
 
+class MeExamResultSummary(BaseModel):
+    submission_id: int
+    exam_id: int
+    exam_title: str
+    exam_kind: str
+    status: str
+    submitted_at: datetime
+    objective_total: int
+    objective_answered: int
+    objective_correct: int
+    coding_total: int
+    coding_graded: int
+    coding_failed: int
+    coding_pending: int
+    coding_score: int | None = None
+    coding_max_score: int | None = None
+    has_subjective: bool
+    grading_ready: bool
+
+
 class AdminExamSubmissionAnswer(BaseModel):
     question_id: int
     question_order: int
@@ -284,7 +308,36 @@ class AdminExamSubmissionDetail(BaseModel):
     exam_id: int
     exam_title: str
     user_id: int
+    user_name: str
     username: str
     status: str
     submitted_at: datetime
     answers: list[AdminExamSubmissionAnswer]
+
+
+class AdminGradingSubmissionSummary(BaseModel):
+    submission_id: int
+    exam_id: int
+    exam_title: str
+    exam_kind: str
+    user_id: int
+    user_name: str
+    username: str
+    status: str
+    submitted_at: datetime
+    coding_question_count: int
+    coding_graded_count: int
+    coding_failed_count: int
+    coding_pending_count: int
+
+
+class AdminGradingEnqueueRequest(BaseModel):
+    force: bool = False
+
+
+class AdminGradingEnqueueResponse(BaseModel):
+    submission_id: int
+    exam_id: int
+    queued: bool
+    status: str
+    message: str

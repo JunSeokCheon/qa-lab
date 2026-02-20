@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+import shutil
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
@@ -53,6 +54,9 @@ from app.queue import check_redis_connection, clear_rate_limit, grading_queue, i
 from app.schemas import (
     AdminAuditLogResponse,
     AdminExamDetail,
+    AdminGradingEnqueueRequest,
+    AdminGradingEnqueueResponse,
+    AdminGradingSubmissionSummary,
     AdminExamQuestionSummary,
     AdminExamSubmissionDetail,
     AdminExamSubmissionAnswer,
@@ -73,6 +77,7 @@ from app.schemas import (
     PasswordResetRequest,
     PasswordResetResponse,
     MeProgressResponse,
+    MeExamResultSummary,
     MeResponse,
     ProblemFolderCreate,
     ProblemFolderResponse,
@@ -183,6 +188,25 @@ def _sanitize_exam_status(raw_status: str) -> str:
     return status_value
 
 
+def _sanitize_exam_target_track_name(raw_track_name: str) -> str:
+    track_name = raw_track_name.strip()
+    if track_name not in _TRACK_OPTIONS:
+        options = ", ".join(sorted(_TRACK_OPTIONS))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"시험 대상 반은 다음 중 하나여야 합니다: {options}",
+        )
+    return track_name
+
+
+def _can_user_access_exam(exam: Exam, user: User) -> bool:
+    if user.role == "admin":
+        return True
+    if exam.status != "published":
+        return False
+    return exam.target_track_name == user.track_name
+
+
 def _sanitize_exam_question_choices(question_type: str, choices: list[str] | None) -> list[str] | None:
     if question_type != "multiple_choice":
         return None
@@ -291,6 +315,7 @@ def _to_exam_summary(
         folder_id=exam.folder_id,
         folder_path=folder_path_map.get(exam.folder_id) if exam.folder_id is not None else None,
         exam_kind=exam.exam_kind,
+        target_track_name=exam.target_track_name,
         status=exam.status,
         question_count=question_count,
         submitted=submitted,
@@ -895,6 +920,7 @@ async def _create_exam_with_questions(
         description=payload.description.strip() if payload.description else None,
         folder_id=folder_id,
         exam_kind=_normalize_exam_kind(payload.exam_kind),
+        target_track_name=_sanitize_exam_target_track_name(payload.target_track_name),
         status=_sanitize_exam_status(payload.status),
     )
     session.add(exam)
@@ -956,6 +982,47 @@ async def _copy_exam_resources(
     return copied
 
 
+async def _prepare_exam_submission_enqueue(
+    session: AsyncSession,
+    *,
+    submission_id: int,
+    force: bool,
+) -> tuple[ExamSubmission, int, bool, str]:
+    submission = await session.scalar(select(ExamSubmission).where(ExamSubmission.id == submission_id))
+    if submission is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="제출을 찾을 수 없습니다.")
+
+    coding_answers = (
+        await session.execute(
+            select(ExamAnswer)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(
+                ExamAnswer.exam_submission_id == submission.id,
+                ExamQuestion.type == "coding",
+            )
+            .order_by(ExamAnswer.id.asc())
+        )
+    ).scalars().all()
+
+    if not coding_answers:
+        return submission, 0, False, "코딩 문항이 없어 자동 채점 대상이 아닙니다."
+
+    if not force and submission.status in {"QUEUED", "RUNNING"}:
+        return submission, len(coding_answers), False, f"이미 {submission.status} 상태입니다."
+
+    submission.status = "QUEUED"
+    submission.note = None
+    for answer in coding_answers:
+        answer.grading_status = "QUEUED"
+        answer.grading_score = None
+        answer.grading_max_score = None
+        answer.grading_feedback_json = None
+        answer.grading_logs = None
+        answer.graded_at = None
+
+    return submission, len(coding_answers), True, "자동 채점 큐에 등록했습니다."
+
+
 @app.post("/admin/exams", response_model=AdminExamDetail, status_code=status.HTTP_201_CREATED)
 async def create_exam(
     payload: ExamCreate,
@@ -971,7 +1038,12 @@ async def create_exam(
         action="exam.create",
         resource_type="exam",
         resource_id=str(exam.id),
-        metadata={"title": exam.title, "question_count": len(questions), "exam_kind": exam.exam_kind},
+        metadata={
+            "title": exam.title,
+            "question_count": len(questions),
+            "exam_kind": exam.exam_kind,
+            "target_track_name": exam.target_track_name,
+        },
     )
     await session.commit()
     await session.refresh(exam)
@@ -1061,6 +1133,7 @@ async def republish_admin_exam(
             "new_exam_id": new_exam.id,
             "question_count": len(new_questions),
             "copied_resources": copied_resources,
+            "target_track_name": new_exam.target_track_name,
         },
     )
     await session.commit()
@@ -1102,6 +1175,7 @@ async def update_admin_exam(
     exam.description = payload.description.strip() if payload.description else None
     exam.folder_id = folder_id
     exam.exam_kind = _normalize_exam_kind(payload.exam_kind)
+    exam.target_track_name = _sanitize_exam_target_track_name(payload.target_track_name)
     exam.status = _sanitize_exam_status(payload.status)
 
     await _write_admin_audit_log(
@@ -1114,6 +1188,7 @@ async def update_admin_exam(
         metadata={
             "title": exam.title,
             "exam_kind": exam.exam_kind,
+            "target_track_name": exam.target_track_name,
             "status": exam.status,
             "folder_id": exam.folder_id,
         },
@@ -1131,6 +1206,34 @@ async def update_admin_exam(
     )
     folder_path_map = await _load_folder_path_map(session)
     return _to_exam_summary(exam, folder_path_map=folder_path_map, question_count=question_count, submitted=False)
+
+
+@app.delete("/admin/exams/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin_exam(
+    exam_id: int,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> None:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.delete",
+        resource_type="exam",
+        resource_id=str(exam.id),
+        metadata={"title": exam.title},
+    )
+    await session.delete(exam)
+    await session.commit()
+
+    resource_dir = (Path(EXAM_RESOURCE_ROOT).resolve() / str(exam_id)).resolve()
+    if resource_dir.is_dir():
+        shutil.rmtree(resource_dir, ignore_errors=True)
 
 
 @app.get("/admin/exams/{exam_id}/submissions", response_model=list[AdminExamSubmissionDetail])
@@ -1198,6 +1301,7 @@ async def list_admin_exam_submissions(
                 exam_id=exam.id,
                 exam_title=exam.title,
                 user_id=user.id,
+                user_name=user.display_name,
                 username=user.username,
                 status=submission.status,
                 submitted_at=submission.submitted_at,
@@ -1286,7 +1390,7 @@ async def list_exam_resources(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> list[ExamResourceSummary]:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
-    if exam is None or (exam.status != "published" and user.role != "admin"):
+    if exam is None or not _can_user_access_exam(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     resources = (
@@ -1303,7 +1407,7 @@ async def download_exam_resource(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> FileResponse:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
-    if exam is None or (exam.status != "published" and user.role != "admin"):
+    if exam is None or not _can_user_access_exam(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     resource = await session.scalar(
@@ -1328,9 +1432,10 @@ async def list_exams(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> list[ExamSummary]:
-    exams = (
-        await session.execute(select(Exam).where(Exam.status == "published").order_by(Exam.id.asc()))
-    ).scalars().all()
+    query = select(Exam).where(Exam.status == "published")
+    if user.role != "admin":
+        query = query.where(Exam.target_track_name == user.track_name)
+    exams = (await session.execute(query.order_by(Exam.id.asc()))).scalars().all()
     if not exams:
         return []
 
@@ -1362,7 +1467,7 @@ async def get_exam(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> ExamDetail:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
-    if exam is None or exam.status != "published":
+    if exam is None or not _can_user_access_exam(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     questions = (
@@ -1395,7 +1500,7 @@ async def submit_exam(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> ExamSubmitResponse:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
-    if exam is None or exam.status != "published":
+    if exam is None or not _can_user_access_exam(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     existing = await session.scalar(
@@ -1418,7 +1523,9 @@ async def submit_exam(
         }
 
     has_coding_question = any(question.type == "coding" for question in questions)
-    submission = ExamSubmission(exam_id=exam_id, user_id=user.id, status="QUEUED" if has_coding_question else "SUBMITTED")
+    has_subjective_question = any(question.type == "subjective" for question in questions)
+    initial_status = "QUEUED" if has_coding_question else ("SUBMITTED" if has_subjective_question else "GRADED")
+    submission = ExamSubmission(exam_id=exam_id, user_id=user.id, status=initial_status)
     session.add(submission)
     await session.flush()
 
@@ -1503,6 +1610,245 @@ async def get_my_exam_submissions(
         )
         for submission, exam in items
     ]
+
+
+@app.get("/me/exam-results", response_model=list[MeExamResultSummary])
+async def get_my_exam_results(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[MeExamResultSummary]:
+    rows = await session.execute(
+        select(ExamSubmission, Exam)
+        .join(Exam, Exam.id == ExamSubmission.exam_id)
+        .where(ExamSubmission.user_id == user.id)
+        .order_by(ExamSubmission.id.desc())
+        .limit(limit)
+    )
+    items = rows.all()
+    if not items:
+        return []
+
+    submission_ids = [submission.id for submission, _ in items]
+    answer_rows = (
+        await session.execute(
+            select(ExamAnswer, ExamQuestion)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(ExamAnswer.exam_submission_id.in_(submission_ids))
+            .order_by(ExamAnswer.id.asc())
+        )
+    ).all()
+    answers_by_submission: dict[int, list[tuple[ExamAnswer, ExamQuestion]]] = defaultdict(list)
+    for answer, question in answer_rows:
+        answers_by_submission[answer.exam_submission_id].append((answer, question))
+
+    payload: list[MeExamResultSummary] = []
+    for submission, exam in items:
+        objective_total = 0
+        objective_answered = 0
+        objective_correct = 0
+        coding_total = 0
+        coding_graded = 0
+        coding_failed = 0
+        coding_pending = 0
+        coding_score_acc = 0
+        coding_max_acc = 0
+        coding_score_seen = False
+        coding_max_seen = False
+        has_subjective = False
+
+        for answer, question in answers_by_submission.get(submission.id, []):
+            if question.type == "multiple_choice":
+                if question.correct_choice_index is None:
+                    continue
+                objective_total += 1
+                if answer.selected_choice_index is not None:
+                    objective_answered += 1
+                if answer.selected_choice_index == question.correct_choice_index:
+                    objective_correct += 1
+                continue
+
+            if question.type == "coding":
+                coding_total += 1
+                if answer.grading_status == "GRADED":
+                    coding_graded += 1
+                elif answer.grading_status == "FAILED":
+                    coding_failed += 1
+                else:
+                    coding_pending += 1
+                if answer.grading_score is not None:
+                    coding_score_acc += int(answer.grading_score)
+                    coding_score_seen = True
+                if answer.grading_max_score is not None:
+                    coding_max_acc += int(answer.grading_max_score)
+                    coding_max_seen = True
+                continue
+
+            if question.type == "subjective":
+                has_subjective = True
+
+        payload.append(
+            MeExamResultSummary(
+                submission_id=submission.id,
+                exam_id=exam.id,
+                exam_title=exam.title,
+                exam_kind=exam.exam_kind,
+                status=submission.status,
+                submitted_at=submission.submitted_at,
+                objective_total=objective_total,
+                objective_answered=objective_answered,
+                objective_correct=objective_correct,
+                coding_total=coding_total,
+                coding_graded=coding_graded,
+                coding_failed=coding_failed,
+                coding_pending=coding_pending,
+                coding_score=coding_score_acc if coding_score_seen else None,
+                coding_max_score=coding_max_acc if coding_max_seen else None,
+                has_subjective=has_subjective,
+                grading_ready=submission.status == "GRADED",
+            )
+        )
+    return payload
+
+
+@app.get("/admin/grading/exam-submissions", response_model=list[AdminGradingSubmissionSummary])
+async def list_admin_grading_exam_submissions(
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    exam_id: Annotated[int | None, Query(ge=1)] = None,
+    status_filter: Annotated[str, Query(alias="status")] = "all",
+    coding_only: bool = True,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> list[AdminGradingSubmissionSummary]:
+    normalized_status = status_filter.strip().upper()
+    allowed_statuses = {"ALL", "SUBMITTED", "QUEUED", "RUNNING", "GRADED", "FAILED"}
+    if normalized_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="status는 all, submitted, queued, running, graded, failed 중 하나여야 합니다.",
+        )
+
+    query = (
+        select(ExamSubmission, Exam, User)
+        .join(Exam, Exam.id == ExamSubmission.exam_id)
+        .join(User, User.id == ExamSubmission.user_id)
+        .order_by(ExamSubmission.id.desc())
+        .limit(limit)
+    )
+    if exam_id is not None:
+        query = query.where(ExamSubmission.exam_id == exam_id)
+    if normalized_status != "ALL":
+        query = query.where(ExamSubmission.status == normalized_status)
+
+    rows = (await session.execute(query)).all()
+    if not rows:
+        return []
+
+    submission_ids = [submission.id for submission, _, _ in rows]
+    coding_rows = (
+        await session.execute(
+            select(ExamAnswer.exam_submission_id, ExamAnswer.grading_status)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(
+                ExamAnswer.exam_submission_id.in_(submission_ids),
+                ExamQuestion.type == "coding",
+            )
+        )
+    ).all()
+    coding_stats: dict[int, dict[str, int]] = defaultdict(
+        lambda: {"total": 0, "graded": 0, "failed": 0, "pending": 0}
+    )
+    for submission_id, grading_status in coding_rows:
+        stat = coding_stats[int(submission_id)]
+        stat["total"] += 1
+        if grading_status == "GRADED":
+            stat["graded"] += 1
+        elif grading_status == "FAILED":
+            stat["failed"] += 1
+        else:
+            stat["pending"] += 1
+
+    payload: list[AdminGradingSubmissionSummary] = []
+    for submission, exam, actor in rows:
+        stat = coding_stats[int(submission.id)]
+        if coding_only and stat["total"] == 0:
+            continue
+        payload.append(
+            AdminGradingSubmissionSummary(
+                submission_id=submission.id,
+                exam_id=exam.id,
+                exam_title=exam.title,
+                exam_kind=exam.exam_kind,
+                user_id=actor.id,
+                user_name=actor.display_name,
+                username=actor.username,
+                status=submission.status,
+                submitted_at=submission.submitted_at,
+                coding_question_count=stat["total"],
+                coding_graded_count=stat["graded"],
+                coding_failed_count=stat["failed"],
+                coding_pending_count=stat["pending"],
+            )
+        )
+    return payload
+
+
+@app.post("/admin/grading/exam-submissions/{submission_id}/enqueue", response_model=AdminGradingEnqueueResponse)
+async def enqueue_admin_exam_submission_grading(
+    submission_id: int,
+    payload: AdminGradingEnqueueRequest,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminGradingEnqueueResponse:
+    submission, coding_count, queued, message = await _prepare_exam_submission_enqueue(
+        session,
+        submission_id=submission_id,
+        force=bool(payload.force),
+    )
+
+    if not queued:
+        return AdminGradingEnqueueResponse(
+            submission_id=submission.id,
+            exam_id=submission.exam_id,
+            queued=False,
+            status=submission.status,
+            message=message,
+        )
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam_submission.enqueue_grading",
+        resource_type="exam_submission",
+        resource_id=str(submission.id),
+        metadata={
+            "exam_id": submission.exam_id,
+            "coding_question_count": coding_count,
+            "force": bool(payload.force),
+        },
+    )
+    await session.commit()
+
+    try:
+        grading_queue.enqueue("app.worker_tasks.grade_exam_submission_job", submission.id)
+    except Exception as exc:
+        submission.status = "FAILED"
+        submission.note = f"grading queue enqueue failed: {exc}"
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="자동 채점 큐 등록에 실패했습니다. 잠시 후 다시 시도하세요.",
+        ) from exc
+
+    return AdminGradingEnqueueResponse(
+        submission_id=submission.id,
+        exam_id=submission.exam_id,
+        queued=True,
+        status=submission.status,
+        message=message,
+    )
 
 
 @app.put("/admin/skills/{skill_id}", response_model=SkillResponse)

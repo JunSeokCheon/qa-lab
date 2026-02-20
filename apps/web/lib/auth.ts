@@ -33,6 +33,26 @@ export type MeProgressResponse = {
   recent_submissions: ProgressRecentSubmission[];
 };
 
+export type MeExamResultSummary = {
+  submission_id: number;
+  exam_id: number;
+  exam_title: string;
+  exam_kind: string;
+  status: string;
+  submitted_at: string;
+  objective_total: number;
+  objective_answered: number;
+  objective_correct: number;
+  coding_total: number;
+  coding_graded: number;
+  coding_failed: number;
+  coding_pending: number;
+  coding_score: number | null;
+  coding_max_score: number | null;
+  has_subjective: boolean;
+  grading_ready: boolean;
+};
+
 export async function fetchMeWithToken(token: string): Promise<MeResponse | null> {
   const response = await fetch(`${FASTAPI_BASE_URL}/me`, {
     headers: {
@@ -61,6 +81,21 @@ export async function fetchMyProgressWithToken(token: string): Promise<MeProgres
   }
 
   return (await response.json()) as MeProgressResponse;
+}
+
+export async function fetchMyExamResultsWithToken(token: string): Promise<MeExamResultSummary[] | null> {
+  const response = await fetch(`${FASTAPI_BASE_URL}/me/exam-results?limit=50`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as MeExamResultSummary[];
 }
 
 export { FASTAPI_BASE_URL };

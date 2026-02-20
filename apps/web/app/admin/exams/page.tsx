@@ -12,6 +12,7 @@ type ExamSummary = {
   folder_id: number | null;
   folder_path: string | null;
   exam_kind: string;
+  target_track_name: string | null;
   status: string;
   question_count: number;
 };

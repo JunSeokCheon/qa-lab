@@ -4,12 +4,19 @@ import { redirect } from "next/navigation";
 
 import { AdminExamDashboard } from "@/components/admin-exam-dashboard";
 import { BackButton } from "@/components/back-button";
-import { FASTAPI_BASE_URL, fetchMeWithToken, fetchMyProgressWithToken } from "@/lib/auth";
+import { UserExamResultDashboard } from "@/components/user-exam-result-dashboard";
+import {
+  FASTAPI_BASE_URL,
+  fetchMeWithToken,
+  fetchMyExamResultsWithToken,
+  fetchMyProgressWithToken,
+} from "@/lib/auth";
 
 type ExamSummary = {
   id: number;
   title: string;
   exam_kind: string;
+  target_track_name?: string | null;
   question_count: number;
 };
 
@@ -32,6 +39,7 @@ function statusLabel(status: string): string {
   if (status === "RUNNING") return "채점 중";
   if (status === "GRADED") return "채점 완료";
   if (status === "FAILED") return "채점 실패";
+  if (status === "SUBMITTED") return "제출 완료";
   return status;
 }
 
@@ -52,7 +60,11 @@ export default async function DashboardPage() {
     return <AdminExamDashboard initialExams={exams} />;
   }
 
-  const progress = await fetchMyProgressWithToken(token);
+  const [progress, examResults] = await Promise.all([
+    fetchMyProgressWithToken(token),
+    fetchMyExamResultsWithToken(token),
+  ]);
+
   if (!progress) {
     return (
       <main className="qa-shell">
@@ -74,8 +86,10 @@ export default async function DashboardPage() {
         <BackButton />
         <p className="qa-kicker mt-4">학습 진행</p>
         <h1 className="mt-2 text-3xl font-bold">성취도 대시보드</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{me.username}님의 현재 성취도입니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">{me.username} 님의 현재 성취도입니다.</p>
       </section>
+
+      <UserExamResultDashboard results={examResults ?? []} />
 
       <section className="qa-card">
         <h2 className="text-xl font-semibold">스킬 히트맵</h2>
@@ -93,7 +107,7 @@ export default async function DashboardPage() {
                     {skill.mastery.toFixed(1)}%
                   </span>
                 </div>
-                <p className="mt-2 text-sm">수준: {masteryLevel(skill.mastery)}</p>
+                <p className="mt-2 text-sm">레벨: {masteryLevel(skill.mastery)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   획득 {skill.earned_points.toFixed(1)} / 가능 {skill.possible_points.toFixed(1)}
                 </p>
@@ -104,7 +118,7 @@ export default async function DashboardPage() {
       </section>
 
       <section className="qa-card">
-        <h2 className="text-xl font-semibold">최근 제출 10건</h2>
+        <h2 className="text-xl font-semibold">최근 코딩 제출 10건</h2>
         <div className="mt-3 overflow-x-auto rounded-2xl border border-border/70">
           <table className="min-w-full text-sm">
             <thead className="bg-surface-muted text-left">

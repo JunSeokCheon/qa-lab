@@ -160,6 +160,7 @@ class Exam(Base):
         ForeignKey("problem_folders.id", ondelete="SET NULL"), nullable=True, index=True
     )
     exam_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="quiz")
+    target_track_name: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[DateTime] = mapped_column(

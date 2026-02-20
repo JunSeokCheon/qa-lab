@@ -50,3 +50,26 @@ export async function PUT(request: Request, { params }: Params) {
   const payload = await response.json().catch(() => ({}));
   return NextResponse.json(payload, { status: response.status });
 }
+
+export async function DELETE(_: Request, { params }: Params) {
+  const { examId } = await Promise.resolve(params);
+  const cookieStore = await cookies();
+  const token = cookieStore.get("access_token")?.value;
+  if (!token) {
+    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+  }
+
+  const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (response.status === 204) {
+    return new NextResponse(null, { status: 204 });
+  }
+  const payload = await response.json().catch(() => ({}));
+  return NextResponse.json(payload, { status: response.status });
+}

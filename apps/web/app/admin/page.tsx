@@ -43,12 +43,15 @@ export default async function AdminPage() {
         <p className="mt-2 text-sm text-muted-foreground">로그인 계정: {me.username}</p>
       </section>
 
-      <section className="qa-card grid gap-2 text-sm md:grid-cols-3">
+      <section className="qa-card grid gap-2 text-sm md:grid-cols-4">
         <Link href="/admin/problems" className="rounded-xl border border-border/70 bg-surface p-4 underline">
           시험지 관리
         </Link>
         <Link href="/admin/exams" className="rounded-xl border border-border/70 bg-surface p-4 underline">
           시험 목록 관리
+        </Link>
+        <Link href="/admin/grading" className="rounded-xl border border-border/70 bg-surface p-4 underline">
+          자동 채점 관리
         </Link>
         <Link href="/dashboard" className="rounded-xl border border-border/70 bg-surface p-4 underline">
           시험 대시보드
