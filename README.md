@@ -1,16 +1,16 @@
 # QA Lab Monorepo
 
-Next.js(App Router) + FastAPI + Docker Compose 기반 QA 서비스입니다.  
-현재 구조는 **시험지(Exam) 전용**이며, 레거시 `problems/submissions/run-public` 흐름은 제거되었습니다.
+Next.js(App Router) + FastAPI + Docker Compose 기반 QA 서비스입니다.
+현재는 **시험지(Exam) 중심 구조**로 운영됩니다.
 
 ## 구성
 - `apps/web`: Next.js 프론트엔드
 - `apps/api`: FastAPI 백엔드
-- `docker-compose.yml`: 통합 실행
+- `infra/docker-compose.prod.yml`: 배포용 Compose
 
-## 빠른 시작 (로컬)
+## 로컬 실행
 
-### 1) API 실행
+### 1) API
 ```bash
 cd apps/api
 python -m venv .venv
@@ -20,7 +20,7 @@ alembic upgrade head
 fastapi dev main.py
 ```
 
-### 2) Web 실행
+### 2) Web
 ```bash
 cd apps/web
 pnpm install
@@ -31,10 +31,13 @@ pnpm dev
 - Web: `http://localhost:3000`
 - API Docs: `http://127.0.0.1:8000/docs`
 
-## Docker 실행
+## Docker 배포 실행
+
+`infra/.env.prod`를 먼저 설정한 뒤 실행하세요.
+
 ```bash
-docker compose up -d --build
-docker compose ps
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 ```
 
 기본 포트:
@@ -45,13 +48,13 @@ docker compose ps
 - 관리자: `admin` / `admin1234`
 - 사용자: `user` / `user1234`
 
-## 주요 사용자 화면
+## 주요 화면
 - 시험 목록: `/problems`
 - 시험 응시: `/problems/{examId}`
-- 내 제출 내역: `/submissions`
+- 내 제출 목록: `/submissions`
 - 관리자 시험 관리: `/admin/problems`
 
-## 현재 API (시험지 전용)
+## API 요약
 
 ### 인증
 - `POST /auth/login`
@@ -61,18 +64,22 @@ docker compose ps
 - `POST /auth/password/reset`
 - `GET /me`
 
-### 시험지
+### 시험
 - 관리자
   - `POST /admin/exams`
   - `GET /admin/exams`
   - `GET /admin/exams/{exam_id}/submissions`
+  - `GET /admin/exams/{exam_id}/resources`
+  - `POST /admin/exams/{exam_id}/resources`
 - 사용자
   - `GET /exams`
   - `GET /exams/{exam_id}`
   - `POST /exams/{exam_id}/submit`
   - `GET /me/exam-submissions`
+  - `GET /exams/{exam_id}/resources`
+  - `GET /exams/{exam_id}/resources/{resource_id}/download`
 
-### 기타 운영
+### 운영
 - `GET /health`
 - `GET /health/db`
 - `GET /health/redis`
@@ -104,42 +111,24 @@ cd apps/web
 pnpm test:e2e
 ```
 
-## 참고
-- 시험지 카테고리는 `problem-folders`를 사용합니다.
-- 프론트는 `/api/*` Next Route Handler를 통해 FastAPI와 통신합니다.
+## 회원가입/로그인 입력값
+- 회원가입: 아이디, 이름, 트랙, 비밀번호, 비밀번호 확인
+- 로그인: 아이디, 비밀번호
+- 트랙 옵션: `데이터 분석 11기`, `QAQC 4기`
 
-## Runtime Env Notes
-- Web server-side API calls use `FASTAPI_INTERNAL_URL` first, then `FASTAPI_BASE_URL`.
-- Local run (PowerShell):
-```powershell
-$env:FASTAPI_INTERNAL_URL="http://127.0.0.1:8000"
-cd apps/web
-pnpm dev
-```
+## 마이그레이션 반영
+기존 DB를 사용하는 경우 최신 스키마 반영:
 
-## ȸ������/�α��� �Է°�
-- ȸ������: ���̵�, �̸�, Ʈ��, ��й�ȣ, ��й�ȣ Ȯ��
-- �α���: ���̵�, ��й�ȣ
-- Ʈ�� ���� �ɼ�: `������ �м� 11��`, `QAQC 4��`
-
-## ���̱׷��̼� �ݿ�
-���� DB�� ����ϴ� ��� �Ʒ� �������� �ֽ� ��Ű��/������ ������ �ݿ��ϼ���.
 ```bash
 cd apps/api
 alembic upgrade head
 ```
 
-## Exam Resources (2026-02-20)
-- Admin can upload files per exam at `/admin/problems`.
-- Students can download uploaded files at `/problems/{examId}`.
-- Objective analytics now show per-choice counts and responder names.
+## 시험 자료 업로드/통계
+- 관리자(`/admin/problems`)에서 시험별 자료 파일 업로드 가능
+- 학생(`/problems/{examId}`)에서 업로드된 자료 다운로드 가능
+- 관리자 제출 상세에서 객관식 선택지별 응답자 수/학생 목록 확인 가능
 
-### New API endpoints
-- GET /admin/exams/{exam_id}/resources
-- POST /admin/exams/{exam_id}/resources
-- GET /exams/{exam_id}/resources
-- GET /exams/{exam_id}/resources/{resource_id}/download
-
-### New API env vars
-- EXAM_RESOURCE_ROOT (default: ./var/bundles/exam-resources)
-- EXAM_RESOURCE_MAX_SIZE_BYTES (default: 20971520)
+## 환경 변수 (추가)
+- `EXAM_RESOURCE_ROOT` (기본값: `./var/bundles/exam-resources`)
+- `EXAM_RESOURCE_MAX_SIZE_BYTES` (기본값: `20971520`)
