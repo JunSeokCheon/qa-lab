@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,7 @@ type DraftQuestion = {
   type: QuestionType;
   prompt_md: string;
   required: boolean;
-  choicesText: string;
+  choices: string[];
 };
 
 type ChoiceStat = {
@@ -76,6 +76,26 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function newMultipleChoiceQuestion(key: number): DraftQuestion {
+  return {
+    key,
+    type: "multiple_choice",
+    prompt_md: "",
+    required: true,
+    choices: ["", "", "", ""],
+  };
+}
+
+function newSubjectiveQuestion(key: number): DraftQuestion {
+  return {
+    key,
+    type: "subjective",
+    prompt_md: "",
+    required: true,
+    choices: ["", "", "", ""],
+  };
+}
+
 export function AdminExamBuilder({
   initialFolders,
   initialExams,
@@ -93,25 +113,39 @@ export function AdminExamBuilder({
   const [description, setDescription] = useState("");
   const [folderId, setFolderId] = useState(initialFolders[0] ? String(initialFolders[0].id) : "");
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
-  const [questions, setQuestions] = useState<DraftQuestion[]>([
-    { key: 1, type: "multiple_choice", prompt_md: "", required: true, choicesText: "선택지 1\n선택지 2" },
-  ]);
+  const [questions, setQuestions] = useState<DraftQuestion[]>([newMultipleChoiceQuestion(1)]);
 
   const [activeExamId, setActiveExamId] = useState<number | null>(null);
   const [submissionRows, setSubmissionRows] = useState<ExamSubmission[]>([]);
+
+  const [resourceExamId, setResourceExamId] = useState<number | null>(initialExams[0]?.id ?? null);
   const [resourceRows, setResourceRows] = useState<ExamResource[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (resourceExamId !== null) return;
+    if (exams.length === 0) return;
+    setResourceExamId(exams[0].id);
+  }, [exams, resourceExamId]);
 
   const updateQuestion = (key: number, patch: Partial<DraftQuestion>) => {
     setQuestions((prev) => prev.map((question) => (question.key === key ? { ...question, ...patch } : question)));
   };
 
+  const updateChoice = (key: number, choiceIndex: number, value: string) => {
+    setQuestions((prev) =>
+      prev.map((question) => {
+        if (question.key !== key) return question;
+        const nextChoices = [...question.choices];
+        nextChoices[choiceIndex] = value;
+        return { ...question, choices: nextChoices };
+      })
+    );
+  };
+
   const addQuestion = () => {
-    setQuestions((prev) => [
-      ...prev,
-      { key: Date.now(), type: "subjective", prompt_md: "", required: true, choicesText: "" },
-    ]);
+    setQuestions((prev) => [...prev, newSubjectiveQuestion(Date.now())]);
   };
 
   const removeQuestion = (key: number) => {
@@ -120,11 +154,12 @@ export function AdminExamBuilder({
 
   const refreshExams = async () => {
     const response = await fetch("/api/admin/exams", { cache: "no-store" });
-    if (!response.ok) {
-      return;
-    }
+    if (!response.ok) return;
     const payload = (await response.json().catch(() => [])) as ExamSummary[];
     setExams(payload);
+    if (payload.length > 0 && resourceExamId === null) {
+      setResourceExamId(payload[0].id);
+    }
   };
 
   const loadSubmissions = async (examId: number) => {
@@ -152,17 +187,31 @@ export function AdminExamBuilder({
     setMessage("");
     setActiveExamId(examId);
     try {
-      await Promise.all([loadSubmissions(examId), loadResources(examId)]);
+      await loadSubmissions(examId);
     } catch (reason) {
       setSubmissionRows([]);
+      if (reason instanceof Error) {
+        setError(reason.message);
+        return;
+      }
+      setError("시험 제출 상세를 불러오지 못했습니다.");
+    }
+  };
+
+  useEffect(() => {
+    if (resourceExamId === null) {
+      setResourceRows([]);
+      return;
+    }
+    void loadResources(resourceExamId).catch((reason) => {
       setResourceRows([]);
       if (reason instanceof Error) {
         setError(reason.message);
         return;
       }
-      setError("시험 상세 정보를 불러오지 못했습니다.");
-    }
-  };
+      setError("시험 자료를 불러오지 못했습니다.");
+    });
+  }, [resourceExamId]);
 
   const onCreateExam = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -170,21 +219,30 @@ export function AdminExamBuilder({
     setMessage("");
     setLoading(true);
 
-    const normalizedQuestions = questions.map((question) => {
-      const choices =
-        question.type === "multiple_choice"
-          ? question.choicesText
-              .split("\n")
-              .map((value) => value.trim())
-              .filter(Boolean)
-          : null;
-      return {
-        type: question.type,
-        prompt_md: question.prompt_md,
-        required: question.required,
-        choices,
-      };
-    });
+    const normalizedQuestions = [];
+    for (const question of questions) {
+      if (question.type === "multiple_choice") {
+        const trimmedChoices = question.choices.map((choice) => choice.trim());
+        if (trimmedChoices.some((choice) => choice.length === 0)) {
+          setError("객관식은 1~4번 선택지 내용을 모두 입력해 주세요.");
+          setLoading(false);
+          return;
+        }
+        normalizedQuestions.push({
+          type: question.type,
+          prompt_md: question.prompt_md,
+          required: question.required,
+          choices: trimmedChoices,
+        });
+      } else {
+        normalizedQuestions.push({
+          type: question.type,
+          prompt_md: question.prompt_md,
+          required: question.required,
+          choices: null,
+        });
+      }
+    }
 
     const response = await fetch("/api/admin/exams", {
       method: "POST",
@@ -208,14 +266,14 @@ export function AdminExamBuilder({
     setMessage(`시험이 생성되었습니다. (시험 ID: ${payload.id})`);
     setTitle("");
     setDescription("");
-    setQuestions([{ key: Date.now(), type: "multiple_choice", prompt_md: "", required: true, choicesText: "선택지 1\n선택지 2" }]);
+    setQuestions([newMultipleChoiceQuestion(Date.now())]);
     await refreshExams();
     setLoading(false);
   };
 
   const onUploadResource = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!activeExamId) {
+    if (resourceExamId === null) {
       setError("자료를 업로드할 시험을 먼저 선택해 주세요.");
       return;
     }
@@ -230,7 +288,7 @@ export function AdminExamBuilder({
     const formData = new FormData();
     formData.append("file", uploadFile, uploadFile.name);
 
-    const response = await fetch(`/api/admin/exams/${activeExamId}/resources`, {
+    const response = await fetch(`/api/admin/exams/${resourceExamId}/resources`, {
       method: "POST",
       body: formData,
     });
@@ -242,7 +300,7 @@ export function AdminExamBuilder({
     }
 
     setUploadFile(null);
-    await loadResources(activeExamId);
+    await loadResources(resourceExamId);
     setMessage("시험 자료를 업로드했습니다.");
     setUploading(false);
   };
@@ -252,9 +310,7 @@ export function AdminExamBuilder({
 
     for (const row of submissionRows) {
       for (const answer of row.answers) {
-        if (answer.question_type !== "multiple_choice") {
-          continue;
-        }
+        if (answer.question_type !== "multiple_choice") continue;
 
         const existing = byQuestion.get(answer.question_id);
         const choiceSource = answer.choices ?? [];
@@ -277,25 +333,10 @@ export function AdminExamBuilder({
         const stat = byQuestion.get(answer.question_id);
         if (!stat) continue;
 
-        if (choiceSource.length > stat.choices.length) {
-          for (let i = stat.choices.length; i < choiceSource.length; i += 1) {
-            stat.choices.push(choiceSource[i] ?? `선택지 ${i + 1}`);
-            stat.counts.push(0);
-            stat.respondents.push([]);
-          }
-        }
-
         const selected = answer.selected_choice_index;
-        if (selected === null || selected < 0) {
+        if (selected === null || selected < 0 || selected >= stat.choices.length) {
           stat.unansweredUsers.push(row.username);
           continue;
-        }
-
-        while (stat.choices.length <= selected) {
-          const nextIndex = stat.choices.length;
-          stat.choices.push(`선택지 ${nextIndex + 1}`);
-          stat.counts.push(0);
-          stat.respondents.push([]);
         }
 
         stat.counts[selected] += 1;
@@ -313,7 +354,7 @@ export function AdminExamBuilder({
         <BackButton fallbackHref="/admin" />
         <p className="qa-kicker mt-3">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
-        <p className="mt-2 text-sm text-muted-foreground">시험지 생성, 제출 결과 확인, 시험 자료 업로드를 한 화면에서 처리합니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">시험 생성, 자료 업로드, 응답 통계를 한 화면에서 확인할 수 있습니다.</p>
       </section>
 
       {error ? <p className="qa-card text-sm text-destructive">{error}</p> : null}
@@ -321,7 +362,7 @@ export function AdminExamBuilder({
 
       <form className="qa-card space-y-4" onSubmit={onCreateExam}>
         <h2 className="text-lg font-semibold">새 시험 만들기</h2>
-        <Input placeholder="시험 제목 (예: 파이썬 기초 퀴즈)" value={title} onChange={(event) => setTitle(event.target.value)} required />
+        <Input placeholder="시험 제목" value={title} onChange={(event) => setTitle(event.target.value)} required />
         <Textarea
           className="min-h-20"
           placeholder="설명 (선택)"
@@ -377,12 +418,19 @@ export function AdminExamBuilder({
                 required
               />
               {question.type === "multiple_choice" ? (
-                <Textarea
-                  className="mt-2 min-h-20"
-                  placeholder={"선택지 1\n선택지 2\n선택지 3"}
-                  value={question.choicesText}
-                  onChange={(event) => updateQuestion(question.key, { choicesText: event.target.value })}
-                />
+                <div className="mt-2 space-y-2">
+                  {question.choices.map((choice, choiceIndex) => (
+                    <div key={`${question.key}-${choiceIndex}`} className="flex items-center gap-2">
+                      <span className="w-10 text-sm text-muted-foreground">{choiceIndex + 1}번</span>
+                      <Input
+                        placeholder={`${choiceIndex + 1}번 선택지 내용`}
+                        value={choice}
+                        onChange={(event) => updateChoice(question.key, choiceIndex, event.target.value)}
+                      />
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">응시자는 객관식 문항당 한 개만 선택할 수 있습니다.</p>
+                </div>
               ) : null}
               <label className="mt-2 flex items-center gap-2 text-xs">
                 <input
@@ -401,6 +449,65 @@ export function AdminExamBuilder({
 
         <Button disabled={loading}>{loading ? "생성 중..." : "시험지 생성"}</Button>
       </form>
+
+      <section className="qa-card space-y-3">
+        <h2 className="text-lg font-semibold">시험 자료 업로드</h2>
+        {exams.length === 0 ? (
+          <p className="text-sm text-muted-foreground">먼저 시험을 생성해 주세요.</p>
+        ) : (
+          <>
+            <select
+              className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
+              value={resourceExamId ?? ""}
+              onChange={(event) => {
+                const nextId = Number(event.target.value);
+                setResourceExamId(Number.isFinite(nextId) ? nextId : null);
+              }}
+            >
+              {exams.map((exam) => (
+                <option key={exam.id} value={exam.id}>
+                  #{exam.id} {exam.title}
+                </option>
+              ))}
+            </select>
+            <form className="flex flex-col gap-3 md:flex-row md:items-center" onSubmit={onUploadResource}>
+              <input
+                type="file"
+                className="text-sm"
+                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+              />
+              <Button type="submit" disabled={uploading}>
+                {uploading ? "업로드 중..." : "자료 업로드"}
+              </Button>
+            </form>
+            {resourceRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">업로드된 자료가 없습니다.</p>
+            ) : (
+              <div className="space-y-2">
+                {resourceRows.map((resource) => (
+                  <article key={resource.id} className="rounded-xl border border-border/70 bg-surface p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{resource.file_name}</p>
+                      <a
+                        className="text-primary underline"
+                        href={`/api/exams/${resourceExamId}/resources/${resource.id}/download`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        다운로드
+                      </a>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {resource.content_type ?? "application/octet-stream"} | {formatBytes(resource.size_bytes)} |{" "}
+                      {new Date(resource.created_at).toLocaleString()}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       <section className="qa-card space-y-3">
         <h2 className="text-lg font-semibold">생성된 시험</h2>
@@ -430,46 +537,7 @@ export function AdminExamBuilder({
       {activeExamId ? (
         <>
           <section className="qa-card space-y-3">
-            <h2 className="text-lg font-semibold">시험 #{activeExamId} 자료 관리</h2>
-            <form className="flex flex-col gap-3 md:flex-row md:items-center" onSubmit={onUploadResource}>
-              <input
-                type="file"
-                className="text-sm"
-                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
-              />
-              <Button type="submit" disabled={uploading}>
-                {uploading ? "업로드 중..." : "자료 업로드"}
-              </Button>
-            </form>
-            {resourceRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">업로드된 자료가 없습니다.</p>
-            ) : (
-              <div className="space-y-2">
-                {resourceRows.map((resource) => (
-                  <article key={resource.id} className="rounded-xl border border-border/70 bg-surface p-3 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-medium">{resource.file_name}</p>
-                      <a
-                        className="text-primary underline"
-                        href={`/api/exams/${activeExamId}/resources/${resource.id}/download`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        다운로드
-                      </a>
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {resource.content_type ?? "application/octet-stream"} | {formatBytes(resource.size_bytes)} |{" "}
-                      {new Date(resource.created_at).toLocaleString()}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="qa-card space-y-3">
-            <h2 className="text-lg font-semibold">객관식 응답 통계</h2>
+            <h2 className="text-lg font-semibold">시험 #{activeExamId} 객관식 통계</h2>
             {choiceStats.length === 0 ? (
               <p className="text-sm text-muted-foreground">객관식 응답이 아직 없습니다.</p>
             ) : (
@@ -505,7 +573,7 @@ export function AdminExamBuilder({
           </section>
 
           <section className="qa-card space-y-3">
-            <h2 className="text-lg font-semibold">학생별 제출 상세</h2>
+            <h2 className="text-lg font-semibold">시험 #{activeExamId} 학생별 제출 상세</h2>
             {submissionRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">아직 제출이 없습니다.</p>
             ) : (
