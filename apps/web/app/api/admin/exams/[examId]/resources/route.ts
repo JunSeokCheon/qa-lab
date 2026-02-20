@@ -39,12 +39,13 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const file = form.get("file");
-  if (!(file instanceof File)) {
+  if (!file || typeof file === "string" || typeof (file as Blob).arrayBuffer !== "function") {
     return NextResponse.json({ message: "File is required" }, { status: 400 });
   }
 
   const forwardForm = new FormData();
-  forwardForm.append("file", file, file.name);
+  const upload = file as Blob & { name?: string };
+  forwardForm.append("file", upload, upload.name ?? "resource.bin");
 
   const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}/resources`, {
     method: "POST",

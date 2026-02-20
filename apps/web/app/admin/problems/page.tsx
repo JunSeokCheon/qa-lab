@@ -48,6 +48,7 @@ async function ensureDefaultFolders(token: string): Promise<Folder[]> {
       cache: "no-store",
     });
   }
+
   folders = await fetchFolders(token);
   return folders;
 }

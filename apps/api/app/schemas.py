@@ -182,6 +182,16 @@ class ExamUpdate(BaseModel):
     status: str = "published"
 
 
+class ExamRepublish(BaseModel):
+    title: str
+    description: str | None = None
+    folder_id: int | None = None
+    exam_kind: str = "quiz"
+    status: str = "published"
+    questions: list[ExamQuestionCreate]
+    copy_resources: bool = True
+
+
 class ExamQuestionSummary(BaseModel):
     id: int
     order_index: int
@@ -215,6 +225,14 @@ class ExamSummary(BaseModel):
 
 class ExamDetail(ExamSummary):
     questions: list[ExamQuestionSummary]
+
+
+class AdminExamQuestionSummary(ExamQuestionSummary):
+    correct_choice_index: int | None = None
+
+
+class AdminExamDetail(ExamSummary):
+    questions: list[AdminExamQuestionSummary]
 
 
 class ExamAnswerInput(BaseModel):

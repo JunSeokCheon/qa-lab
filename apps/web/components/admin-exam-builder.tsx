@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ type ExamSummary = {
   id: number;
   title: string;
   description: string | null;
+  folder_id: number | null;
   exam_kind: string;
   question_count: number;
   folder_path: string | null;
@@ -26,7 +27,6 @@ type ExamResource = {
 };
 
 type QuestionType = "multiple_choice" | "subjective" | "coding";
-
 type DraftQuestion = {
   key: number;
   type: QuestionType;
@@ -174,19 +174,19 @@ export function AdminExamBuilder({
     const normalizedQuestions = [];
     for (const question of questions) {
       if (!question.prompt_md.trim()) {
-        setError("모든 문항의 내용을 입력해 주세요.");
+        setError("모든 문항 내용을 입력해 주세요.");
         setLoading(false);
         return;
       }
       if (question.type === "multiple_choice") {
         const trimmedChoices = question.choices.map((choice) => choice.trim());
         if (trimmedChoices.some((choice) => choice.length === 0)) {
-          setError("객관식 문항은 1~4번 선택지 내용을 모두 입력해야 합니다.");
+          setError("객관식은 1~4번 선택지 내용을 모두 입력해야 합니다.");
           setLoading(false);
           return;
         }
         normalizedQuestions.push({
-          type: question.type,
+          type: "multiple_choice",
           prompt_md: question.prompt_md.trim(),
           required: question.required,
           choices: trimmedChoices,
@@ -217,12 +217,12 @@ export function AdminExamBuilder({
     });
     const payload = (await response.json().catch(() => ({}))) as { id?: number; detail?: string; message?: string };
     if (!response.ok || !payload.id) {
-      setError(payload.detail ?? payload.message ?? "시험지 생성에 실패했습니다.");
+      setError(payload.detail ?? payload.message ?? "시험 생성에 실패했습니다.");
       setLoading(false);
       return;
     }
 
-    setMessage(`시험을 생성했습니다. (시험 ID: ${payload.id})`);
+    setMessage(`시험을 생성했습니다. (ID: ${payload.id})`);
     setTitle("");
     setDescription("");
     setQuestions([newQuestion(Date.now(), "multiple_choice")]);
@@ -230,16 +230,22 @@ export function AdminExamBuilder({
     setLoading(false);
   };
 
-  const onUploadResource = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.files?.[0] ?? null;
+    setUploadFile(next);
+    setMessage("");
+    setError("");
+  };
+
+  const uploadResource = async () => {
     setError("");
     setMessage("");
     if (resourceExamId === null) {
-      setError("리소스를 업로드할 시험을 먼저 선택해 주세요.");
+      setError("리소스를 올릴 시험을 먼저 선택해 주세요.");
       return;
     }
     if (!uploadFile) {
-      setError("업로드할 파일을 선택해 주세요.");
+      setError("업로드할 파일을 먼저 선택해 주세요.");
       return;
     }
 
@@ -254,13 +260,13 @@ export function AdminExamBuilder({
       });
       const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
       if (!response.ok) {
-        setError(payload.detail ?? payload.message ?? "파일 업로드에 실패했습니다.");
+        setError(payload.detail ?? payload.message ?? "리소스 업로드에 실패했습니다.");
         return;
       }
 
-      setUploadFile(null);
       await loadResources(resourceExamId);
-      setMessage("코딩 문제 리소스를 업로드했습니다.");
+      setMessage("리소스를 업로드했습니다.");
+      setUploadFile(null);
     } finally {
       setUploading(false);
     }
@@ -273,7 +279,7 @@ export function AdminExamBuilder({
         <p className="qa-kicker mt-4">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          시험 문항 생성과 코딩 문제 리소스 업로드를 이 화면에서 관리합니다.
+          시험 문항 생성과 코딩 문제 리소스 업로드를 진행합니다.
         </p>
       </section>
 
@@ -289,6 +295,7 @@ export function AdminExamBuilder({
           value={description}
           onChange={(event) => setDescription(event.target.value)}
         />
+
         <div className="grid gap-3 md:grid-cols-2">
           <select
             className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
@@ -321,6 +328,7 @@ export function AdminExamBuilder({
                   문항 삭제
                 </Button>
               </div>
+
               <select
                 className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
                 value={question.type}
@@ -330,6 +338,7 @@ export function AdminExamBuilder({
                 <option value="subjective">주관식</option>
                 <option value="coding">코딩</option>
               </select>
+
               <Textarea
                 className="mt-2 min-h-24"
                 placeholder="문항 내용을 입력해 주세요."
@@ -337,6 +346,7 @@ export function AdminExamBuilder({
                 onChange={(event) => updateQuestion(question.key, { prompt_md: event.target.value })}
                 required
               />
+
               {question.type === "multiple_choice" ? (
                 <div className="mt-3 space-y-2">
                   {question.choices.map((choice, choiceIndex) => (
@@ -355,9 +365,15 @@ export function AdminExamBuilder({
                       />
                     </label>
                   ))}
-                  <p className="text-xs text-muted-foreground">정답 번호는 라디오 버튼으로 1개만 선택됩니다.</p>
+                  <p className="text-xs text-muted-foreground">정답 번호는 1개만 선택됩니다.</p>
                 </div>
               ) : null}
+              {question.type === "coding" ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  코딩 문항은 정답 문자열을 직접 넣지 않고, 테스트 코드/채점 기준으로 자동 채점합니다.
+                </p>
+              ) : null}
+
               <label className="mt-3 flex items-center gap-2 text-xs">
                 <input
                   type="checkbox"
@@ -368,6 +384,7 @@ export function AdminExamBuilder({
               </label>
             </article>
           ))}
+
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => addQuestion("multiple_choice")}>
               객관식 추가
@@ -381,14 +398,15 @@ export function AdminExamBuilder({
           </div>
         </div>
 
-        <Button disabled={loading}>{loading ? "생성 중..." : "시험지 생성"}</Button>
+        <Button disabled={loading}>{loading ? "생성 중..." : "시험 생성"}</Button>
       </form>
 
       <section className="qa-card space-y-3">
-        <h2 className="text-lg font-semibold">코딩 문제 리소스</h2>
+        <h2 className="text-lg font-semibold">코딩 문제 리소스 업로드</h2>
         <p className="text-xs text-muted-foreground">
           코딩 문항 채점에 필요한 데이터 파일(zip, csv 등)을 시험 단위로 업로드합니다.
         </p>
+
         {exams.length === 0 ? (
           <p className="text-sm text-muted-foreground">먼저 시험을 생성해 주세요.</p>
         ) : (
@@ -407,16 +425,15 @@ export function AdminExamBuilder({
                 </option>
               ))}
             </select>
-            <form className="flex flex-col gap-3 md:flex-row md:items-center" onSubmit={onUploadResource}>
-              <input
-                type="file"
-                className="text-sm"
-                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
-              />
-              <Button type="submit" disabled={uploading}>
+
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <input type="file" className="text-sm" onChange={onFileChange} />
+              <Button type="button" onClick={() => void uploadResource()} disabled={uploading}>
                 {uploading ? "업로드 중..." : "리소스 업로드"}
               </Button>
-            </form>
+            </div>
+            <p className="text-xs text-muted-foreground">선택 파일: {uploadFile?.name ?? "(없음)"}</p>
+
             {resourceRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">업로드된 리소스가 없습니다.</p>
             ) : (
@@ -444,15 +461,6 @@ export function AdminExamBuilder({
             )}
           </>
         )}
-      </section>
-
-      <section className="qa-card flex flex-wrap gap-2 text-sm">
-        <a href="/admin/exams" className="underline">
-          시험 목록 관리로 이동
-        </a>
-        <a href="/dashboard" className="underline">
-          대시보드로 이동
-        </a>
       </section>
     </main>
   );

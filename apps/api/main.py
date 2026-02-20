@@ -52,10 +52,13 @@ from app.observability import get_logger, log_event
 from app.queue import check_redis_connection, clear_rate_limit, grading_queue, increment_rate_limit
 from app.schemas import (
     AdminAuditLogResponse,
+    AdminExamDetail,
+    AdminExamQuestionSummary,
     AdminExamSubmissionDetail,
     AdminExamSubmissionAnswer,
     AuthTokenResponse,
     ExamCreate,
+    ExamRepublish,
     ExamUpdate,
     ExamDetail,
     ExamQuestionSummary,
@@ -246,6 +249,13 @@ def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
         prompt_md=question.prompt_md,
         required=question.required,
         choices=list(question.choices_json or []) if question.choices_json is not None else None,
+    )
+
+
+def _to_admin_exam_question_summary(question: ExamQuestion) -> AdminExamQuestionSummary:
+    return AdminExamQuestionSummary(
+        **_to_exam_question_summary(question).model_dump(),
+        correct_choice_index=question.correct_choice_index,
     )
 
 
@@ -864,13 +874,10 @@ async def list_problem_folders(session: Annotated[AsyncSession, Depends(get_asyn
     return [_to_problem_folder_response(folder, path_map) for folder in folders]
 
 
-@app.post("/admin/exams", response_model=ExamDetail, status_code=status.HTTP_201_CREATED)
-async def create_exam(
-    payload: ExamCreate,
-    request: Request,
-    admin_user: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> ExamDetail:
+async def _create_exam_with_questions(
+    session: AsyncSession,
+    payload: ExamCreate | ExamRepublish,
+) -> tuple[Exam, list[ExamQuestion]]:
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 제목은 필수입니다.")
@@ -913,7 +920,50 @@ async def create_exam(
         )
         session.add(question)
         questions.append(question)
+    return exam, questions
 
+
+async def _copy_exam_resources(
+    session: AsyncSession,
+    *,
+    source_exam_id: int,
+    target_exam_id: int,
+) -> int:
+    resources = (
+        await session.execute(select(ExamResource).where(ExamResource.exam_id == source_exam_id).order_by(ExamResource.id.asc()))
+    ).scalars().all()
+    copied = 0
+    for resource in resources:
+        source_path = _resolve_exam_resource_path(source_exam_id, resource.stored_name)
+        if not source_path.exists() or not source_path.is_file():
+            continue
+        payload = source_path.read_bytes()
+        suffix = Path(resource.file_name).suffix[:20] or Path(resource.stored_name).suffix[:20]
+        stored_name = f"{uuid4().hex}{suffix}"
+        target_path = _resolve_exam_resource_path(target_exam_id, stored_name)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(payload)
+        session.add(
+            ExamResource(
+                exam_id=target_exam_id,
+                file_name=resource.file_name,
+                stored_name=stored_name,
+                content_type=resource.content_type,
+                size_bytes=len(payload),
+            )
+        )
+        copied += 1
+    return copied
+
+
+@app.post("/admin/exams", response_model=AdminExamDetail, status_code=status.HTTP_201_CREATED)
+async def create_exam(
+    payload: ExamCreate,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminExamDetail:
+    exam, questions = await _create_exam_with_questions(session, payload)
     await _write_admin_audit_log(
         session=session,
         request=request,
@@ -927,9 +977,9 @@ async def create_exam(
     await session.refresh(exam)
 
     folder_path_map = await _load_folder_path_map(session)
-    return ExamDetail(
+    return AdminExamDetail(
         **_to_exam_summary(exam, folder_path_map=folder_path_map, question_count=len(questions), submitted=False).model_dump(),
-        questions=[_to_exam_question_summary(question) for question in questions],
+        questions=[_to_admin_exam_question_summary(question) for question in questions],
     )
 
 
@@ -955,6 +1005,76 @@ async def list_admin_exams(
         )
         for exam in exams
     ]
+
+
+@app.get("/admin/exams/{exam_id}", response_model=AdminExamDetail)
+async def get_admin_exam_detail(
+    exam_id: int,
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminExamDetail:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+    questions = (
+        await session.execute(
+            select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc())
+        )
+    ).scalars().all()
+    folder_path_map = await _load_folder_path_map(session)
+    return AdminExamDetail(
+        **_to_exam_summary(exam, folder_path_map=folder_path_map, question_count=len(questions), submitted=False).model_dump(),
+        questions=[_to_admin_exam_question_summary(question) for question in questions],
+    )
+
+
+@app.post("/admin/exams/{exam_id}/republish", response_model=AdminExamDetail, status_code=status.HTTP_201_CREATED)
+async def republish_admin_exam(
+    exam_id: int,
+    payload: ExamRepublish,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminExamDetail:
+    source_exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if source_exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="원본 시험을 찾을 수 없습니다.")
+
+    new_exam, new_questions = await _create_exam_with_questions(session, payload)
+    copied_resources = 0
+    if payload.copy_resources:
+        copied_resources = await _copy_exam_resources(
+            session,
+            source_exam_id=source_exam.id,
+            target_exam_id=new_exam.id,
+        )
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.republish",
+        resource_type="exam",
+        resource_id=str(new_exam.id),
+        metadata={
+            "source_exam_id": source_exam.id,
+            "new_exam_id": new_exam.id,
+            "question_count": len(new_questions),
+            "copied_resources": copied_resources,
+        },
+    )
+    await session.commit()
+    await session.refresh(new_exam)
+    folder_path_map = await _load_folder_path_map(session)
+    return AdminExamDetail(
+        **_to_exam_summary(
+            new_exam,
+            folder_path_map=folder_path_map,
+            question_count=len(new_questions),
+            submitted=False,
+        ).model_dump(),
+        questions=[_to_admin_exam_question_summary(question) for question in new_questions],
+    )
 
 
 @app.put("/admin/exams/{exam_id}", response_model=ExamSummary)

@@ -7,25 +7,7 @@ type Params = {
   params: { examId: string } | Promise<{ examId: string }>;
 };
 
-export async function GET(_: Request, { params }: Params) {
-  const { examId } = await Promise.resolve(params);
-  const cookieStore = await cookies();
-  const token = cookieStore.get("access_token")?.value;
-  if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
-  }
-
-  const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    cache: "no-store",
-  });
-  const payload = await response.json().catch(() => ({}));
-  return NextResponse.json(payload, { status: response.status });
-}
-
-export async function PUT(request: Request, { params }: Params) {
+export async function POST(request: Request, { params }: Params) {
   const { examId } = await Promise.resolve(params);
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
@@ -38,8 +20,8 @@ export async function PUT(request: Request, { params }: Params) {
     return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
   }
 
-  const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}`, {
-    method: "PUT",
+  const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}/republish`, {
+    method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
