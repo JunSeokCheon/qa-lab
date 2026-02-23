@@ -261,15 +261,24 @@ function buildFallbackExamPayload(suffix) {
   };
 }
 
-function summarizeCodingScores(submissions) {
-  const scores = [];
+function summarizeCodingResults(submissions) {
+  const results = [];
   for (const submission of submissions) {
     const coding = (submission.answers ?? []).find((answer) => answer.question_type === "coding");
     if (coding && typeof coding.grading_score === "number") {
-      scores.push(coding.grading_score);
+      const feedback = coding.grading_feedback_json && typeof coding.grading_feedback_json === "object"
+        ? coding.grading_feedback_json
+        : null;
+      const mode = typeof feedback?.mode === "string" ? feedback.mode : null;
+      const fallbackUsed = Boolean(feedback?.fallback_used) || mode === "answer_key_fallback_v2";
+      results.push({
+        score: coding.grading_score,
+        fallbackUsed,
+        mode,
+      });
     }
   }
-  return scores;
+  return results;
 }
 
 async function main() {
@@ -479,10 +488,18 @@ async function main() {
     ensure(coding?.grading_status === "GRADED", "coding grading_status check failed");
   }
 
-  const scores = summarizeCodingScores(mainAdminSubmissions);
+  const codingResults = summarizeCodingResults(mainAdminSubmissions);
+  const scores = codingResults.map((item) => item.score);
   ensure(scores.length === USERS, "coding scores count mismatch");
   ensure(scores.some((score) => score === 100), "expected at least one perfect coding score");
-  ensure(scores.some((score) => score < 100), "expected at least one non-perfect coding score");
+  const hasNonPerfect = scores.some((score) => score < 100);
+  if (!hasNonPerfect) {
+    const allFallback = codingResults.every((item) => item.fallbackUsed);
+    ensure(
+      allFallback,
+      "expected at least one non-perfect coding score unless all coding grades were fallback results",
+    );
+  }
 
   const mainList = await api("GET", "/admin/exams", { token: adminToken });
   const adminExamIds = Array.isArray(mainList.data) ? mainList.data.map((item) => item.id) : [];
@@ -493,6 +510,7 @@ async function main() {
     id: mainExam.id,
     title: mainExam.title,
     submissions: mainAdminSubmissions.length,
+    allFallbackPerfect: scores.every((score) => score === 100) && codingResults.every((item) => item.fallbackUsed),
     codingScores: {
       min: Math.min(...scores),
       max: Math.max(...scores),

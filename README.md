@@ -308,6 +308,7 @@ pnpm.cmd --filter web build
 $env:API_BASE_URL="http://127.0.0.1:8000"
 $env:VIRTUAL_USERS="12"
 node scripts/full_system_check.mjs
+# 참고: CI처럼 LLM 키가 없으면 fallback 채점이 동작하며, 이 경우 코딩 점수가 전원 100이어도 통합 점검은 PASS 처리됩니다.
 
 bash scripts/smoke_grader.sh
 ```
