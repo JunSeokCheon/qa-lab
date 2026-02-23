@@ -1,6 +1,6 @@
 """add per-submission result sharing flags
 
-Revision ID: 0020_exam_submission_result_share
+Revision ID: 0020_exam_submission_share
 Revises: 0019_exam_timer_results
 Create Date: 2026-02-23 23:50:00.000000
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "0020_exam_submission_result_share"
+revision: str = "0020_exam_submission_share"
 down_revision: Union[str, Sequence[str], None] = "0019_exam_timer_results"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
