@@ -47,16 +47,41 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# shellcheck disable=SC1090
-source "$ENV_FILE"
+load_env_file() {
+  local first=1
+  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    local line="${raw_line%$'\r'}"
+    if [[ $first -eq 1 ]]; then
+      line="${line#$'\ufeff'}"
+      first=0
+    fi
+    [[ -z "$line" ]] && continue
+    [[ "${line:0:1}" == "#" ]] && continue
+    [[ "$line" != *"="* ]] && continue
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    value="$(echo "$value" | sed 's/^[[:space:]]*//')"
+    export "$key=$value"
+  done < "$ENV_FILE"
+}
+
+load_env_file
+
+POSTGRES_USER_VALUE="${POSTGRES_USER:-}"
+POSTGRES_DB_VALUE="${POSTGRES_DB:-}"
+if [[ -z "$POSTGRES_USER_VALUE" || -z "$POSTGRES_DB_VALUE" ]]; then
+  echo "POSTGRES_USER and POSTGRES_DB must be defined in $ENV_FILE"
+  exit 1
+fi
 
 compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 echo "[restore] Restoring Postgres..."
-compose exec -T postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-compose exec -T postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" < "$INPUT_DIR/postgres.sql"
+compose exec -T postgres psql -U "${POSTGRES_USER_VALUE}" -d "${POSTGRES_DB_VALUE}" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+compose exec -T postgres psql -U "${POSTGRES_USER_VALUE}" -d "${POSTGRES_DB_VALUE}" < "$INPUT_DIR/postgres.sql"
 
 if [[ -d "$INPUT_DIR/bundles" ]]; then
   echo "[restore] Restoring bundles..."

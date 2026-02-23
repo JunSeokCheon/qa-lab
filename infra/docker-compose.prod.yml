@@ -39,6 +39,7 @@ services:
       BUNDLE_MAX_SIZE_BYTES: ${BUNDLE_MAX_SIZE_BYTES}
       BUNDLE_MAX_ENTRIES: ${BUNDLE_MAX_ENTRIES}
       BUNDLE_MAX_UNCOMPRESSED_BYTES: ${BUNDLE_MAX_UNCOMPRESSED_BYTES}
+      EXAM_RESOURCE_MAX_SIZE_BYTES: ${EXAM_RESOURCE_MAX_SIZE_BYTES}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
@@ -48,6 +49,11 @@ services:
       GRADER_IMAGE: ${GRADER_IMAGE}
       GRADER_TIMEOUT_SECONDS: ${GRADER_TIMEOUT_SECONDS}
       MAX_LOG_BYTES: ${MAX_LOG_BYTES}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      EXAM_LLM_MODEL: ${EXAM_LLM_MODEL}
+      EXAM_LLM_TIMEOUT_SECONDS: ${EXAM_LLM_TIMEOUT_SECONDS}
+      EXAM_LLM_MAX_TOKENS: ${EXAM_LLM_MAX_TOKENS}
       DOCKER_VOLUMES_FROM_SELF: "true"
       GRADER_WORKDIR_ROOT: /app/var/bundles/.grader-work
     command: >
@@ -62,7 +68,7 @@ services:
       - bundles_data:/app/var/bundles
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
 
   worker:
     build:
@@ -77,12 +83,18 @@ services:
       BUNDLE_MAX_SIZE_BYTES: ${BUNDLE_MAX_SIZE_BYTES}
       BUNDLE_MAX_ENTRIES: ${BUNDLE_MAX_ENTRIES}
       BUNDLE_MAX_UNCOMPRESSED_BYTES: ${BUNDLE_MAX_UNCOMPRESSED_BYTES}
+      EXAM_RESOURCE_MAX_SIZE_BYTES: ${EXAM_RESOURCE_MAX_SIZE_BYTES}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       GRADER_IMAGE: ${GRADER_IMAGE}
       GRADER_TIMEOUT_SECONDS: ${GRADER_TIMEOUT_SECONDS}
       MAX_LOG_BYTES: ${MAX_LOG_BYTES}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      EXAM_LLM_MODEL: ${EXAM_LLM_MODEL}
+      EXAM_LLM_TIMEOUT_SECONDS: ${EXAM_LLM_TIMEOUT_SECONDS}
+      EXAM_LLM_MAX_TOKENS: ${EXAM_LLM_MAX_TOKENS}
       DOCKER_VOLUMES_FROM_SELF: "true"
       GRADER_WORKDIR_ROOT: /app/var/bundles/.grader-work
     command: ["python", "worker.py"]
@@ -105,13 +117,34 @@ services:
     environment:
       FASTAPI_BASE_URL: http://api:8000
       FASTAPI_INTERNAL_URL: http://api:8000
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-1}
     depends_on:
       api:
         condition: service_started
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      CADDY_LOG_LEVEL: ${CADDY_LOG_LEVEL:-INFO}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   postgres_data:
   redis_data:
   bundles_data:
+  caddy_data:
+  caddy_config:

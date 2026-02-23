@@ -32,6 +32,15 @@ class MeResponse(BaseModel):
     created_at: datetime
 
 
+class AdminUserSummary(BaseModel):
+    id: int
+    username: str
+    name: str
+    track_name: str
+    role: str
+    created_at: datetime
+
+
 class PasswordForgotRequest(BaseModel):
     username: str
 
@@ -163,6 +172,7 @@ class ExamQuestionCreate(BaseModel):
     required: bool = True
     choices: list[str] | None = None
     correct_choice_index: int | None = None
+    answer_key_text: str | None = None
 
 
 class ExamCreate(BaseModel):
@@ -233,6 +243,7 @@ class ExamDetail(ExamSummary):
 
 class AdminExamQuestionSummary(ExamQuestionSummary):
     correct_choice_index: int | None = None
+    answer_key_text: str | None = None
 
 
 class AdminExamDetail(ExamSummary):
@@ -293,6 +304,7 @@ class AdminExamSubmissionAnswer(BaseModel):
     prompt_md: str
     choices: list[str] | None = None
     correct_choice_index: int | None = None
+    answer_key_text: str | None = None
     answer_text: str | None = None
     selected_choice_index: int | None = None
     grading_status: str | None = None
@@ -338,6 +350,36 @@ class AdminGradingEnqueueRequest(BaseModel):
 class AdminGradingEnqueueResponse(BaseModel):
     submission_id: int
     exam_id: int
+    queued: bool
+    status: str
+    message: str
+
+
+class AdminManualGradeRequest(BaseModel):
+    score: int
+    note: str | None = None
+
+
+class AdminManualGradeResponse(BaseModel):
+    submission_id: int
+    exam_id: int
+    question_id: int
+    grading_status: str
+    grading_score: int
+    grading_max_score: int
+    submission_status: str
+    message: str
+
+
+class AdminAppealRegradeRequest(BaseModel):
+    question_id: int
+    reason: str | None = None
+
+
+class AdminAppealRegradeResponse(BaseModel):
+    submission_id: int
+    exam_id: int
+    question_id: int
     queued: bool
     status: str
     message: str

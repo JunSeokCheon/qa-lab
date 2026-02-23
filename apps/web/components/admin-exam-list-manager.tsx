@@ -29,6 +29,7 @@ type ExamQuestionDetail = {
   required: boolean;
   choices: string[] | null;
   correct_choice_index: number | null;
+  answer_key_text: string | null;
 };
 
 type ExamDetail = {
@@ -49,6 +50,7 @@ type DraftQuestion = {
   required: boolean;
   choices: string[];
   correctChoiceIndex: number;
+  answerKeyText: string;
 };
 
 type ExamResource = {
@@ -83,6 +85,7 @@ function toDraftQuestion(question: ExamQuestionDetail): DraftQuestion {
     required: question.required,
     choices: choices.slice(0, 4),
     correctChoiceIndex: question.correct_choice_index ?? 0,
+    answerKeyText: question.answer_key_text ?? "",
   };
 }
 
@@ -94,6 +97,7 @@ function newDraftQuestion(type: QuestionType): DraftQuestion {
     required: true,
     choices: ["", "", "", ""],
     correctChoiceIndex: 0,
+    answerKeyText: "",
   };
 }
 
@@ -116,6 +120,7 @@ export function AdminExamListManager({
   const [savingMeta, setSavingMeta] = useState(false);
   const [republishing, setRepublishing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -135,6 +140,17 @@ export function AdminExamListManager({
 
   const [republishResourceFiles, setRepublishResourceFiles] = useState<File[]>([]);
   const republishFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!deleteDialogOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleting) {
+        setDeleteDialogOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [deleteDialogOpen, deleting]);
 
   const loadResources = async (examId: number) => {
     const response = await fetch(`/api/admin/exams/${examId}/resources`, { cache: "no-store" });
@@ -339,6 +355,7 @@ export function AdminExamListManager({
           required: question.required,
           choices: trimmedChoices,
           correct_choice_index: question.correctChoiceIndex,
+          answer_key_text: null,
         });
       } else {
         normalizedQuestions.push({
@@ -347,6 +364,7 @@ export function AdminExamListManager({
           required: question.required,
           choices: null,
           correct_choice_index: null,
+          answer_key_text: question.answerKeyText.trim() || null,
         });
       }
     }
@@ -416,8 +434,6 @@ export function AdminExamListManager({
 
   const onDeleteExam = async () => {
     if (!selectedExam) return;
-    const ok = window.confirm(`시험 #${selectedExam.id} (${selectedExam.title})를 삭제할까요?`);
-    if (!ok) return;
 
     setDeleting(true);
     setError("");
@@ -435,6 +451,7 @@ export function AdminExamListManager({
     const next = exams.filter((exam) => exam.id !== selectedExam.id);
     setExams(next);
     setSelectedExamId(next[0]?.id ?? null);
+    setDeleteDialogOpen(false);
     setMessage("시험을 삭제했습니다.");
     setDeleting(false);
   };
@@ -472,7 +489,7 @@ export function AdminExamListManager({
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
-        <BackButton fallbackHref="/admin" tone="hero" />
+        <BackButton fallbackHref="/" tone="hero" />
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험 목록 관리</h1>
         <p className="mt-3 text-sm text-hero-foreground/90">
@@ -528,7 +545,12 @@ export function AdminExamListManager({
                 <form className="qa-card space-y-4" onSubmit={onSaveMeta}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-lg font-semibold">기본 정보 수정</h2>
-                    <Button type="button" variant="destructive" onClick={() => void onDeleteExam()} disabled={deleting}>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      disabled={deleting || !selectedExam}
+                    >
                       {deleting ? "삭제 중..." : "시험 삭제"}
                     </Button>
                   </div>
@@ -592,6 +614,9 @@ export function AdminExamListManager({
                   <h2 className="text-lg font-semibold">선택 시험 리소스 업로드</h2>
                   <p className="text-xs text-muted-foreground">
                     현재 선택한 시험에 파일을 추가 업로드합니다.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    파일당 최대 500MB까지 업로드할 수 있습니다. 더 큰 자료는 Google Drive 링크를 시험 설명/문항에 함께 남겨 주세요.
                   </p>
                   <div className="rounded-2xl border border-border/70 bg-surface p-4">
                     <input
@@ -679,26 +704,50 @@ export function AdminExamListManager({
                           placeholder="문항 내용"
                         />
 
-                        {question.type === "multiple_choice" ? (
-                          <div className="mt-3 space-y-2">
-                            {question.choices.map((choice, choiceIndex) => (
-                              <label key={`${question.key}-${choiceIndex}`} className="flex items-center gap-2 text-sm">
-                                <input
-                                  type="radio"
-                                  name={`correct-choice-${question.key}`}
-                                  checked={question.correctChoiceIndex === choiceIndex}
-                                  onChange={() => updateQuestion(question.key, { correctChoiceIndex: choiceIndex })}
-                                />
-                                <span className="w-10 text-muted-foreground">{choiceIndex + 1}번</span>
-                                <Input
-                                  value={choice}
-                                  onChange={(event) => updateChoice(question.key, choiceIndex, event.target.value)}
-                                  placeholder={`${choiceIndex + 1}번 선택지`}
-                                />
-                              </label>
-                            ))}
-                          </div>
-                        ) : null}
+                        <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
+                          <p className="text-xs font-semibold">정답/채점 기준</p>
+                          {question.type === "multiple_choice" ? (
+                            <div className="mt-2 space-y-2">
+                              {question.choices.map((choice, choiceIndex) => (
+                                <label key={`${question.key}-${choiceIndex}`} className="flex items-center gap-2 text-sm">
+                                  <input
+                                    type="radio"
+                                    name={`correct-choice-${question.key}`}
+                                    checked={question.correctChoiceIndex === choiceIndex}
+                                    onChange={() => updateQuestion(question.key, { correctChoiceIndex: choiceIndex })}
+                                  />
+                                  <span className="w-10 text-muted-foreground">{choiceIndex + 1}번</span>
+                                  <Input
+                                    value={choice}
+                                    onChange={(event) => updateChoice(question.key, choiceIndex, event.target.value)}
+                                    placeholder={`${choiceIndex + 1}번 선택지`}
+                                  />
+                                </label>
+                              ))}
+                              <p className="text-xs text-muted-foreground">
+                                현재 정답: {question.correctChoiceIndex + 1}번 (라디오 버튼으로 변경)
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              <Textarea
+                                className="min-h-20"
+                                placeholder={
+                                  question.type === "subjective"
+                                    ? "주관식 자동채점 정답 키를 입력하세요. (비우면 수동 채점 대상)"
+                                    : "코딩 문항의 참고 정답/채점 기준을 입력하세요. (선택)"
+                                }
+                                value={question.answerKeyText}
+                                onChange={(event) => updateQuestion(question.key, { answerKeyText: event.target.value })}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {question.type === "subjective"
+                                  ? "주관식은 정답/채점 기준을 입력하면 LLM이 제출 답안을 비교해 0~100점으로 자동채점합니다."
+                                  : "코딩은 정답 코드/채점 기준을 입력하면 LLM이 제출 코드를 비교해 0~100점으로 자동채점합니다."}
+                              </p>
+                            </div>
+                          )}
+                        </div>
 
                         <label className="mt-3 flex items-center gap-2 text-xs">
                           <input
@@ -738,6 +787,9 @@ export function AdminExamListManager({
                     <p className="mt-1 text-xs text-muted-foreground">
                       재출제 후 새 시험에 바로 업로드됩니다. (여러 파일 선택 가능)
                     </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      파일당 최대 500MB까지 업로드할 수 있습니다.
+                    </p>
                     <input
                       ref={republishFileInputRef}
                       type="file"
@@ -765,6 +817,31 @@ export function AdminExamListManager({
           </section>
         </section>
       )}
+
+      {deleteDialogOpen && selectedExam ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-primary/40 bg-white shadow-2xl">
+            <div className="bg-gradient-to-r from-primary to-[#d80028] px-5 py-4 text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]">주의</p>
+              <h3 className="mt-1 text-lg font-bold">시험 삭제 확인</h3>
+            </div>
+            <div className="space-y-3 p-5 text-sm text-foreground">
+              <p className="rounded-xl border border-primary/20 bg-secondary/50 p-3">
+                <span className="font-semibold">#{selectedExam.id}</span> {selectedExam.title}
+              </p>
+              <p>삭제 후에는 문항/리소스/제출 기록을 복구할 수 없습니다. 정말 삭제하시겠습니까?</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button type="button" variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+                취소
+              </Button>
+              <Button type="button" variant="destructive" onClick={() => void onDeleteExam()} disabled={deleting}>
+                {deleting ? "삭제 중..." : "영구 삭제"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

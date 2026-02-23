@@ -3,6 +3,7 @@ set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:8000}"
 WEB_BASE_URL="${WEB_BASE_URL:-http://127.0.0.1:3000}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-}"
 
 check_url() {
   local url="$1"
@@ -20,5 +21,8 @@ check_url "${WEB_BASE_URL}" "web"
 check_url "${API_BASE_URL}/health" "api"
 check_url "${API_BASE_URL}/health/db" "db"
 check_url "${API_BASE_URL}/health/redis" "redis"
+if [[ -n "${PUBLIC_BASE_URL}" ]]; then
+  check_url "${PUBLIC_BASE_URL}" "public"
+fi
 
 echo "[ops] Done."

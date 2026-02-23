@@ -43,7 +43,7 @@ export default async function AdminPage() {
         <p className="mt-2 text-sm text-hero-foreground/90">로그인 계정: {me.username}</p>
       </section>
 
-      <section className="qa-card grid gap-2 text-sm md:grid-cols-4">
+      <section className="qa-card grid gap-2 text-sm md:grid-cols-5">
         <Link href="/admin/problems" className="rounded-xl border border-border/70 bg-surface p-4 underline">
           시험지 관리
         </Link>
@@ -56,7 +56,11 @@ export default async function AdminPage() {
         <Link href="/dashboard" className="rounded-xl border border-border/70 bg-surface p-4 underline">
           시험 대시보드
         </Link>
+        <Link href="/admin/users" className="rounded-xl border border-border/70 bg-surface p-4 underline">
+          사용자 관리
+        </Link>
       </section>
     </main>
   );
 }
+

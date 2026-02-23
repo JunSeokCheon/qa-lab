@@ -55,6 +55,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements.txt
 
+      - name: API syntax check
+        run: python -m compileall apps/api
+
       - name: Build grader image
         run: docker build -t "$GRADER_IMAGE" -f grader-images/python/Dockerfile .
 
@@ -100,6 +103,15 @@ jobs:
 
       - name: Install web dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Lint web
+        run: pnpm --filter web lint
+
+      - name: Full system check
+        env:
+          API_BASE_URL: http://127.0.0.1:8000
+          VIRTUAL_USERS: "12"
+        run: node scripts/full_system_check.mjs
 
       - name: Build web
         run: pnpm --filter web build

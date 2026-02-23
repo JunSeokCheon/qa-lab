@@ -61,14 +61,17 @@ export function AdminAutoGradingManager({
   const [rows, setRows] = useState(initialSubmissions);
   const [examIdFilter, setExamIdFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [codingOnly, setCodingOnly] = useState(true);
+  const [codingOnly, setCodingOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const queueableRows = useMemo(
-    () => rows.filter((row) => !["QUEUED", "RUNNING"].includes(row.status)),
+    () =>
+      rows.filter(
+        (row) => row.status === "FAILED" || (row.status === "SUBMITTED" && Number(row.coding_pending_count) > 0)
+      ),
     [rows]
   );
 
@@ -130,6 +133,10 @@ export function AdminAutoGradingManager({
   };
 
   const runBulk = async () => {
+    if (examIdFilter === "all") {
+      setMessage("시험을 선택한 뒤 자동 채점 시작! 버튼으로 승인해 주세요.");
+      return;
+    }
     if (queueableRows.length === 0) {
       setMessage("현재 실행 가능한 제출이 없습니다.");
       return;
@@ -150,7 +157,7 @@ export function AdminAutoGradingManager({
         if (response.ok) success += 1;
       }
       await reload();
-      setMessage(`자동 채점 일괄 실행 완료: ${success}/${targetIds.length}`);
+      setMessage(`자동 채점 승인 완료: ${success}/${targetIds.length}`);
     } finally {
       setRunningIds(new Set());
       setLoading(false);
@@ -160,11 +167,14 @@ export function AdminAutoGradingManager({
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
-        <BackButton fallbackHref="/admin" tone="hero" />
+        <BackButton fallbackHref="/" tone="hero" />
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">자동 채점 관리</h1>
         <p className="mt-2 text-sm text-hero-foreground/90">
-          사용자 시험 제출에 대해 자동 채점을 실행하거나 재실행합니다.
+          객관식은 즉시 정답 비교로 채점되고, 주관식/코딩은 정답 기준 LLM 채점으로 처리됩니다.
+        </p>
+        <p className="mt-1 text-xs text-hero-foreground/80">
+          주관식/코딩 LLM 자동채점을 시작하려면 아래 자동 채점 시작! 버튼으로 승인해 주세요.
         </p>
       </section>
 
@@ -209,7 +219,7 @@ export function AdminAutoGradingManager({
               {loading ? "불러오는 중..." : "새로고침"}
             </Button>
             <Button type="button" onClick={() => void runBulk()} disabled={loading || queueableRows.length === 0}>
-              일괄 실행
+              자동 채점 시작!
             </Button>
           </div>
         </div>
@@ -218,7 +228,11 @@ export function AdminAutoGradingManager({
       <section className="qa-card space-y-3">
         <h2 className="text-lg font-semibold">자동 채점 대상 목록</h2>
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">조건에 맞는 제출이 없습니다.</p>
+          <p className="text-sm text-muted-foreground">
+            {codingOnly
+              ? "코딩 문항 제출이 아직 없어 자동채점 대상을 표시할 수 없습니다. 상단 '코딩 문항 제출만 보기'를 해제하면 주관식/코딩 전체 자동채점 대상을 확인할 수 있습니다."
+              : "조건에 맞는 제출이 없습니다."}
+          </p>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-border/70">
             <table className="min-w-full text-sm">
@@ -228,7 +242,7 @@ export function AdminAutoGradingManager({
                   <th className="px-3 py-2">시험</th>
                   <th className="px-3 py-2">응시자</th>
                   <th className="px-3 py-2">상태</th>
-                  <th className="px-3 py-2">코딩 채점</th>
+                  <th className="px-3 py-2">LLM 채점</th>
                   <th className="px-3 py-2">제출 시각</th>
                   <th className="px-3 py-2">액션</th>
                 </tr>
@@ -264,7 +278,7 @@ export function AdminAutoGradingManager({
                             onClick={() => void runOne(row.submission_id, false)}
                             disabled={isRunning}
                           >
-                            {isRunning ? "실행 중..." : "채점 실행"}
+                            {isRunning ? "실행 중..." : "채점 시작"}
                           </Button>
                           <Button
                             type="button"
@@ -272,7 +286,7 @@ export function AdminAutoGradingManager({
                             onClick={() => void runOne(row.submission_id, true)}
                             disabled={isRunning}
                           >
-                            강제 재채점
+                            강제 재채점 시작
                           </Button>
                         </div>
                       </td>

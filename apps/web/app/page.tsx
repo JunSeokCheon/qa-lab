@@ -54,6 +54,9 @@ export default async function HomePage() {
                 <div className="flex flex-wrap gap-2">
                   {me.role === "admin" ? (
                     <>
+                      <Link href="/admin/grading">
+                        <Button variant="outline">자동채점 관리</Button>
+                      </Link>
                       <Link href="/admin/problems">
                         <Button variant="outline">시험지 관리</Button>
                       </Link>

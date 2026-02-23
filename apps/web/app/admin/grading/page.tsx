@@ -42,7 +42,7 @@ export default async function AdminGradingPage() {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     }),
-    fetch(`${FASTAPI_BASE_URL}/admin/grading/exam-submissions?coding_only=true&limit=200`, {
+    fetch(`${FASTAPI_BASE_URL}/admin/grading/exam-submissions?coding_only=false&limit=200`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     }),

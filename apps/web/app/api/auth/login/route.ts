@@ -22,11 +22,18 @@ export async function POST(request: Request) {
     );
   }
 
+  const requestUrl = new URL(request.url);
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const secureCookie =
+    process.env.AUTH_COOKIE_SECURE === "1" ||
+    forwardedProto === "https" ||
+    requestUrl.protocol === "https:";
+
   const nextResponse = NextResponse.json({ ok: true });
   nextResponse.cookies.set("access_token", payload.access_token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false,
+    secure: secureCookie,
     path: "/",
     maxAge: 60 * 60,
   });

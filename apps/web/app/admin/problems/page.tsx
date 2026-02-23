@@ -5,17 +5,6 @@ import { AdminExamBuilder } from "@/components/admin-exam-builder";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 type Folder = { id: number; path: string };
-type ExamSummary = {
-  id: number;
-  title: string;
-  description: string | null;
-  folder_id: number | null;
-  exam_kind: string;
-  question_count: number;
-  folder_path: string | null;
-  target_track_name: string | null;
-  status: string;
-};
 
 const DEFAULT_FOLDERS = [
   { name: "파이썬", slug: "python", sort_order: 10 },
@@ -64,14 +53,6 @@ export default async function AdminProblemsPage() {
     redirect("/admin");
   }
 
-  const [initialFolders, examsResponse] = await Promise.all([
-    ensureDefaultFolders(token),
-    fetch(`${FASTAPI_BASE_URL}/admin/exams`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    }),
-  ]);
-  const initialExams = (await examsResponse.json().catch(() => [])) as ExamSummary[];
-
-  return <AdminExamBuilder initialFolders={initialFolders} initialExams={initialExams} />;
+  const initialFolders = await ensureDefaultFolders(token);
+  return <AdminExamBuilder initialFolders={initialFolders} />;
 }

@@ -141,6 +141,26 @@ async function waitForAdminSubmissions(examId, token, expectedCount, timeoutMs =
   throw new Error(`timeout waiting submissions exam_id=${examId} expected=${expectedCount}`);
 }
 
+async function enqueuePendingExamCodingSubmissions(examId, token) {
+  const list = await api("GET", `/admin/grading/exam-submissions?exam_id=${examId}&coding_only=true&limit=500`, {
+    token,
+  });
+  const rows = Array.isArray(list.data) ? list.data : [];
+  const pendingIds = rows
+    .filter((row) => !["QUEUED", "RUNNING", "GRADED", "FAILED"].includes(String(row.status)))
+    .map((row) => row.submission_id);
+
+  for (const submissionId of pendingIds) {
+    await api("POST", `/admin/grading/exam-submissions/${submissionId}/enqueue`, {
+      token,
+      json: { force: false },
+      expected: [200],
+    });
+  }
+
+  return pendingIds;
+}
+
 async function createFixtureArchives(baseDir) {
   const mainRoot = path.join(baseDir, "resource-main");
   const fallbackRoot = path.join(baseDir, "resource-fallback");
@@ -211,11 +231,13 @@ function buildMainExamPayload(suffix) {
         type: "subjective",
         prompt_md: "간단한 자기소개를 작성하세요.",
         required: true,
+        answer_key_text: "안녕하세요. 저는 QA 학습자입니다.",
       },
       {
         type: "coding",
         prompt_md: "solve(a, b)를 구현해 a+b를 반환하세요.",
         required: true,
+        answer_key_text: "def solve(a, b):\n    return a + b\n",
       },
     ],
   };
@@ -233,6 +255,7 @@ function buildFallbackExamPayload(suffix) {
         type: "coding",
         prompt_md: "solve(a, b)를 구현해 a+b를 반환하세요.",
         required: true,
+        answer_key_text: "def solve(a, b):\n    return a + b\n",
       },
     ],
   };
@@ -386,6 +409,8 @@ async function main() {
     expected: [200],
   });
   ensure(fallbackSubmit.data?.submission_id, "fallback submission failed");
+  const fallbackQueued = await enqueuePendingExamCodingSubmissions(fallbackExam.id, adminToken);
+  ensure(fallbackQueued.length === 1, "fallback enqueue count mismatch");
   const fallbackAdmin = await waitForAdminSubmissions(fallbackExam.id, adminToken, 1, 120_000);
   const fallbackCoding = fallbackAdmin[0]?.answers?.find((answer) => answer.question_type === "coding");
   ensure(fallbackCoding?.grading_status === "GRADED", "fallback grading status is not GRADED");
@@ -428,6 +453,8 @@ async function main() {
 
   const submitSuccessCount = submitResults.filter((result) => result.status === "fulfilled").length;
   ensure(submitSuccessCount === USERS, `main exam submission success mismatch: ${submitSuccessCount}/${USERS}`);
+  const mainQueued = await enqueuePendingExamCodingSubmissions(mainExam.id, adminToken);
+  ensure(mainQueued.length === USERS, `main exam enqueue count mismatch: ${mainQueued.length}/${USERS}`);
 
   const duplicateSubmit = await api("POST", `/exams/${mainExam.id}/submit`, {
     token: userTokens[0],
