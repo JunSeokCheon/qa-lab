@@ -72,15 +72,15 @@
 
 ```mermaid
 flowchart LR
-  U[사용자 브라우저] --> Caddy[Caddy Reverse Proxy + TLS]
-  Caddy --> Web[Next.js Web(App Router)]
-  Web --> API[FastAPI]
-  API --> PG[(PostgreSQL)]
-  API --> RQ[(Redis Queue)]
-  Worker[Python Worker] --> RQ
-  Worker --> API
-  Worker --> PG
-  API --> FS[(Resource Storage/Bundle)]
+  U["사용자 브라우저"] --> CADDY["Caddy Reverse Proxy + TLS"]
+  CADDY --> WEB["Next.js Web (App Router)"]
+  WEB --> API["FastAPI"]
+  API --> PG[("PostgreSQL")]
+  API --> RQ[("Redis Queue")]
+  WORKER["Python Worker"] --> RQ
+  WORKER --> API
+  WORKER --> PG
+  API --> FS[("Resource Storage / Bundle")]
 ```
 
 ## 7) 기술 스택
