@@ -212,6 +212,16 @@ def _attach_feedback_metadata(feedback: dict[str, Any], *, appeals: list[dict[st
         if isinstance(schema_version, str) and schema_version.strip()
         else EXAM_LLM_SCHEMA_VERSION
     )
+    needs_review = bool(next_feedback.get("needs_review"))
+    next_feedback["needs_review"] = needs_review
+    next_feedback["verdict"] = (
+        "AMBIGUOUS"
+        if needs_review
+        else ("CORRECT" if bool(next_feedback.get("is_correct")) else "INCORRECT")
+    )
+    if not needs_review:
+        next_feedback["review_reason_code"] = None
+        next_feedback["review_reason_ko"] = None
     if appeals:
         next_feedback["appeals"] = appeals[-20:]
         next_feedback["appeal_pending"] = False
@@ -238,6 +248,94 @@ def _tokenize_eval_text(value: str) -> set[str]:
     if not normalized:
         return set()
     return set(re.findall(r"[A-Za-z_가-힣][A-Za-z0-9_가-힣]*", normalized))
+
+
+def _resolve_review_decision(
+    *,
+    question_type: str,
+    answer_key_text: str,
+    answer_text: str,
+    is_correct: bool,
+    fallback_used: bool,
+    fallback_reason_code: str | None = None,
+) -> tuple[bool, str | None, str | None]:
+    normalized_answer = _normalize_eval_text(answer_text)
+    if not normalized_answer:
+        return (False, None, None)
+
+    key_tokens = _tokenize_eval_text(answer_key_text)
+    answer_tokens = _tokenize_eval_text(answer_text)
+    overlap = len(key_tokens & answer_tokens)
+    key_coverage = overlap / max(len(key_tokens), 1)
+    answer_focus = overlap / max(len(answer_tokens), 1)
+
+    if fallback_used:
+        reason = "대체 채점 결과라 최종 확정 전 검토가 필요합니다."
+        if fallback_reason_code == "quota":
+            reason = "LLM 쿼터 한도로 대체 채점되어 최종 확정 전 검토가 필요합니다."
+        return (True, "fallback_used", reason)
+
+    if question_type == "subjective":
+        if 0.35 <= key_coverage <= 0.78:
+            return (
+                True,
+                "subjective_borderline",
+                "주관식 핵심 키워드 일치도가 경계 구간이라 검토가 필요합니다.",
+            )
+    elif question_type == "coding":
+        has_code_shape = ("def " in normalized_answer and "def " in _normalize_eval_text(answer_key_text)) or (
+            "import " in normalized_answer and "import " in _normalize_eval_text(answer_key_text)
+        )
+        if (0.30 <= key_coverage <= 0.80 and 0.25 <= answer_focus <= 0.75) or not has_code_shape:
+            return (
+                True,
+                "coding_borderline",
+                "코딩 답안의 핵심 로직 일치도가 경계 구간이라 검토가 필요합니다.",
+            )
+
+    if is_correct and key_coverage < 0.45:
+        return (
+            True,
+            "low_evidence_correct",
+            "정답 판정이지만 정답 기준과의 근거가 약해 검토가 필요합니다.",
+        )
+    if (not is_correct) and key_coverage > 0.82:
+        return (
+            True,
+            "high_overlap_incorrect",
+            "오답 판정이지만 정답 기준과 유사도가 높아 검토가 필요합니다.",
+        )
+    return (False, None, None)
+
+
+def _apply_review_metadata(
+    feedback: dict[str, Any],
+    *,
+    question_type: str,
+    answer_key_text: str,
+    answer_text: str,
+) -> dict[str, Any]:
+    next_feedback = dict(feedback)
+    is_correct = bool(next_feedback.get("is_correct"))
+    fallback_used = bool(next_feedback.get("fallback_used"))
+    fallback_reason_code = (
+        str(next_feedback.get("fallback_reason_code"))
+        if next_feedback.get("fallback_reason_code") is not None
+        else None
+    )
+    needs_review, review_reason_code, review_reason_ko = _resolve_review_decision(
+        question_type=question_type,
+        answer_key_text=answer_key_text,
+        answer_text=answer_text,
+        is_correct=is_correct,
+        fallback_used=fallback_used,
+        fallback_reason_code=fallback_reason_code,
+    )
+    next_feedback["needs_review"] = needs_review
+    next_feedback["review_reason_code"] = review_reason_code
+    next_feedback["review_reason_ko"] = review_reason_ko
+    next_feedback["verdict"] = "AMBIGUOUS" if needs_review else ("CORRECT" if is_correct else "INCORRECT")
+    return next_feedback
 
 
 def _redact_provider_error(raw_error: str) -> str:
@@ -788,38 +886,45 @@ async def _grade_exam_submission_async(exam_submission_id: int) -> None:
             llm_model_override = appeal_model_override_by_answer_id.get(int(answer.id))
             submitted_text = (answer.answer_text or "").strip()
             if not submitted_text:
-                answer.grading_status = "GRADED"
-                answer.grading_score = 0
-                answer.grading_max_score = 100
-                answer.grading_feedback_json = _attach_feedback_metadata(
-                    {
-                        "mode": LLM_GRADING_MODE,
-                        "score": 0,
-                        "is_correct": False,
-                        "reason": "오답입니다. 제출 답안이 비어 있습니다.",
-                        "wrong_reason_ko": "오답입니다. 제출 답안이 비어 있습니다.",
-                        "strengths": [],
-                        "issues": ["답안 미제출"],
+                empty_feedback = {
+                    "mode": LLM_GRADING_MODE,
+                    "score": 0,
+                    "is_correct": False,
+                    "reason": "오답입니다. 제출 답안이 비어 있습니다.",
+                    "wrong_reason_ko": "오답입니다. 제출 답안이 비어 있습니다.",
+                    "strengths": [],
+                    "issues": ["답안 미제출"],
+                    "matched_points": [],
+                    "missing_points": [],
+                    "deductions": [],
+                    "confidence": 1.0,
+                    "model": llm_model_override or EXAM_LLM_MODEL,
+                    "binary_grading": True,
+                    "rationale": {
+                        "summary": "오답입니다. 제출 답안이 비어 있습니다.",
                         "matched_points": [],
                         "missing_points": [],
                         "deductions": [],
                         "confidence": 1.0,
-                        "model": llm_model_override or EXAM_LLM_MODEL,
-                        "binary_grading": True,
-                        "rationale": {
-                            "summary": "오답입니다. 제출 답안이 비어 있습니다.",
-                            "matched_points": [],
-                            "missing_points": [],
-                            "deductions": [],
-                            "confidence": 1.0,
-                        },
-                        "public": {
-                            "passed": 0,
-                            "total": 1,
-                            "failed_cases": [{"name": "llm-eval", "outcome": "failed", "message": "제출 답안이 비어 있습니다."}],
-                        },
-                        "hidden": {"passed_count": 0, "total": 0, "failed_count": 0},
                     },
+                    "public": {
+                        "passed": 0,
+                        "total": 1,
+                        "failed_cases": [{"name": "llm-eval", "outcome": "failed", "message": "제출 답안이 비어 있습니다."}],
+                    },
+                    "hidden": {"passed_count": 0, "total": 0, "failed_count": 0},
+                }
+                empty_feedback = _apply_review_metadata(
+                    empty_feedback,
+                    question_type=question.type,
+                    answer_key_text=answer_key,
+                    answer_text=submitted_text,
+                )
+                answer.grading_status = "GRADED"
+                answer.grading_score = 0
+                answer.grading_max_score = 100
+                answer.grading_feedback_json = _attach_feedback_metadata(
+                    empty_feedback,
                     appeals=answer_appeals,
                 )
                 answer.grading_logs = _truncate_output(
@@ -900,6 +1005,12 @@ async def _grade_exam_submission_async(exam_submission_id: int) -> None:
                     continue
 
             graded_count += 1
+            feedback = _apply_review_metadata(
+                feedback,
+                question_type=question.type,
+                answer_key_text=answer_key,
+                answer_text=submitted_text,
+            )
             answer.grading_status = "GRADED"
             answer.grading_score = score
             answer.grading_max_score = 100
@@ -913,12 +1024,20 @@ async def _grade_exam_submission_async(exam_submission_id: int) -> None:
             exam_submission.status = "SUBMITTED"
         else:
             exam_submission.status = "GRADED"
+        review_pending_count = sum(
+            1
+            for target_answer, _, _ in auto_target_rows
+            if target_answer.grading_status == "GRADED"
+            and isinstance(target_answer.grading_feedback_json, dict)
+            and bool(target_answer.grading_feedback_json.get("needs_review"))
+        )
         exam_submission.note = json.dumps(
             {
                 "auto_grade_questions": len(auto_target_rows),
                 "graded": graded_count,
                 "failed": failed_count,
                 "fallback_graded": fallback_count,
+                "review_pending": review_pending_count,
                 "manual_review_pending": manual_review_pending,
                 "mode": LLM_GRADING_MODE,
                 "model": EXAM_LLM_MODEL,

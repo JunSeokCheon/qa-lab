@@ -117,6 +117,31 @@ function isGradingFinished(answer: ExamSubmissionAnswer): boolean {
   return answer.grading_status === "GRADED" || answer.grading_status === "FAILED";
 }
 
+function feedbackNeedsReview(answer: ExamSubmissionAnswer): boolean {
+  if (!answer.grading_feedback_json || typeof answer.grading_feedback_json !== "object") {
+    return false;
+  }
+  const value = (answer.grading_feedback_json as Record<string, unknown>).needs_review;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return ["1", "true", "yes", "on", "y"].includes(value.trim().toLowerCase());
+  if (typeof value === "number") return value !== 0;
+  return false;
+}
+
+function feedbackReviewReason(answer: ExamSubmissionAnswer): string | null {
+  if (!answer.grading_feedback_json || typeof answer.grading_feedback_json !== "object") {
+    return null;
+  }
+  const feedback = answer.grading_feedback_json as Record<string, unknown>;
+  if (typeof feedback.review_reason_ko === "string" && feedback.review_reason_ko.trim()) {
+    return feedback.review_reason_ko.trim();
+  }
+  if (typeof feedback.fallback_notice === "string" && feedback.fallback_notice.trim()) {
+    return feedback.fallback_notice.trim();
+  }
+  return null;
+}
+
 function collectNonObjectiveAnswers(rows: ExamSubmission[]): NonObjectiveAnswerItem[] {
   const items: NonObjectiveAnswerItem[] = [];
   for (const submission of rows) {
@@ -148,6 +173,9 @@ function resolveAnswerVerdict(answer: ExamSubmissionAnswer): AnswerVerdict {
   if (answer.grading_status !== "GRADED") {
     return { label: "미채점", className: "bg-muted text-muted-foreground" };
   }
+  if (feedbackNeedsReview(answer)) {
+    return { label: "검토 필요", className: "bg-amber-100 text-amber-800" };
+  }
 
   if (answer.grading_score === answer.grading_max_score) {
     return { label: "정답", className: "bg-emerald-100 text-emerald-800" };
@@ -169,6 +197,7 @@ function isFullyCorrect(answer: ExamSubmissionAnswer): boolean {
 
   return (
     answer.grading_status === "GRADED" &&
+    !feedbackNeedsReview(answer) &&
     answer.grading_score !== null &&
     answer.grading_max_score !== null &&
     answer.grading_max_score > 0 &&
@@ -267,6 +296,10 @@ function toKoreanReason(reason: string, isCorrect: boolean, gradingLogs?: string
 function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   if (!isGradingFinished(answer)) {
     return "아직 자동 채점이 시작되지 않았습니다. 관리자 승인 후 채점됩니다.";
+  }
+
+  if (feedbackNeedsReview(answer)) {
+    return feedbackReviewReason(answer) ?? "자동 채점 결과가 경계 구간이라 검토가 필요합니다.";
   }
 
   const feedback = answer.grading_feedback_json as GradingFeedback;
@@ -387,6 +420,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   const [questionFilter, setQuestionFilter] = useState<string>("all");
   const [studentFilter, setStudentFilter] = useState<string>("all");
   const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [manualNoteByKey, setManualNoteByKey] = useState<Record<string, string>>({});
   const [manualRunningKeys, setManualRunningKeys] = useState<Set<string>>(new Set());
   const [appealReasonByKey, setAppealReasonByKey] = useState<Record<string, string>>({});
@@ -535,13 +569,20 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
     const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
     return submissions.filter((row) => {
       if (studentFilter !== "all" && row.user_name !== studentFilter) return false;
+      const visibleAnswers =
+        questionFilter === "all"
+          ? row.answers
+          : row.answers.filter((answer) => answer.question_id === Number(questionFilter));
+      if (needsReviewOnly && !visibleAnswers.some((answer) => isNonObjectiveAnswer(answer) && feedbackNeedsReview(answer))) {
+        return false;
+      }
       if (!keyword) return true;
       return (
         row.user_name.toLocaleLowerCase("ko").includes(keyword) ||
         row.username.toLocaleLowerCase("ko").includes(keyword)
       );
     });
-  }, [studentFilter, studentSearchKeyword, submissions]);
+  }, [needsReviewOnly, questionFilter, studentFilter, studentSearchKeyword, submissions]);
 
   const totalQuestionCount = useMemo(() => {
     if (selectedExam?.question_count && selectedExam.question_count > 0) {
@@ -849,6 +890,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                 setQuestionFilter("all");
                 setStudentFilter("all");
                 setStudentSearchKeyword("");
+                setNeedsReviewOnly(false);
               }}
             >
               {exams.map((exam) => (
@@ -890,6 +932,14 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
               value={studentSearchKeyword}
               onChange={(event) => setStudentSearchKeyword(event.target.value)}
             />
+            <label className="flex h-11 items-center gap-2 rounded-xl border border-border/70 px-3 text-sm">
+              <input
+                type="checkbox"
+                checked={needsReviewOnly}
+                onChange={(event) => setNeedsReviewOnly(event.target.checked)}
+              />
+              검토 필요만 보기
+            </label>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={onDownloadCsv} disabled={loading || exportRows.length === 0}>
@@ -901,7 +951,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
           </div>
           <p className="text-xs text-muted-foreground">
             응시자 수: {submissions.length}명
-            {studentFilter !== "all" || studentSearchKeyword.trim().length > 0
+            {studentFilter !== "all" || studentSearchKeyword.trim().length > 0 || needsReviewOnly
               ? ` | 필터 적용: ${filteredSubmissions.length}명`
               : ""}
           </p>
@@ -1012,6 +1062,9 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                 <div className="mt-2 space-y-2">
                   {submission.answers
                     .filter((answer) => (questionFilter === "all" ? true : answer.question_id === Number(questionFilter)))
+                    .filter((answer) =>
+                      needsReviewOnly ? isNonObjectiveAnswer(answer) && feedbackNeedsReview(answer) : true
+                    )
                     .map((answer) => {
                       const key = manualGradeKey(submission.submission_id, answer.question_id);
                       const verdict = resolveAnswerVerdict(answer);
@@ -1080,9 +1133,11 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
 
                               <p className="mt-2 text-muted-foreground">
                                 {answer.grading_status === "GRADED" || answer.grading_status === "FAILED"
-                                  ? isFullyCorrect(answer)
-                                    ? "정답 이유"
-                                    : "오답 이유"
+                                  ? feedbackNeedsReview(answer)
+                                    ? "검토 필요 사유"
+                                    : isFullyCorrect(answer)
+                                      ? "정답 이유"
+                                      : "오답 이유"
                                   : "판정 사유"}
                               </p>
                               <p className="mt-1 whitespace-pre-wrap rounded bg-surface-muted p-2 text-[11px]">

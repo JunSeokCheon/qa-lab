@@ -392,6 +392,8 @@ class AdminGradingSubmissionSummary(BaseModel):
     coding_graded_count: int
     coding_failed_count: int
     coding_pending_count: int
+    review_pending_count: int = 0
+    has_review_pending: bool = False
     results_published: bool = False
     results_published_at: datetime | None = None
     results_publish_scope: str = "none"

@@ -225,6 +225,9 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - LLM 호출이 실패(예: 429 quota, timeout)하면 자동으로 `answer_key_fallback_v2` 폴백 채점이 수행되어 채점이 중단되지 않습니다.
 - quota(429) 등 폴백 시 `fallback_used`, `fallback_reason_code`, `fallback_notice`, `provider_error_redacted` 메타가 저장되어 친화적으로 사유를 확인할 수 있습니다.
 - 모델 미지원/쿼터 부족 상황에서도 폴백 채점으로 서비스는 계속 동작합니다.
+- 주관식/코딩 자동채점 결과가 경계 구간이면 `needs_review=true`, `verdict=AMBIGUOUS`로 저장됩니다.
+- 관리자 `/dashboard`, `/admin/grading`에서 `검토 필요` 배지와 `검토 필요만 보기` 필터로 대상만 빠르게 확인할 수 있습니다.
+- `검토 필요`가 남아 있는 제출/시험은 결과 공유가 차단되며, 수동 채점으로 확정하면 공유할 수 있습니다.
 - 리소스 파일 업로드 최대 용량은 파일당 500MB입니다.
 - 500MB를 초과하는 자료는 Google Drive 링크를 시험 설명/문항에 함께 첨부하는 방식을 권장합니다.
 
@@ -309,6 +312,10 @@ $env:API_BASE_URL="http://127.0.0.1:8000"
 $env:VIRTUAL_USERS="12"
 node scripts/full_system_check.mjs
 # 참고: CI처럼 LLM 키가 없으면 fallback 채점이 동작하며, 이 경우 코딩 점수가 전원 100이어도 통합 점검은 PASS 처리됩니다.
+
+# 검토 필요(애매 판정) -> 공유 차단 -> 수동 확정 -> 공유 허용 플로우 점검
+$env:API_BASE_URL="http://127.0.0.1:8000"
+node scripts/review_pending_flow_check.mjs
 
 bash scripts/smoke_grader.sh
 ```

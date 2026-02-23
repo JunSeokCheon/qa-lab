@@ -25,6 +25,8 @@ type GradingSubmission = {
   coding_graded_count: number;
   coding_failed_count: number;
   coding_pending_count: number;
+  review_pending_count: number;
+  has_review_pending: boolean;
   results_published: boolean;
   results_published_at: string | null;
   results_publish_scope: "none" | "exam" | "submission";

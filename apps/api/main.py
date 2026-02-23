@@ -451,7 +451,55 @@ def _append_appeal_feedback(
     )
     feedback["appeals"] = appeals[-20:]
     feedback["appeal_pending"] = True
+    feedback["needs_review"] = True
+    feedback["review_reason_code"] = "appeal_pending"
+    feedback["review_reason_ko"] = "이의제기 재채점 요청이 있어 최종 검토가 필요합니다."
+    feedback["verdict"] = "AMBIGUOUS"
     return feedback
+
+
+def _feedback_needs_review(feedback_json: dict[str, Any] | None) -> bool:
+    if not isinstance(feedback_json, dict):
+        return False
+    value = feedback_json.get("needs_review")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return False
+
+
+async def _load_submission_review_pending_counts(
+    session: AsyncSession,
+    submission_ids: list[int],
+) -> dict[int, int]:
+    if not submission_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(
+                ExamAnswer.exam_submission_id,
+                ExamAnswer.grading_feedback_json,
+                ExamQuestion.type,
+                ExamQuestion.answer_key_text,
+            )
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(ExamAnswer.exam_submission_id.in_(submission_ids))
+        )
+    ).all()
+
+    counts: defaultdict[int, int] = defaultdict(int)
+    for submission_id, feedback_json, question_type, answer_key_text in rows:
+        if question_type not in {"subjective", "coding"}:
+            continue
+        if not bool((answer_key_text or "").strip()):
+            continue
+        if _feedback_needs_review(feedback_json):
+            counts[int(submission_id)] += 1
+    return dict(counts)
 
 
 async def _write_admin_audit_log(
@@ -1522,6 +1570,30 @@ async def update_admin_exam_results_publish(
                 ),
             )
 
+        submission_ids = (
+            await session.execute(
+                select(ExamSubmission.id).where(ExamSubmission.exam_id == exam.id)
+            )
+        ).scalars().all()
+        review_pending_counts = await _load_submission_review_pending_counts(
+            session,
+            [int(submission_id) for submission_id in submission_ids],
+        )
+        review_pending_submission_ids = sorted(
+            submission_id
+            for submission_id, review_count in review_pending_counts.items()
+            if review_count > 0
+        )
+        if review_pending_submission_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "검토 필요 상태(애매 판정)가 남아 있어 전체 공유할 수 없습니다. "
+                    "관리자 화면에서 검토 필요 항목을 먼저 확정해 주세요. "
+                    f"(검토 필요 제출 ID: {', '.join(str(submission_id) for submission_id in review_pending_submission_ids)})"
+                ),
+            )
+
     exam.results_published = publish
     exam.results_published_at = datetime.now(timezone.utc) if publish else None
 
@@ -2237,6 +2309,7 @@ async def list_admin_grading_exam_submissions(
     exam_id: Annotated[int | None, Query(ge=1)] = None,
     status_filter: Annotated[str, Query(alias="status")] = "all",
     coding_only: bool = True,
+    needs_review_only: bool = False,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
 ) -> list[AdminGradingSubmissionSummary]:
     normalized_status = status_filter.strip().upper()
@@ -2266,7 +2339,13 @@ async def list_admin_grading_exam_submissions(
     submission_ids = [submission.id for submission, _, _ in rows]
     grading_rows = (
         await session.execute(
-            select(ExamAnswer.exam_submission_id, ExamAnswer.grading_status, ExamQuestion.type, ExamQuestion.answer_key_text)
+            select(
+                ExamAnswer.exam_submission_id,
+                ExamAnswer.grading_status,
+                ExamAnswer.grading_feedback_json,
+                ExamQuestion.type,
+                ExamQuestion.answer_key_text,
+            )
             .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
             .where(
                 ExamAnswer.exam_submission_id.in_(submission_ids),
@@ -2274,10 +2353,10 @@ async def list_admin_grading_exam_submissions(
         )
     ).all()
     auto_grade_stats: dict[int, dict[str, int]] = defaultdict(
-        lambda: {"total": 0, "graded": 0, "failed": 0, "pending": 0}
+        lambda: {"total": 0, "graded": 0, "failed": 0, "pending": 0, "review_pending": 0}
     )
     coding_question_counts: defaultdict[int, int] = defaultdict(int)
-    for submission_id, grading_status, question_type, answer_key_text in grading_rows:
+    for submission_id, grading_status, grading_feedback_json, question_type, answer_key_text in grading_rows:
         if question_type == "coding":
             coding_question_counts[int(submission_id)] += 1
         if question_type not in {"subjective", "coding"} or not bool((answer_key_text or "").strip()):
@@ -2290,6 +2369,8 @@ async def list_admin_grading_exam_submissions(
             stat["failed"] += 1
         else:
             stat["pending"] += 1
+        if _feedback_needs_review(grading_feedback_json):
+            stat["review_pending"] += 1
 
     payload: list[AdminGradingSubmissionSummary] = []
     for submission, exam, actor in rows:
@@ -2297,6 +2378,8 @@ async def list_admin_grading_exam_submissions(
         if stat["total"] == 0:
             continue
         if coding_only and coding_question_counts[int(submission.id)] == 0:
+            continue
+        if needs_review_only and stat["review_pending"] == 0:
             continue
         results_published, results_published_at, results_publish_scope = _resolve_submission_result_visibility(
             exam, submission
@@ -2316,6 +2399,8 @@ async def list_admin_grading_exam_submissions(
                 coding_graded_count=stat["graded"],
                 coding_failed_count=stat["failed"],
                 coding_pending_count=stat["pending"],
+                review_pending_count=stat["review_pending"],
+                has_review_pending=stat["review_pending"] > 0,
                 results_published=results_published,
                 results_published_at=results_published_at,
                 results_publish_scope=results_publish_scope,
@@ -2357,6 +2442,25 @@ async def share_admin_exam_submission_results(
                 detail=(
                     "채점이 완료된 제출만 공유할 수 있습니다. "
                     f"(미완료 제출 ID: {', '.join(str(submission_id) for submission_id in blocked_ids)})"
+                ),
+            )
+
+        review_pending_counts = await _load_submission_review_pending_counts(
+            session,
+            [int(submission.id) for submission in rows],
+        )
+        review_blocked_ids = sorted(
+            submission_id
+            for submission_id, review_count in review_pending_counts.items()
+            if review_count > 0
+        )
+        if review_blocked_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "검토 필요 상태(애매 판정)가 남아 있는 제출은 공유할 수 없습니다. "
+                    "관리자 화면에서 먼저 수동 확정해 주세요. "
+                    f"(검토 필요 제출 ID: {', '.join(str(submission_id) for submission_id in review_blocked_ids)})"
                 ),
             )
 
@@ -2596,6 +2700,10 @@ async def manual_grade_admin_exam_submission_answer(
         "is_correct": payload.is_correct,
         "reason": reason,
         "note": (payload.note.strip() if payload.note else None),
+        "needs_review": False,
+        "review_reason_code": None,
+        "review_reason_ko": None,
+        "verdict": "CORRECT" if payload.is_correct else "INCORRECT",
     }
     answer.grading_logs = reason
     answer.graded_at = datetime.now(timezone.utc)

@@ -28,6 +28,8 @@ type GradingSubmission = {
   coding_graded_count: number;
   coding_failed_count: number;
   coding_pending_count: number;
+  review_pending_count: number;
+  has_review_pending: boolean;
   results_published: boolean;
   results_published_at: string | null;
   results_publish_scope: "none" | "exam" | "submission";
@@ -89,6 +91,7 @@ export function AdminAutoGradingManager({
   const [studentFilter, setStudentFilter] = useState<string>("all");
   const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
   const [codingOnly, setCodingOnly] = useState(false);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set());
   const [sharingIds, setSharingIds] = useState<Set<number>>(new Set());
@@ -108,6 +111,7 @@ export function AdminAutoGradingManager({
       if (examIdFilter !== "all" && String(row.exam_id) !== examIdFilter) return false;
       if (statusFilter !== "all" && row.status.toLowerCase() !== statusFilter.toLowerCase()) return false;
       if (codingOnly && Number(row.coding_question_count) === 0) return false;
+      if (needsReviewOnly && !row.has_review_pending) return false;
       if (studentFilter !== "all" && row.user_name !== studentFilter) return false;
       if (!keyword) return true;
       return (
@@ -115,7 +119,7 @@ export function AdminAutoGradingManager({
         row.username.toLocaleLowerCase("ko").includes(keyword)
       );
     });
-  }, [codingOnly, examIdFilter, rows, statusFilter, studentFilter, studentSearchKeyword]);
+  }, [codingOnly, examIdFilter, needsReviewOnly, rows, statusFilter, studentFilter, studentSearchKeyword]);
 
   const queueableRows = useMemo(
     () =>
@@ -130,9 +134,10 @@ export function AdminAutoGradingManager({
       examIdFilter !== "all" ||
       statusFilter !== "all" ||
       codingOnly ||
+      needsReviewOnly ||
       studentFilter !== "all" ||
       studentSearchKeyword.trim().length > 0,
-    [codingOnly, examIdFilter, statusFilter, studentFilter, studentSearchKeyword]
+    [codingOnly, examIdFilter, needsReviewOnly, statusFilter, studentFilter, studentSearchKeyword]
   );
 
   const selectedExamRows = useMemo(
@@ -147,15 +152,18 @@ export function AdminAutoGradingManager({
 
   const examShareDisabledReason = useMemo(() => {
     if (examIdFilter === "all") return "시험을 먼저 선택해 주세요.";
-    if (statusFilter !== "all" || codingOnly) {
+    if (statusFilter !== "all" || codingOnly || needsReviewOnly) {
       return "시험 전체 공유는 전체 상태 + 코딩 문항 제출만 보기 해제 상태에서만 가능합니다.";
     }
     if (selectedExamRows.length === 0) return "공유할 제출이 없습니다.";
     if (selectedExamRows.some((row) => row.status !== "GRADED")) {
       return "채점이 완료되지 않은 제출이 있어 아직 공유할 수 없습니다.";
     }
+    if (selectedExamRows.some((row) => row.has_review_pending)) {
+      return "검토 필요 항목이 남아 있어 아직 공유할 수 없습니다.";
+    }
     return null;
-  }, [codingOnly, examIdFilter, selectedExamRows, statusFilter]);
+  }, [codingOnly, examIdFilter, needsReviewOnly, selectedExamRows, statusFilter]);
 
   const canPublishExamResults = examShareDisabledReason === null;
   const isConfirmingShare =
@@ -167,8 +175,9 @@ export function AdminAutoGradingManager({
     if (examIdFilter !== "all") params.set("exam_id", examIdFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     params.set("coding_only", String(codingOnly));
+    params.set("needs_review_only", String(needsReviewOnly));
     return params.toString();
-  }, [codingOnly, examIdFilter, statusFilter]);
+  }, [codingOnly, examIdFilter, needsReviewOnly, statusFilter]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -332,6 +341,10 @@ export function AdminAutoGradingManager({
       setError("채점이 완료된 제출만 공유할 수 있습니다.");
       return;
     }
+    if (nextPublished && row.has_review_pending) {
+      setError("검토 필요 항목이 남아 있는 제출은 공유할 수 없습니다.");
+      return;
+    }
     setError("");
     setShareConfirm({
       scope: "submission",
@@ -439,6 +452,15 @@ export function AdminAutoGradingManager({
             코딩 문항 제출만 보기
           </label>
 
+          <label className="flex items-center gap-2 rounded-xl border border-border/70 px-3 text-sm">
+            <input
+              type="checkbox"
+              checked={needsReviewOnly}
+              onChange={(event) => setNeedsReviewOnly(event.target.checked)}
+            />
+            검토 필요만 보기
+          </label>
+
           <div className="flex flex-wrap items-center gap-2 xl:col-span-2">
             <Button type="button" variant="outline" onClick={() => void reload()} disabled={loading}>
               {loading ? "불러오는 중..." : "새로고침"}
@@ -500,7 +522,7 @@ export function AdminAutoGradingManager({
                 {filteredRows.map((row) => {
                   const isRunning = runningIds.has(row.submission_id);
                   const isSharing = sharingIds.has(row.submission_id);
-                  const canPublishSubmission = row.status === "GRADED";
+                  const canPublishSubmission = row.status === "GRADED" && !row.has_review_pending;
                   const rowShareDisabled =
                     isSharing ||
                     row.results_publish_scope === "exam" ||
@@ -516,7 +538,14 @@ export function AdminAutoGradingManager({
                         {row.user_name}
                         <div className="text-xs text-muted-foreground">{row.username}</div>
                       </td>
-                      <td className="px-3 py-2">{statusLabel(row.status)}</td>
+                      <td className="px-3 py-2">
+                        {statusLabel(row.status)}
+                        {row.has_review_pending ? (
+                          <div className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                            검토 필요 {row.review_pending_count}건
+                          </div>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-2">
                         {row.results_published ? (
                           <div className="text-xs">
@@ -563,14 +592,14 @@ export function AdminAutoGradingManager({
                             className="h-8 px-2 text-xs"
                             onClick={() => openShareSubmissionConfirm(row)}
                             disabled={rowShareDisabled}
-                            title={!row.results_published && !canPublishSubmission ? "채점 완료 후 공유 가능합니다." : undefined}
+                            title={!row.results_published && !canPublishSubmission ? "채점 완료 + 검토 확정 후 공유 가능합니다." : undefined}
                           >
                             {row.results_publish_scope === "exam"
                               ? "시험 전체 공유 중"
                               : isSharing
                                 ? "처리 중..."
                                 : !row.results_published && !canPublishSubmission
-                                  ? "채점 완료 후 공유 가능"
+                                  ? "검토 확정 후 공유 가능"
                                 : row.results_published
                                   ? "이 학생 공유 해제"
                                   : "이 학생 공유"}
