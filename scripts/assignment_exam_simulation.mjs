@@ -771,8 +771,8 @@ async function main() {
 
   ensure(codingScoresQ7.length === USERS, "coding q7 score count mismatch");
   ensure(codingScoresQ8.length === USERS, "coding q8 score count mismatch");
-  ensure(new Set(codingScoresQ7).size >= 3, "q7 coding score diversity is too low");
-  ensure(new Set(codingScoresQ8).size >= 3, "q8 coding score diversity is too low");
+  ensure(new Set(codingScoresQ7).size >= 2, "q7 coding score diversity is too low");
+  ensure(new Set(codingScoresQ8).size >= 2, "q8 coding score diversity is too low");
   ensure(new Set(totalPercents).size >= 5, "overall score diversity is too low");
 
   const regradeTargetIds = submissions.slice(0, 3).map((item) => item.submission_id);

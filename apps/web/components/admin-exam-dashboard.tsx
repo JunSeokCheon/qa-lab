@@ -181,90 +181,13 @@ function toBinaryCorrect(answer: ExamSubmissionAnswer | undefined): number {
   return isFullyCorrect(answer) ? 1 : 0;
 }
 
-function summarizeRationale(feedback: GradingFeedback): string | null {
-  const rationale =
-    feedback && typeof feedback.rationale === "object" ? (feedback.rationale as Record<string, unknown>) : null;
-  if (!rationale) return null;
-
-  const summary = typeof rationale.summary === "string" ? rationale.summary.trim() : "";
-  const missingPoints = Array.isArray(rationale.missing_points)
-    ? rationale.missing_points.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0).slice(0, 3)
-    : [];
-  const deductions = Array.isArray(rationale.deductions)
-    ? (rationale.deductions as Array<Record<string, unknown>>)
-        .map((item) => {
-          const reason = typeof item.reason === "string" ? item.reason.trim() : "";
-          const points = typeof item.points === "number" ? item.points : null;
-          if (!reason) return "";
-          return points === null ? reason : `${reason} (-${points})`;
-        })
-        .filter((item) => item.length > 0)
-        .slice(0, 3)
-    : [];
-
-  if (!summary && missingPoints.length === 0 && deductions.length === 0) return null;
-
-  const lines: string[] = [];
-  if (summary) lines.push(summary);
-  if (missingPoints.length > 0) lines.push(`누락 포인트: ${missingPoints.join(" / ")}`);
-  if (deductions.length > 0) lines.push(`감점 근거: ${deductions.join(" / ")}`);
-  return lines.join("\n");
-}
-
-function summarizeFeedbackFallback(answer: ExamSubmissionAnswer, feedback: GradingFeedback): string | null {
-  if (feedback && typeof feedback.fallback_notice === "string" && feedback.fallback_notice.trim()) {
-    return feedback.fallback_notice.trim();
+function toKoreanReason(reason: string, isCorrect: boolean): string {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return isCorrect ? "정답입니다." : "오답입니다. 정답 기준과 일치하지 않습니다.";
   }
-  if (feedback && typeof feedback.reason === "string" && feedback.reason.trim()) {
-    return feedback.reason.trim();
-  }
-  if (feedback && typeof feedback.note === "string" && feedback.note.trim()) {
-    return `수동 채점 메모: ${feedback.note.trim()}`;
-  }
-  if (feedback && typeof feedback.error === "string" && feedback.error.trim()) {
-    return feedback.error.trim().replace(/\s+/g, " ").slice(0, 260);
-  }
-
-  const issues =
-    feedback && Array.isArray(feedback.issues)
-      ? feedback.issues
-          .map((item) => String(item ?? "").trim())
-          .filter((item) => item.length > 0)
-          .slice(0, 3)
-      : [];
-  if (issues.length > 0) {
-    return issues.join(" / ");
-  }
-
-  const publicPart =
-    feedback && typeof feedback.public === "object" ? (feedback.public as Record<string, unknown>) : null;
-  const failedCases = Array.isArray(publicPart?.failed_cases)
-    ? (publicPart.failed_cases as Array<Record<string, unknown>>)
-    : [];
-  if (failedCases.length > 0) {
-    const first = failedCases[0];
-    const name = typeof first?.name === "string" ? first.name : "실패 테스트";
-    const message = typeof first?.message === "string" ? first.message.replace(/\s+/g, " ").trim() : "";
-    return message ? `${name}: ${message.slice(0, 260)}` : `${name} 테스트 실패`;
-  }
-
-  const hiddenPart =
-    feedback && typeof feedback.hidden === "object" ? (feedback.hidden as Record<string, unknown>) : null;
-  const hiddenFailedCount =
-    hiddenPart && typeof hiddenPart.failed_count === "number" ? hiddenPart.failed_count : null;
-  if (hiddenFailedCount && hiddenFailedCount > 0) {
-    return `히든 테스트 ${hiddenFailedCount}건이 실패했습니다.`;
-  }
-
-  if (answer.grading_logs && answer.grading_logs.trim()) {
-    const firstMeaningfulLine =
-      answer.grading_logs
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line && line !== "[stdout]" && line !== "[stderr]") ?? "";
-    if (firstMeaningfulLine) return firstMeaningfulLine.slice(0, 260);
-  }
-  return null;
+  if (/[가-힣]/.test(trimmed)) return trimmed;
+  return isCorrect ? "정답입니다." : "오답입니다. 정답 기준과 일치하지 않습니다.";
 }
 
 function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
@@ -273,6 +196,18 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   }
 
   const feedback = answer.grading_feedback_json as GradingFeedback;
+  const isCorrect = isFullyCorrect(answer);
+
+  if (feedback && typeof feedback.wrong_reason_ko === "string" && feedback.wrong_reason_ko.trim()) {
+    return toKoreanReason(feedback.wrong_reason_ko, isCorrect);
+  }
+  if (feedback && typeof feedback.reason === "string" && feedback.reason.trim()) {
+    return toKoreanReason(feedback.reason, isCorrect);
+  }
+  if (feedback && typeof feedback.note === "string" && feedback.note.trim()) {
+    return toKoreanReason(feedback.note, isCorrect);
+  }
+
   const fallbackReasonCode =
     feedback && typeof feedback.fallback_reason_code === "string" ? feedback.fallback_reason_code : "";
   const fallbackUsed = feedback && feedback.fallback_used === true;
@@ -282,16 +217,20 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
     return notice || "LLM 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.";
   }
 
-  const rationaleSummary = summarizeRationale(feedback);
-  if (rationaleSummary) return rationaleSummary;
-
-  const fallbackSummary = summarizeFeedbackFallback(answer, feedback);
-  if (fallbackSummary) return fallbackSummary;
-
   if (isFullyCorrect(answer)) {
-    return "정답 기준을 충족했습니다.";
+    return "정답입니다. 정답 기준을 충족했습니다.";
   }
-  return "채점 로그에서 명확한 오답 사유를 찾지 못했습니다. 원본 로그를 확인해 주세요.";
+
+  if (answer.grading_logs && answer.grading_logs.trim()) {
+    const firstMeaningfulLine =
+      answer.grading_logs
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line && line !== "[stdout]" && line !== "[stderr]") ?? "";
+    if (firstMeaningfulLine) return toKoreanReason(firstMeaningfulLine, false);
+  }
+
+  return "오답입니다. 정답 기준과 일치하지 않습니다.";
 }
 
 function renderAnswerBlock(
@@ -380,7 +319,6 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   const [questionFilter, setQuestionFilter] = useState<string>("all");
   const [studentFilter, setStudentFilter] = useState<string>("all");
   const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
-  const [manualScoreByKey, setManualScoreByKey] = useState<Record<string, string>>({});
   const [manualNoteByKey, setManualNoteByKey] = useState<Record<string, string>>({});
   const [manualRunningKeys, setManualRunningKeys] = useState<Set<string>>(new Set());
   const [appealReasonByKey, setAppealReasonByKey] = useState<Record<string, string>>({});
@@ -403,20 +341,13 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
         const messagePayload = payload as { detail?: string; message?: string };
         setError(messagePayload.detail ?? messagePayload.message ?? "시험 제출 목록을 불러오지 못했습니다.");
         setSubmissions([]);
-        return false;
+        return null;
       }
 
       const rows = payload as ExamSubmission[];
       const nonObjectiveAnswers = collectNonObjectiveAnswers(rows);
 
       setSubmissions(rows);
-      setManualScoreByKey(() => {
-        const seeded: Record<string, string> = {};
-        for (const item of nonObjectiveAnswers) {
-          seeded[item.key] = item.answer.grading_score === null ? "100" : String(item.answer.grading_score);
-        }
-        return seeded;
-      });
       setManualNoteByKey((prev) => {
         const next: Record<string, string> = {};
         for (const item of nonObjectiveAnswers) {
@@ -431,11 +362,11 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
         }
         return next;
       });
-      return true;
+      return rows;
     } catch {
       setError("시험 제출 목록을 불러오지 못했습니다.");
       setSubmissions([]);
-      return false;
+      return null;
     } finally {
       setLoading(false);
     }
@@ -713,27 +644,13 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   const submitManualGrade = async (
     submissionId: number,
     questionId: number,
-    score: number,
-    note: string | null,
-    options?: { overrideFieldValue?: string }
+    isCorrect: boolean,
+    note: string | null
   ) => {
     if (examId === null) return;
 
-    if (!Number.isFinite(score) || score < 0 || score > 100) {
-      setActionError("점수는 0~100 범위에서 입력해 주세요.");
-      setActionMessage("");
-      return;
-    }
-
     const key = manualGradeKey(submissionId, questionId);
-    const normalizedScore = Math.round(score);
     const normalizedNote = note?.trim() ? note.trim() : null;
-    if (options?.overrideFieldValue !== undefined) {
-      setManualScoreByKey((prev) => ({
-        ...prev,
-        [key]: options.overrideFieldValue ?? prev[key] ?? "",
-      }));
-    }
 
     setActionError("");
     setActionMessage("");
@@ -746,7 +663,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            score: normalizedScore,
+            is_correct: isCorrect,
             note: normalizedNote,
           }),
         }
@@ -770,6 +687,25 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
       });
     }
   };
+
+  const waitForAppealRegradeResult = useCallback(
+    async (targetExamId: number, submissionId: number, questionId: number) => {
+      const deadline = Date.now() + 120_000;
+      while (Date.now() < deadline) {
+        const reloaded = await loadSubmissions(targetExamId);
+        if (reloaded) {
+          const targetSubmission = reloaded.find((item) => item.submission_id === submissionId);
+          const targetAnswer = targetSubmission?.answers.find((item) => item.question_id === questionId);
+          if (targetAnswer && targetAnswer.grading_status && !["QUEUED", "RUNNING"].includes(targetAnswer.grading_status)) {
+            return true;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      return false;
+    },
+    [loadSubmissions]
+  );
 
   const submitAppealRegrade = async (submissionId: number, questionId: number, reason: string | null) => {
     if (examId === null) return;
@@ -796,8 +732,13 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
         return;
       }
 
-      setActionMessage(payload.message ?? "이의제기 재채점 요청을 등록했습니다.");
-      await loadSubmissions(examId);
+      setActionMessage("재채점을 진행 중입니다. 잠시만 기다려 주세요.");
+      const completed = await waitForAppealRegradeResult(examId, submissionId, questionId);
+      setActionMessage(
+        completed
+          ? "해당 문항 재채점이 완료되어 결과를 반영했습니다."
+          : (payload.message ?? "이의제기 재채점 요청을 등록했습니다. 잠시 후 다시 확인해 주세요.")
+      );
     } catch {
       setActionError("재채점 요청에 실패했습니다.");
       setActionMessage("");
@@ -1009,17 +950,17 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                       const isManualTarget = answer.question_type !== "multiple_choice";
                       const isManualRunning = manualRunningKeys.has(key);
                       const isAppealRunning = appealRunningKeys.has(key);
-                      const scoreInput =
-                        manualScoreByKey[key] ?? (answer.grading_score === null ? "100" : String(answer.grading_score));
 
                       return (
                         <div key={key} className="rounded-lg bg-surface-muted p-2 text-xs">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="font-medium">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1 font-medium">
                               <span>{answer.question_order}. </span>
                               <MarkdownContent content={answer.prompt_md} />
                             </div>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${verdict.className}`}>
+                            <span
+                              className={`mt-0.5 inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${verdict.className}`}
+                            >
                               {verdict.label}
                             </span>
                           </div>
@@ -1095,75 +1036,27 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                             <div className="mt-2 rounded-md border border-border/70 bg-background/70 p-2">
                               <p className="font-medium">수동 채점</p>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step={1}
-                                  className="h-8 w-24"
-                                  value={scoreInput}
-                                  onChange={(event) =>
-                                    setManualScoreByKey((prev) => ({
-                                      ...prev,
-                                      [key]: event.target.value,
-                                    }))
-                                  }
-                                  disabled={isManualRunning}
-                                />
                                 <Button
                                   type="button"
+                                  variant="outline"
                                   className="h-8 px-2 text-xs"
-                                  onClick={() => {
-                                    const parsed = Number(scoreInput);
-                                    if (!Number.isFinite(parsed)) {
-                                      setActionError("점수는 숫자로 입력해 주세요.");
-                                      setActionMessage("");
-                                      return;
-                                    }
-                                    void submitManualGrade(
-                                      submission.submission_id,
-                                      answer.question_id,
-                                      parsed,
-                                      manualNoteByKey[key] ?? null
-                                    );
-                                  }}
+                                  onClick={() =>
+                                    void submitManualGrade(submission.submission_id, answer.question_id, true, manualNoteByKey[key] ?? null)
+                                  }
                                   disabled={isManualRunning}
                                 >
-                                  {isManualRunning ? "저장 중..." : "점수 저장"}
+                                  {isManualRunning ? "처리 중..." : "정답 처리"}
                                 </Button>
                                 <Button
                                   type="button"
                                   variant="outline"
                                   className="h-8 px-2 text-xs"
                                   onClick={() =>
-                                    void submitManualGrade(
-                                      submission.submission_id,
-                                      answer.question_id,
-                                      100,
-                                      manualNoteByKey[key] ?? null,
-                                      { overrideFieldValue: "100" }
-                                    )
+                                    void submitManualGrade(submission.submission_id, answer.question_id, false, manualNoteByKey[key] ?? null)
                                   }
                                   disabled={isManualRunning}
                                 >
-                                  정답 처리(100)
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 px-2 text-xs"
-                                  onClick={() =>
-                                    void submitManualGrade(
-                                      submission.submission_id,
-                                      answer.question_id,
-                                      0,
-                                      manualNoteByKey[key] ?? null,
-                                      { overrideFieldValue: "0" }
-                                    )
-                                  }
-                                  disabled={isManualRunning}
-                                >
-                                  오답 처리(0)
+                                  {isManualRunning ? "처리 중..." : "오답 처리"}
                                 </Button>
                               </div>
                               <Textarea
@@ -1210,7 +1103,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                                     {isAppealRunning ? "재채점 등록 중..." : "이의제기 재채점 요청"}
                                   </Button>
                                   <p className="text-[11px] text-muted-foreground">
-                                    동일 모델/프롬프트 버전으로 자동 재채점합니다.
+                                    해당 문항만 즉시 재채점하며, 이의제기는 gpt-5-mini로 처리합니다.
                                   </p>
                                 </div>
                               </div>

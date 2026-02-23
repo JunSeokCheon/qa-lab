@@ -48,12 +48,12 @@ const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
     '- `pd.read_csv(\"test.csv\")`로 파일을 읽는가',
     "- `head()` 결과를 출력하는가",
     "",
-    "## 부분 점수 기준",
-    "- 파일 읽기만 성공: 60점",
-    "- 파일 읽기 + head 출력: 100점",
+    "## 정답 판정 기준",
+    "- 파일 읽기 + head 출력까지 충족하면 정답",
+    "- 필수 단계가 누락되면 오답",
     "",
     "## 오답 처리",
-    "- 파일명 오류, 함수 미사용, 출력 누락 시 감점",
+    "- 파일명 오류, 함수 미사용, 출력 누락 시 오답 처리",
   ].join("\n"),
   [TEMPLATE_FUNCTION_IO]: [
     "## 정답 코드 예시",
@@ -67,13 +67,12 @@ const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
     "- 반환값 로직이 문제 요구를 만족하는가",
     "- 기본/경계 입력에서 오동작이 없는가",
     "",
-    "## 부분 점수 기준",
-    "- 함수 시그니처만 맞음: 40점",
-    "- 핵심 로직 일부 구현: 70점",
-    "- 요구사항 완전 충족: 100점",
+    "## 정답 판정 기준",
+    "- 함수 시그니처와 핵심 로직이 요구사항을 모두 충족하면 정답",
+    "- 핵심 요구사항이 하나라도 누락되면 오답",
     "",
     "## 오답 처리",
-    "- print만 하고 return이 없는 경우 감점",
+    "- print만 하고 return이 없으면 오답 처리",
   ].join("\n"),
   [TEMPLATE_VISUAL_STATS]: [
     "## 정답 코드 예시",
@@ -94,12 +93,12 @@ const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
     "- 통계 요약 결과 출력",
     "- 시각화 코드(그래프 생성/표시) 포함",
     "",
-    "## 부분 점수 기준",
-    "- 로드 + 통계: 70점",
-    "- 로드 + 통계 + 시각화: 100점",
+    "## 정답 판정 기준",
+    "- 로드 + 통계 + 시각화 요구사항을 모두 충족하면 정답",
+    "- 필수 출력/시각화가 누락되면 오답",
     "",
     "## 오답 처리",
-    "- 시각화 누락 또는 통계 함수 미사용 시 감점",
+    "- 시각화 누락 또는 통계 함수 미사용 시 오답 처리",
   ].join("\n"),
 };
 
@@ -129,10 +128,9 @@ function buildRubricHelperText(question: DraftQuestion): string {
       "- 결과 출력 또는 반환 형식이 맞는가",
       "- 예외/경계값 처리 관점에서 치명적 오류가 없는가",
       "",
-      "[부분 점수 기준(예시)]",
-      "- 핵심 로직 일부 구현: 40~70점",
-      "- 동작은 하나 정답 기준과 차이 있음: 70~90점",
-      "- 정답 기준 충족: 100점",
+      "[정답/오답 기준(예시)]",
+      "- 필수 요구사항(입력 처리/핵심 로직/출력 형식)을 모두 충족하면 정답",
+      "- 필수 요구사항 중 하나라도 누락되면 오답",
       "",
       "[정답 기준 요약]",
       answerPreview,
@@ -154,10 +152,9 @@ function buildRubricHelperText(question: DraftQuestion): string {
     "- 문제에서 요구한 키워드/근거가 포함되었는가",
     "- 답변 구조가 논리적인가",
     "",
-    "[부분 점수 기준(예시)]",
-    "- 핵심 개념 일부 언급: 40~70점",
-    "- 핵심은 맞지만 근거 부족: 70~90점",
-    "- 개념/근거 모두 충족: 100점",
+    "[정답/오답 기준(예시)]",
+    "- 핵심 개념과 결론이 정답 기준과 일치하면 정답",
+    "- 핵심 개념 또는 결론이 누락되면 오답",
     "",
     "[정답 기준 요약]",
     answerPreview,
@@ -397,6 +394,9 @@ export function AdminExamBuilder({
         <p className="mt-3 text-sm text-hero-foreground/90">
           문항별 정답/채점기준을 입력하면 자동 채점(객관식 기준 채점 + 주관식/코딩 LLM 채점)에 활용됩니다.
         </p>
+        <p className="mt-2 text-xs text-hero-foreground/90">
+          코드 블록 작성: 문항/설명에 <code>```python</code>으로 시작하고 <code>```</code>으로 닫으면 미리보기와 응시 화면에 코드 블록으로 표시됩니다.
+        </p>
       </section>
 
       {error ? <p className="qa-card text-sm text-destructive">{error}</p> : null}
@@ -409,6 +409,7 @@ export function AdminExamBuilder({
             <li>객관식: 정답 라디오 버튼만 정확히 선택하면 됩니다.</li>
             <li>주관식: 정답 키워드와 필수 포함 내용(예: 용어, 근거)을 짧게 적어주세요.</li>
             <li>코딩: 정답 코드 예시 + 체크포인트(선택)을 적어주세요.</li>
+            <li>코드 블록: <code>```언어명</code>으로 시작하고 마지막 줄에 <code>```</code>을 입력하세요.</li>
             <li>코딩 리소스 파일명은 데이터 혹은 실습 파일을 업로드해도 됩니다.</li>
             <li>채점기준 도우미 버튼으로 초안을 만든 뒤, 실제 수업 기준에 맞게 수정하면 됩니다. 해당 내용은 선택입니다.</li>
           </ul>
@@ -575,7 +576,7 @@ export function AdminExamBuilder({
                       placeholder={
                         question.type === "subjective"
                           ? "주관식 정답/채점 기준을 입력해 주세요."
-                          : "코딩 정답 코드 + 체크포인트 + 부분점수 기준을 입력해 주세요."
+                          : "코딩 정답 코드 + 체크포인트(선택)를 입력해 주세요."
                       }
                       value={question.answerKeyText}
                       onChange={(event) => updateQuestion(question.key, { answerKeyText: event.target.value })}

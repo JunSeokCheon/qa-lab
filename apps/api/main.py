@@ -139,6 +139,7 @@ _TRACK_OPTIONS = {
     "데이터 분석 11기",
     "QAQC 4기",
 }
+_APPEAL_REGRADING_MODEL = "gpt-5-mini"
 
 
 def _is_login_rate_limited(client_key: str) -> bool:
@@ -413,6 +414,7 @@ def _append_appeal_feedback(
     actor_user_id: int,
     question_id: int,
     reason: str | None,
+    model_override: str | None,
     previous_status: str | None,
     previous_score: int | None,
 ) -> dict[str, Any]:
@@ -430,6 +432,7 @@ def _append_appeal_feedback(
             "requested_by_user_id": actor_user_id,
             "question_id": question_id,
             "reason": (reason.strip() if reason else None),
+            "model_override": (model_override.strip() if model_override else None),
             "previous_status": previous_status,
             "previous_score": previous_score,
         }
@@ -1199,6 +1202,7 @@ async def _prepare_exam_submission_enqueue(
     *,
     submission_id: int,
     force: bool,
+    target_question_id: int | None = None,
     preserve_feedback_json: bool = False,
 ) -> tuple[ExamSubmission, int, bool, str]:
     submission = await session.scalar(select(ExamSubmission).where(ExamSubmission.id == submission_id))
@@ -1218,10 +1222,14 @@ async def _prepare_exam_submission_enqueue(
     llm_target_rows = [
         (answer, question)
         for answer, question in answer_rows
-        if question.type in {"subjective", "coding"} and bool((question.answer_key_text or "").strip())
+        if question.type in {"subjective", "coding"}
+        and bool((question.answer_key_text or "").strip())
+        and (target_question_id is None or question.id == target_question_id)
     ]
 
     if not llm_target_rows:
+        if target_question_id is not None:
+            return submission, 0, False, "해당 문항은 자동 재채점 대상이 아닙니다."
         return submission, 0, False, "정답/채점 기준이 입력된 주관식·코딩 문항이 없어 자동 채점 대상이 아닙니다."
 
     if not force and submission.status in {"QUEUED", "RUNNING"}:
@@ -1238,6 +1246,8 @@ async def _prepare_exam_submission_enqueue(
         answer.grading_logs = None
         answer.graded_at = None
 
+    if target_question_id is not None:
+        return submission, len(llm_target_rows), True, "해당 문항 재채점을 시작했습니다."
     return submission, len(llm_target_rows), True, "자동 채점 큐에 등록했습니다."
 
 
@@ -2372,6 +2382,7 @@ async def request_admin_exam_submission_appeal_regrade(
         actor_user_id=admin_user.id,
         question_id=question.id,
         reason=payload.reason,
+        model_override=_APPEAL_REGRADING_MODEL,
         previous_status=previous_status,
         previous_score=previous_score,
     )
@@ -2380,6 +2391,7 @@ async def request_admin_exam_submission_appeal_regrade(
         session,
         submission_id=submission_id,
         force=True,
+        target_question_id=payload.question_id,
         preserve_feedback_json=True,
     )
 
@@ -2396,6 +2408,7 @@ async def request_admin_exam_submission_appeal_regrade(
             "question_id": question.id,
             "question_type": question.type,
             "reason": payload.reason.strip() if payload.reason else None,
+            "model_override": _APPEAL_REGRADING_MODEL,
             "previous_status": previous_status,
             "previous_score": previous_score,
             "auto_grade_question_count": target_count,
@@ -2437,9 +2450,12 @@ async def manual_grade_admin_exam_submission_answer(
     admin_user: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> AdminManualGradeResponse:
-    score = int(payload.score)
-    if score < 0 or score > 100:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="점수는 0~100 범위여야 합니다.")
+    score = 100 if payload.is_correct else 0
+    reason = (
+        payload.note.strip()
+        if payload.note and payload.note.strip()
+        else ("관리자가 수동 채점으로 정답 처리했습니다." if payload.is_correct else "관리자가 수동 채점으로 오답 처리했습니다.")
+    )
 
     submission = await session.scalar(select(ExamSubmission).where(ExamSubmission.id == submission_id))
     if submission is None:
@@ -2467,9 +2483,11 @@ async def manual_grade_admin_exam_submission_answer(
     answer.grading_max_score = 100
     answer.grading_feedback_json = {
         "source": "manual",
+        "is_correct": payload.is_correct,
+        "reason": reason,
         "note": (payload.note.strip() if payload.note else None),
     }
-    answer.grading_logs = payload.note.strip() if payload.note else None
+    answer.grading_logs = reason
     answer.graded_at = datetime.now(timezone.utc)
 
     all_rows = (
@@ -2494,6 +2512,7 @@ async def manual_grade_admin_exam_submission_answer(
             "exam_id": submission.exam_id,
             "question_id": question.id,
             "question_type": question.type,
+            "is_correct": payload.is_correct,
             "score": score,
         },
     )

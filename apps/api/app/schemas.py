@@ -407,7 +407,7 @@ class AdminGradingEnqueueResponse(BaseModel):
 
 
 class AdminManualGradeRequest(BaseModel):
-    score: int
+    is_correct: bool
     note: str | None = None
 
 
