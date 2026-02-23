@@ -72,6 +72,13 @@ type AnswerVerdict = {
   className: string;
 };
 
+type GradingFeedback = Record<string, unknown> | null;
+
+type NonObjectiveAnswerItem = {
+  key: string;
+  answer: ExamSubmissionAnswer;
+};
+
 function examKindLabel(kind: string): string {
   if (kind === "quiz") return "퀴즈";
   if (kind === "assessment") return "성취도 평가";
@@ -82,8 +89,34 @@ function manualGradeKey(submissionId: number, questionId: number): string {
   return `${submissionId}:${questionId}`;
 }
 
+function isObjectiveAnswer(answer: ExamSubmissionAnswer): boolean {
+  return answer.question_type === "multiple_choice";
+}
+
+function isNonObjectiveAnswer(answer: ExamSubmissionAnswer): boolean {
+  return !isObjectiveAnswer(answer);
+}
+
+function isGradingFinished(answer: ExamSubmissionAnswer): boolean {
+  return answer.grading_status === "GRADED" || answer.grading_status === "FAILED";
+}
+
+function collectNonObjectiveAnswers(rows: ExamSubmission[]): NonObjectiveAnswerItem[] {
+  const items: NonObjectiveAnswerItem[] = [];
+  for (const submission of rows) {
+    for (const answer of submission.answers) {
+      if (!isNonObjectiveAnswer(answer)) continue;
+      items.push({
+        key: manualGradeKey(submission.submission_id, answer.question_id),
+        answer,
+      });
+    }
+  }
+  return items;
+}
+
 function resolveAnswerVerdict(answer: ExamSubmissionAnswer): AnswerVerdict {
-  if (answer.question_type === "multiple_choice") {
+  if (isObjectiveAnswer(answer)) {
     if (answer.selected_choice_index === null || answer.correct_choice_index === null) {
       return { label: "미응답", className: "bg-muted text-muted-foreground" };
     }
@@ -94,28 +127,23 @@ function resolveAnswerVerdict(answer: ExamSubmissionAnswer): AnswerVerdict {
   }
 
   if (answer.grading_status === "FAILED") {
-    return { label: "채점 실패", className: "bg-rose-100 text-rose-800" };
+    return { label: "오답", className: "bg-rose-100 text-rose-800" };
   }
   if (answer.grading_status !== "GRADED") {
     return { label: "미채점", className: "bg-muted text-muted-foreground" };
   }
-  if (answer.grading_score === null || answer.grading_max_score === null || answer.grading_max_score <= 0) {
-    return { label: "채점 완료", className: "bg-amber-100 text-amber-800" };
-  }
+
   if (answer.grading_score === answer.grading_max_score) {
     return { label: "정답", className: "bg-emerald-100 text-emerald-800" };
   }
-  if (answer.grading_score === 0) {
-    return { label: "오답", className: "bg-rose-100 text-rose-800" };
-  }
-  return { label: "부분 정답", className: "bg-amber-100 text-amber-800" };
+  return { label: "오답", className: "bg-rose-100 text-rose-800" };
 }
 
 type ExportCell = string | number | null | undefined;
 type ExportRow = Record<string, ExportCell>;
 
 function isFullyCorrect(answer: ExamSubmissionAnswer): boolean {
-  if (answer.question_type === "multiple_choice") {
+  if (isObjectiveAnswer(answer)) {
     return (
       answer.correct_choice_index !== null &&
       answer.selected_choice_index !== null &&
@@ -137,41 +165,37 @@ function toBinaryCorrect(answer: ExamSubmissionAnswer | undefined): number {
   return isFullyCorrect(answer) ? 1 : 0;
 }
 
-function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
-  if (answer.grading_status !== "GRADED" && answer.grading_status !== "FAILED") {
-    return "아직 자동 채점이 시작되지 않았습니다. 관리자 승인 후 채점됩니다.";
-  }
+function summarizeRationale(feedback: GradingFeedback): string | null {
+  const rationale =
+    feedback && typeof feedback.rationale === "object" ? (feedback.rationale as Record<string, unknown>) : null;
+  if (!rationale) return null;
 
-  if (isFullyCorrect(answer)) {
-    return "정답입니다.";
-  }
+  const summary = typeof rationale.summary === "string" ? rationale.summary.trim() : "";
+  const missingPoints = Array.isArray(rationale.missing_points)
+    ? rationale.missing_points.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0).slice(0, 3)
+    : [];
+  const deductions = Array.isArray(rationale.deductions)
+    ? (rationale.deductions as Array<Record<string, unknown>>)
+        .map((item) => {
+          const reason = typeof item.reason === "string" ? item.reason.trim() : "";
+          const points = typeof item.points === "number" ? item.points : null;
+          if (!reason) return "";
+          return points === null ? reason : `${reason} (-${points})`;
+        })
+        .filter((item) => item.length > 0)
+        .slice(0, 3)
+    : [];
 
-  const feedback = answer.grading_feedback_json as Record<string, unknown> | null;
-  const rationale = feedback && typeof feedback.rationale === "object" ? (feedback.rationale as Record<string, unknown>) : null;
-  if (rationale) {
-    const summary = typeof rationale.summary === "string" ? rationale.summary.trim() : "";
-    const missingPoints = Array.isArray(rationale.missing_points)
-      ? rationale.missing_points.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0).slice(0, 3)
-      : [];
-    const deductions = Array.isArray(rationale.deductions)
-      ? (rationale.deductions as Array<Record<string, unknown>>)
-          .map((item) => {
-            const reason = typeof item.reason === "string" ? item.reason.trim() : "";
-            const points = typeof item.points === "number" ? item.points : null;
-            if (!reason) return "";
-            return points === null ? reason : `${reason} (-${points})`;
-          })
-          .filter((item) => item.length > 0)
-          .slice(0, 3)
-      : [];
-    if (summary || missingPoints.length > 0 || deductions.length > 0) {
-      const lines: string[] = [];
-      if (summary) lines.push(summary);
-      if (missingPoints.length > 0) lines.push(`누락 포인트: ${missingPoints.join(" / ")}`);
-      if (deductions.length > 0) lines.push(`감점 근거: ${deductions.join(" / ")}`);
-      return lines.join("\n");
-    }
-  }
+  if (!summary && missingPoints.length === 0 && deductions.length === 0) return null;
+
+  const lines: string[] = [];
+  if (summary) lines.push(summary);
+  if (missingPoints.length > 0) lines.push(`누락 포인트: ${missingPoints.join(" / ")}`);
+  if (deductions.length > 0) lines.push(`감점 근거: ${deductions.join(" / ")}`);
+  return lines.join("\n");
+}
+
+function summarizeFeedbackFallback(answer: ExamSubmissionAnswer, feedback: GradingFeedback): string | null {
   if (feedback && typeof feedback.reason === "string" && feedback.reason.trim()) {
     return feedback.reason.trim();
   }
@@ -181,6 +205,7 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   if (feedback && typeof feedback.error === "string" && feedback.error.trim()) {
     return feedback.error.trim().replace(/\s+/g, " ").slice(0, 260);
   }
+
   const issues =
     feedback && Array.isArray(feedback.issues)
       ? feedback.issues
@@ -191,19 +216,17 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   if (issues.length > 0) {
     return issues.join(" / ");
   }
+
   const publicPart =
     feedback && typeof feedback.public === "object" ? (feedback.public as Record<string, unknown>) : null;
   const failedCases = Array.isArray(publicPart?.failed_cases)
-    ? (publicPart?.failed_cases as Array<Record<string, unknown>>)
+    ? (publicPart.failed_cases as Array<Record<string, unknown>>)
     : [];
   if (failedCases.length > 0) {
     const first = failedCases[0];
     const name = typeof first?.name === "string" ? first.name : "실패 테스트";
     const message = typeof first?.message === "string" ? first.message.replace(/\s+/g, " ").trim() : "";
-    if (message) {
-      return `${name}: ${message.slice(0, 260)}`;
-    }
-    return `${name} 테스트 실패`;
+    return message ? `${name}: ${message.slice(0, 260)}` : `${name} 테스트 실패`;
   }
 
   const hiddenPart =
@@ -220,12 +243,27 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
         .split("\n")
         .map((line) => line.trim())
         .find((line) => line && line !== "[stdout]" && line !== "[stderr]") ?? "";
-    if (firstMeaningfulLine) {
-      return firstMeaningfulLine.slice(0, 260);
-    }
+    if (firstMeaningfulLine) return firstMeaningfulLine.slice(0, 260);
+  }
+  return null;
+}
+
+function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
+  if (!isGradingFinished(answer)) {
+    return "아직 자동 채점이 시작되지 않았습니다. 관리자 승인 후 채점됩니다.";
   }
 
-  return "채점 로그에서 명확한 실패 사유를 찾지 못했습니다. 원본 로그를 확인해 주세요.";
+  const feedback = answer.grading_feedback_json as GradingFeedback;
+  const rationaleSummary = summarizeRationale(feedback);
+  if (rationaleSummary) return rationaleSummary;
+
+  const fallbackSummary = summarizeFeedbackFallback(answer, feedback);
+  if (fallbackSummary) return fallbackSummary;
+
+  if (isFullyCorrect(answer)) {
+    return "정답 기준을 충족했습니다.";
+  }
+  return "채점 로그에서 명확한 오답 사유를 찾지 못했습니다. 원본 로그를 확인해 주세요.";
 }
 
 function gradingEngineSummary(answer: ExamSubmissionAnswer): string | null {
@@ -352,37 +390,27 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
       }
 
       const rows = payload as ExamSubmission[];
+      const nonObjectiveAnswers = collectNonObjectiveAnswers(rows);
+
       setSubmissions(rows);
       setManualScoreByKey(() => {
         const seeded: Record<string, string> = {};
-        for (const submission of rows) {
-          for (const answer of submission.answers) {
-            if (answer.question_type === "multiple_choice") continue;
-            seeded[manualGradeKey(submission.submission_id, answer.question_id)] =
-              answer.grading_score === null ? "100" : String(answer.grading_score);
-          }
+        for (const item of nonObjectiveAnswers) {
+          seeded[item.key] = item.answer.grading_score === null ? "100" : String(item.answer.grading_score);
         }
         return seeded;
       });
       setManualNoteByKey((prev) => {
         const next: Record<string, string> = {};
-        for (const submission of rows) {
-          for (const answer of submission.answers) {
-            if (answer.question_type === "multiple_choice") continue;
-            const key = manualGradeKey(submission.submission_id, answer.question_id);
-            next[key] = prev[key] ?? "";
-          }
+        for (const item of nonObjectiveAnswers) {
+          next[item.key] = prev[item.key] ?? "";
         }
         return next;
       });
       setAppealReasonByKey((prev) => {
         const next: Record<string, string> = {};
-        for (const submission of rows) {
-          for (const answer of submission.answers) {
-            if (answer.question_type === "multiple_choice") continue;
-            const key = manualGradeKey(submission.submission_id, answer.question_id);
-            next[key] = prev[key] ?? "";
-          }
+        for (const item of nonObjectiveAnswers) {
+          next[item.key] = prev[item.key] ?? "";
         }
         return next;
       });
@@ -971,9 +999,6 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                           {answer.question_type !== "multiple_choice" ? (
                             <p className="mt-1 text-muted-foreground">
                               채점 상태: {answer.grading_status ?? "미채점"}
-                              {answer.grading_score !== null && answer.grading_max_score !== null
-                                ? ` (${answer.grading_score}/${answer.grading_max_score})`
-                                : ""}
                             </p>
                           ) : null}
                           {answer.question_type !== "multiple_choice" && gradingEngine ? (
@@ -1005,7 +1030,11 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                               </div>
 
                               <p className="mt-2 text-muted-foreground">
-                                {isFullyCorrect(answer) ? "채점 사유" : "틀린 이유"}
+                                {answer.grading_status === "GRADED" || answer.grading_status === "FAILED"
+                                  ? isFullyCorrect(answer)
+                                    ? "정답 이유"
+                                    : "오답 이유"
+                                  : "판정 사유"}
                               </p>
                               <p className="mt-1 whitespace-pre-wrap rounded bg-surface-muted p-2 text-[11px]">
                                 {summarizeNonObjectiveReason(answer)}

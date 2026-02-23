@@ -139,6 +139,7 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 ## 기본 계정
 - 관리자: `admin` / `admin1234`
 - 사용자: `user` / `user1234`
+- 로그인 화면은 기본 아이디/비밀번호 자동 입력이 없으며, `자동 로그인` 체크 시에만 장기 세션(remember me)이 적용됩니다.
 
 ## 주요 페이지
 - 사용자 시험 목록: `/problems`
