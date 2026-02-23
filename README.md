@@ -90,25 +90,22 @@ git pull --ff-only origin main
 ```
 
 ## GitHub Actions CI/CD
-이 저장소는 GitHub Actions로 CI와 배포 자동화를 지원합니다.
+이 저장소는 GitHub Actions로 `CI`만 자동 실행합니다.
 
 - `CI` (`.github/workflows/ci.yml`)
   - 트리거: `push`, `pull_request`
   - 수행: API 문법 검사, API/worker 기동 스모크, 웹 lint/build, 통합 점검(`scripts/full_system_check.mjs`)
 
 - `Deploy Production` (`.github/workflows/deploy-prod.yml`)
-  - 트리거: `main` 브랜치 push, 수동 실행(`workflow_dispatch`)
-  - 수행: 운영 서버 SSH 접속 후 `git pull` + `scripts/deploy_prod.sh` + `ops_healthcheck`
+  - 현재 비활성화 상태 (`if: false`, 자동 배포 없음)
 
 - `Ops Backup` (`.github/workflows/ops-backup.yml`)
-  - 트리거: 매일 스케줄 + 수동 실행
-  - 수행: 운영 서버에서 `backup_prod.sh` 실행 후 오래된 백업 정리(`prune_backups.sh`)
+  - 현재 비활성화 상태 (`if: false`, 스케줄 실행 없음)
 
 - `Ops Restore Drill` (`.github/workflows/ops-restore-drill.yml`)
-  - 트리거: 주간 스케줄 + 수동 실행
-  - 수행: 운영 서버에서 `backup_restore_drill.sh`로 복구 리허설 자동 점검
+  - 현재 비활성화 상태 (`if: false`, 스케줄 실행 없음)
 
-배포 워크플로우 사용 전 GitHub Repository Secrets를 설정하세요.
+배포 워크플로우를 다시 활성화할 때 GitHub Repository Secrets를 설정하세요.
 - `PROD_HOST`: 운영 서버 IP 또는 도메인
 - `PROD_USER`: SSH 사용자
 - `PROD_SSH_KEY`: 개인키(멀티라인 그대로)
@@ -117,11 +114,11 @@ git pull --ff-only origin main
 - `PROD_PUBLIC_URL`: 공개 URL (예: `https://spartaqa.com`)
 
 ### 로컬 개발 후 운영 반영 루틴
-권장(자동 배포):
+권장(CI 검증 + 수동 배포):
 1. 로컬에서 개발/테스트 완료
 2. `git add -A && git commit -m "..." && git push origin main`
 3. GitHub Actions `CI` 성공 확인
-4. 이어서 `Deploy Production`이 자동 실행되어 운영 반영
+4. 서버에서 수동 배포 실행
 5. 배포 후 `https://spartaqa.com` 접속 확인
 
 수동(서버에서 직접):

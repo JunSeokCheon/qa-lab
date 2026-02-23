@@ -1,9 +1,6 @@
 name: Ops Restore Drill
 
 on:
-  schedule:
-    # 03:30 KST every Sunday (18:30 UTC every Saturday)
-    - cron: "30 18 * * 6"
   workflow_dispatch:
 
 concurrency:
@@ -12,6 +9,7 @@ concurrency:
 
 jobs:
   restore-drill:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
