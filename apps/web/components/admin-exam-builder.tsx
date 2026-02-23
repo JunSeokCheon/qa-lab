@@ -387,13 +387,13 @@ export function AdminExamBuilder({
 
       <section className="qa-card">
         <details open className="space-y-2">
-          <summary className="cursor-pointer text-sm font-semibold">비개발자 튜터용 문제-정답 작성 가이드</summary>
+          <summary className="cursor-pointer text-sm font-semibold">튜터용 문제-정답 작성 가이드</summary>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
             <li>객관식: 정답 라디오 버튼만 정확히 선택하면 됩니다.</li>
             <li>주관식: 정답 키워드와 필수 포함 내용(예: 용어, 근거)을 짧게 적어주세요.</li>
-            <li>코딩: 정답 코드 예시 + 체크포인트 + 부분점수 기준을 함께 적어주세요.</li>
-            <li>코딩 리소스 파일명은 문제 문구와 정답 예시에 동일하게 적어주세요.</li>
-            <li>채점기준 도우미 버튼으로 초안을 만든 뒤, 실제 수업 기준에 맞게 수정하면 됩니다.</li>
+            <li>코딩: 정답 코드 예시 + 체크포인트(선택)을 적어주세요.</li>
+            <li>코딩 리소스 파일명은 데이터 혹은 실습 파일을 업로드해도 됩니다.</li>
+            <li>채점기준 도우미 버튼으로 초안을 만든 뒤, 실제 수업 기준에 맞게 수정하면 됩니다. 해당 내용은 선택입니다.</li>
           </ul>
         </details>
       </section>
@@ -563,7 +563,7 @@ export function AdminExamBuilder({
         </div>
 
         <div className="rounded-2xl border border-border/70 bg-surface p-4">
-          <p className="text-sm font-semibold">코딩 문제 리소스 업로드 (시험과 함께 보관)</p>
+          <p className="text-sm font-semibold">데이터 및 실습 리소스 업로드</p>
           <p className="mt-1 text-xs text-muted-foreground">
             여러 파일 선택 가능. zip 및 데이터 파일(csv/xlsx/json 등)을 업로드할 수 있습니다.
           </p>
@@ -589,4 +589,3 @@ export function AdminExamBuilder({
     </main>
   );
 }
-

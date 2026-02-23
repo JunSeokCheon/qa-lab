@@ -464,16 +464,19 @@ async def login(
 ) -> AuthTokenResponse:
     username = payload.username.strip()
     if not username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="아이디를 입력해 주세요.")
     client_host = request.client.host if request.client else "unknown"
     client_key = f"{client_host}:{username.lower()}"
     if _is_login_rate_limited(client_key):
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts. Try again later.")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+        )
 
     result = await session.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
 
     _reset_login_attempts(client_key)
     token = create_access_token(subject=user.username, role=user.role, expires_delta=access_token_ttl())

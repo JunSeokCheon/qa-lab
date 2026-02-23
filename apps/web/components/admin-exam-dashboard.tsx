@@ -324,6 +324,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   const [submissions, setSubmissions] = useState<ExamSubmission[]>([]);
   const [questionFilter, setQuestionFilter] = useState<string>("all");
   const [studentFilter, setStudentFilter] = useState<string>("all");
+  const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
   const [manualScoreByKey, setManualScoreByKey] = useState<Record<string, string>>({});
   const [manualNoteByKey, setManualNoteByKey] = useState<Record<string, string>>({});
   const [manualRunningKeys, setManualRunningKeys] = useState<Set<string>>(new Set());
@@ -451,6 +452,12 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
     return [...names].sort((a, b) => a.localeCompare(b, "ko"));
   }, [submissions]);
 
+  const filteredStudentOptions = useMemo(() => {
+    const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
+    if (!keyword) return studentOptions;
+    return studentOptions.filter((name) => name.toLocaleLowerCase("ko").includes(keyword));
+  }, [studentOptions, studentSearchKeyword]);
+
   const filteredQuestionStats = useMemo(() => {
     if (questionFilter === "all") return questionStats;
     const questionId = Number(questionFilter);
@@ -458,9 +465,16 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
   }, [questionFilter, questionStats]);
 
   const filteredSubmissions = useMemo(() => {
-    if (studentFilter === "all") return submissions;
-    return submissions.filter((row) => row.user_name === studentFilter);
-  }, [studentFilter, submissions]);
+    const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
+    return submissions.filter((row) => {
+      if (studentFilter !== "all" && row.user_name !== studentFilter) return false;
+      if (!keyword) return true;
+      return (
+        row.user_name.toLocaleLowerCase("ko").includes(keyword) ||
+        row.username.toLocaleLowerCase("ko").includes(keyword)
+      );
+    });
+  }, [studentFilter, studentSearchKeyword, submissions]);
 
   const totalQuestionCount = useMemo(() => {
     if (selectedExam?.question_count && selectedExam.question_count > 0) {
@@ -748,7 +762,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
         </section>
       ) : (
         <section className="qa-card space-y-3">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-4">
             <select
               className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
               value={examId ?? ""}
@@ -757,6 +771,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                 setExamId(Number.isFinite(nextId) ? nextId : null);
                 setQuestionFilter("all");
                 setStudentFilter("all");
+                setStudentSearchKeyword("");
               }}
             >
               {exams.map((exam) => (
@@ -785,12 +800,19 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
               onChange={(event) => setStudentFilter(event.target.value)}
             >
               <option value="all">전체 학생</option>
-              {studentOptions.map((userName) => (
+              {filteredStudentOptions.map((userName) => (
                 <option key={userName} value={userName}>
                   {userName}
                 </option>
               ))}
             </select>
+
+            <Input
+              className="h-11"
+              placeholder="학생 이름/아이디 검색"
+              value={studentSearchKeyword}
+              onChange={(event) => setStudentSearchKeyword(event.target.value)}
+            />
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={onDownloadCsv} disabled={loading || exportRows.length === 0}>
@@ -802,7 +824,9 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
           </div>
           <p className="text-xs text-muted-foreground">
             응시자 수: {submissions.length}명
-            {studentFilter !== "all" ? ` | 필터 적용: ${filteredSubmissions.length}명` : ""}
+            {studentFilter !== "all" || studentSearchKeyword.trim().length > 0
+              ? ` | 필터 적용: ${filteredSubmissions.length}명`
+              : ""}
           </p>
           <p className="text-xs text-muted-foreground">
             다운로드 파일은 수강생 X 문항 1/0 매트릭스와 하단 합계/정답률/전체 평균 점수를 제공합니다.

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type ExamSummary = {
   id: number;
@@ -61,18 +62,37 @@ export function AdminAutoGradingManager({
   const [rows, setRows] = useState(initialSubmissions);
   const [examIdFilter, setExamIdFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [studentFilter, setStudentFilter] = useState<string>("all");
+  const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
   const [codingOnly, setCodingOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const studentOptions = useMemo(() => {
+    const names = new Set(rows.map((row) => row.user_name));
+    return [...names].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
+    return rows.filter((row) => {
+      if (studentFilter !== "all" && row.user_name !== studentFilter) return false;
+      if (!keyword) return true;
+      return (
+        row.user_name.toLocaleLowerCase("ko").includes(keyword) ||
+        row.username.toLocaleLowerCase("ko").includes(keyword)
+      );
+    });
+  }, [rows, studentFilter, studentSearchKeyword]);
+
   const queueableRows = useMemo(
     () =>
-      rows.filter(
+      filteredRows.filter(
         (row) => row.status === "FAILED" || (row.status === "SUBMITTED" && Number(row.coding_pending_count) > 0)
       ),
-    [rows]
+    [filteredRows]
   );
 
   const buildQuery = () => {
@@ -182,7 +202,7 @@ export function AdminAutoGradingManager({
       {message ? <p className="qa-card text-sm text-emerald-700">{message}</p> : null}
 
       <section className="qa-card space-y-3">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-6">
           <select
             className="h-11 rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
             value={examIdFilter}
@@ -209,6 +229,26 @@ export function AdminAutoGradingManager({
             <option value="graded">채점 완료</option>
           </select>
 
+          <select
+            className="h-11 rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
+            value={studentFilter}
+            onChange={(event) => setStudentFilter(event.target.value)}
+          >
+            <option value="all">전체 학생</option>
+            {studentOptions.map((userName) => (
+              <option key={userName} value={userName}>
+                {userName}
+              </option>
+            ))}
+          </select>
+
+          <Input
+            className="h-11"
+            placeholder="학생 이름/아이디 검색"
+            value={studentSearchKeyword}
+            onChange={(event) => setStudentSearchKeyword(event.target.value)}
+          />
+
           <label className="flex items-center gap-2 rounded-xl border border-border/70 px-3 text-sm">
             <input type="checkbox" checked={codingOnly} onChange={(event) => setCodingOnly(event.target.checked)} />
             코딩 문항 제출만 보기
@@ -227,7 +267,11 @@ export function AdminAutoGradingManager({
 
       <section className="qa-card space-y-3">
         <h2 className="text-lg font-semibold">자동 채점 대상 목록</h2>
-        {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          전체 {rows.length}건
+          {studentFilter !== "all" || studentSearchKeyword.trim().length > 0 ? ` | 필터 적용 ${filteredRows.length}건` : ""}
+        </p>
+        {filteredRows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {codingOnly
               ? "코딩 문항 제출이 아직 없어 자동채점 대상을 표시할 수 없습니다. 상단 '코딩 문항 제출만 보기'를 해제하면 주관식/코딩 전체 자동채점 대상을 확인할 수 있습니다."
@@ -248,7 +292,7 @@ export function AdminAutoGradingManager({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {filteredRows.map((row) => {
                   const isRunning = runningIds.has(row.submission_id);
                   return (
                     <tr key={row.submission_id} className="border-t border-border/70">

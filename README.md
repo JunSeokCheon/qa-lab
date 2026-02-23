@@ -42,6 +42,13 @@ docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
 ```
 
+web/api만 빠르게 최신 반영:
+```bash
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull web api worker
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --no-deps web api worker
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
+```
+
 프로덕션 기준:
 ```bash
 # LLM 자동채점 사용 시 infra/.env.prod의 OPENAI_API_KEY를 반드시 설정
