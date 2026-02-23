@@ -90,6 +90,7 @@ from app.schemas import (
     PasswordResetRequest,
     PasswordResetResponse,
     MeProgressResponse,
+    MeExamQuestionResult,
     MeExamResultSummary,
     MeExamSubmissionAnswer,
     MeExamSubmissionDetail,
@@ -142,6 +143,83 @@ _TRACK_OPTIONS = {
     "QAQC 4기",
 }
 _APPEAL_REGRADING_MODEL = "gpt-5-mini"
+_EXAM_SKILL_KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "판다스",
+        (
+            "pandas",
+            "pd.",
+            "read_csv",
+            "dataframe",
+            "concat",
+            "merge",
+            "drop_duplicates",
+            "fillna",
+            "groupby",
+            "pivot",
+            "iloc",
+            "loc",
+        ),
+    ),
+    (
+        "통계",
+        (
+            "p-value",
+            "가설",
+            "검정",
+            "정규성",
+            "분산",
+            "anova",
+            "mann-whitney",
+            "chi",
+            "t-test",
+            "통계",
+        ),
+    ),
+    (
+        "시각화",
+        (
+            "시각화",
+            "그래프",
+            "plot",
+            "matplotlib",
+            "seaborn",
+            "bar",
+            "line",
+            "scatter",
+            "hist",
+        ),
+    ),
+    (
+        "머신러닝",
+        (
+            "train",
+            "validation",
+            "test set",
+            "모델",
+            "과적합",
+            "예측",
+            "회귀",
+            "분류",
+            "feature",
+            "loss",
+        ),
+    ),
+    (
+        "파이썬 기초",
+        (
+            "python",
+            "파이썬",
+            "def ",
+            "for ",
+            "while ",
+            "list",
+            "dict",
+            "set",
+            "len(",
+        ),
+    ),
+)
 
 
 def _is_login_rate_limited(client_key: str) -> bool:
@@ -409,6 +487,112 @@ def _resolve_submission_result_visibility(
     if bool(submission.results_published):
         return True, submission.results_published_at, "submission"
     return False, None, "none"
+
+
+def _feedback_bool(feedback_json: dict[str, Any] | None, key: str) -> bool:
+    if not isinstance(feedback_json, dict):
+        return False
+    value = feedback_json.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return False
+
+
+def _resolve_me_question_verdict(answer: ExamAnswer, question: ExamQuestion) -> str:
+    if question.type == "multiple_choice":
+        if question.correct_choice_index is None or answer.selected_choice_index is None:
+            return "pending"
+        if answer.selected_choice_index == question.correct_choice_index:
+            return "correct"
+        return "incorrect"
+
+    if answer.grading_status not in {"GRADED", "FAILED"}:
+        return "pending"
+
+    feedback = answer.grading_feedback_json if isinstance(answer.grading_feedback_json, dict) else None
+    if _feedback_bool(feedback, "needs_review"):
+        return "review_pending"
+
+    if feedback and isinstance(feedback.get("verdict"), str):
+        verdict = str(feedback.get("verdict")).strip().upper()
+        if verdict == "CORRECT":
+            return "correct"
+        if verdict == "INCORRECT":
+            return "incorrect"
+
+    if (
+        answer.grading_score is not None
+        and answer.grading_max_score is not None
+        and answer.grading_max_score > 0
+    ):
+        return "correct" if answer.grading_score == answer.grading_max_score else "incorrect"
+
+    return "incorrect" if answer.grading_status == "FAILED" else "pending"
+
+
+def _build_prompt_preview(prompt_md: str, max_chars: int = 96) -> str:
+    compact = re.sub(r"\s+", " ", (prompt_md or "").strip())
+    if len(compact) <= max_chars:
+        return compact
+    return f"{compact[:max_chars].rstrip()}..."
+
+
+def _extract_question_skill_keywords(question: ExamQuestion) -> list[str]:
+    base_text = f"{question.prompt_md or ''}\n{question.answer_key_text or ''}".lower()
+    matched: list[str] = []
+    for label, tokens in _EXAM_SKILL_KEYWORD_RULES:
+        if any(token in base_text for token in tokens):
+            matched.append(label)
+
+    if matched:
+        return matched
+    if question.type == "coding":
+        return ["코딩 구현"]
+    if question.type == "subjective":
+        return ["주관식 개념"]
+    return ["객관식 개념"]
+
+
+def _compute_submission_skill_keywords(question_results: list[MeExamQuestionResult]) -> tuple[list[str], list[str]]:
+    stats: defaultdict[str, dict[str, int]] = defaultdict(lambda: {"correct": 0, "incorrect": 0})
+    for item in question_results:
+        if item.verdict not in {"correct", "incorrect"}:
+            continue
+        for keyword in item.skill_keywords:
+            if item.verdict == "correct":
+                stats[keyword]["correct"] += 1
+            else:
+                stats[keyword]["incorrect"] += 1
+
+    if not stats:
+        return [], []
+
+    scored: list[tuple[str, float, int, int]] = []
+    for keyword, stat in stats.items():
+        total = stat["correct"] + stat["incorrect"]
+        if total == 0:
+            continue
+        mastery = stat["correct"] / total
+        scored.append((keyword, mastery, stat["correct"], total))
+
+    if not scored:
+        return [], []
+
+    strong = [
+        keyword
+        for keyword, mastery, correct, _total in sorted(scored, key=lambda row: (-row[1], -row[2], row[0]))
+        if mastery >= 0.7 and correct > 0
+    ][:3]
+    weak = [
+        keyword
+        for keyword, mastery, _correct, total in sorted(scored, key=lambda row: (row[1], -row[3], row[0]))
+        if mastery <= 0.4 and total > 0
+    ][:3]
+    return strong, weak
 
 def _request_context(request: Request) -> dict[str, str | None]:
     return {
@@ -2236,17 +2420,52 @@ async def get_my_exam_results(
         objective_total = 0
         objective_answered = 0
         objective_correct = 0
+        objective_pending = 0
+        objective_incorrect = 0
+        subjective_total = 0
+        subjective_correct = 0
+        subjective_incorrect = 0
+        subjective_pending = 0
         coding_total = 0
         coding_graded = 0
         coding_failed = 0
         coding_pending = 0
+        coding_correct = 0
+        coding_incorrect = 0
+        coding_review_pending = 0
         coding_score_acc = 0
         coding_max_acc = 0
         coding_score_seen = False
         coding_max_seen = False
         has_subjective = False
+        overall_total = 0
+        overall_correct = 0
+        overall_incorrect = 0
+        overall_pending = 0
+        question_results: list[MeExamQuestionResult] = []
 
         for answer, question in answers_by_submission.get(submission.id, []):
+            verdict = _resolve_me_question_verdict(answer, question)
+            skill_keywords = _extract_question_skill_keywords(question)
+            question_results.append(
+                MeExamQuestionResult(
+                    question_id=question.id,
+                    question_order=question.order_index,
+                    question_type=question.type,
+                    prompt_preview=_build_prompt_preview(question.prompt_md),
+                    verdict=verdict,
+                    skill_keywords=skill_keywords,
+                )
+            )
+
+            overall_total += 1
+            if verdict == "correct":
+                overall_correct += 1
+            elif verdict == "incorrect":
+                overall_incorrect += 1
+            else:
+                overall_pending += 1
+
             if question.type == "multiple_choice":
                 if question.correct_choice_index is None:
                     continue
@@ -2255,6 +2474,10 @@ async def get_my_exam_results(
                     objective_answered += 1
                 if answer.selected_choice_index == question.correct_choice_index:
                     objective_correct += 1
+                elif answer.selected_choice_index is None:
+                    objective_pending += 1
+                else:
+                    objective_incorrect += 1
                 continue
 
             if question.type == "coding":
@@ -2271,10 +2494,25 @@ async def get_my_exam_results(
                 if answer.grading_max_score is not None:
                     coding_max_acc += int(answer.grading_max_score)
                     coding_max_seen = True
+                if verdict == "correct":
+                    coding_correct += 1
+                elif verdict == "incorrect":
+                    coding_incorrect += 1
+                elif verdict == "review_pending":
+                    coding_review_pending += 1
                 continue
 
             if question.type == "subjective":
                 has_subjective = True
+                subjective_total += 1
+                if verdict == "correct":
+                    subjective_correct += 1
+                elif verdict == "incorrect":
+                    subjective_incorrect += 1
+                else:
+                    subjective_pending += 1
+
+        strong_skill_keywords, weak_skill_keywords = _compute_submission_skill_keywords(question_results)
 
         payload.append(
             MeExamResultSummary(
@@ -2297,6 +2535,22 @@ async def get_my_exam_results(
                 grading_ready=submission.status == "GRADED" and results_published,
                 results_published=results_published,
                 results_published_at=results_published_at,
+                objective_pending=objective_pending,
+                objective_incorrect=objective_incorrect,
+                subjective_total=subjective_total,
+                subjective_correct=subjective_correct,
+                subjective_incorrect=subjective_incorrect,
+                subjective_pending=subjective_pending,
+                coding_correct=coding_correct,
+                coding_incorrect=coding_incorrect,
+                coding_review_pending=coding_review_pending,
+                overall_total=overall_total,
+                overall_correct=overall_correct,
+                overall_incorrect=overall_incorrect,
+                overall_pending=overall_pending,
+                strong_skill_keywords=strong_skill_keywords,
+                weak_skill_keywords=weak_skill_keywords,
+                question_results=question_results,
             )
         )
     return payload

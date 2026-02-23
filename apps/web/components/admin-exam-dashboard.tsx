@@ -413,14 +413,30 @@ function downloadText(content: string, fileName: string, mimeType: string): void
   URL.revokeObjectURL(url);
 }
 
-export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary[] }) {
+type AdminExamDashboardProps = {
+  initialExams: ExamSummary[];
+  initialExamId?: number;
+  initialStudentName?: string;
+  initialNeedsReviewOnly?: boolean;
+};
+
+export function AdminExamDashboard({
+  initialExams,
+  initialExamId,
+  initialStudentName,
+  initialNeedsReviewOnly,
+}: AdminExamDashboardProps) {
+  const initialExamIdValue =
+    typeof initialExamId === "number" && initialExams.some((item) => item.id === initialExamId)
+      ? initialExamId
+      : (initialExams[0]?.id ?? null);
   const [exams] = useState(initialExams);
-  const [examId, setExamId] = useState<number | null>(initialExams[0]?.id ?? null);
+  const [examId, setExamId] = useState<number | null>(initialExamIdValue);
   const [submissions, setSubmissions] = useState<ExamSubmission[]>([]);
   const [questionFilter, setQuestionFilter] = useState<string>("all");
-  const [studentFilter, setStudentFilter] = useState<string>("all");
+  const [studentFilter, setStudentFilter] = useState<string>(initialStudentName ?? "all");
   const [studentSearchKeyword, setStudentSearchKeyword] = useState("");
-  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(Boolean(initialNeedsReviewOnly));
   const [manualNoteByKey, setManualNoteByKey] = useState<Record<string, string>>({});
   const [manualRunningKeys, setManualRunningKeys] = useState<Set<string>>(new Set());
   const [appealReasonByKey, setAppealReasonByKey] = useState<Record<string, string>>({});

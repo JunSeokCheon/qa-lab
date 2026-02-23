@@ -20,10 +20,21 @@ type ExamSummary = {
   question_count: number;
 };
 
+type QueryValue = string | string[] | undefined;
+
+type DashboardPageProps = {
+  searchParams?: Promise<Record<string, QueryValue>> | Record<string, QueryValue>;
+};
+
+function firstValue(value: QueryValue): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
 function masteryLevel(mastery: number): string {
-  if (mastery >= 85) return "상";
-  if (mastery >= 60) return "중";
-  if (mastery >= 30) return "하";
+  if (mastery >= 85) return "강함";
+  if (mastery >= 60) return "중간";
+  if (mastery >= 30) return "약함";
   return "보강 필요";
 }
 
@@ -34,16 +45,7 @@ function heatColor(mastery: number): string {
   return "bg-rose-300 text-black";
 }
 
-function statusLabel(status: string): string {
-  if (status === "QUEUED") return "대기";
-  if (status === "RUNNING") return "채점 중";
-  if (status === "GRADED") return "채점 완료";
-  if (status === "FAILED") return "채점 실패";
-  if (status === "SUBMITTED") return "제출 완료";
-  return status;
-}
-
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) redirect("/login");
@@ -51,13 +53,31 @@ export default async function DashboardPage() {
   const me = await fetchMeWithToken(token);
   if (!me) redirect("/login");
 
+  const resolvedParams = await Promise.resolve(searchParams ?? {});
+  const rawExamId = firstValue(resolvedParams.examId);
+  const rawStudent = firstValue(resolvedParams.student);
+  const rawNeedsReview = firstValue(resolvedParams.needsReview);
+  const initialExamId =
+    rawExamId && /^\d+$/.test(rawExamId) ? Number.parseInt(rawExamId, 10) : undefined;
+  const initialStudentName = rawStudent?.trim() ? rawStudent.trim() : undefined;
+  const initialNeedsReviewOnly = ["1", "true", "yes", "on", "y"].includes(
+    (rawNeedsReview ?? "").toLowerCase()
+  );
+
   if (me.role === "admin") {
     const examsResponse = await fetch(`${FASTAPI_BASE_URL}/admin/exams`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
     const exams = (await examsResponse.json().catch(() => [])) as ExamSummary[];
-    return <AdminExamDashboard initialExams={exams} />;
+    return (
+      <AdminExamDashboard
+        initialExams={exams}
+        initialExamId={initialExamId}
+        initialStudentName={initialStudentName}
+        initialNeedsReviewOnly={initialNeedsReviewOnly}
+      />
+    );
   }
 
   const [progress, examResults] = await Promise.all([
@@ -115,36 +135,6 @@ export default async function DashboardPage() {
             ))}
           </div>
         )}
-      </section>
-
-      <section className="qa-card">
-        <h2 className="text-xl font-semibold">최근 코딩 제출 10건</h2>
-        <div className="mt-3 overflow-x-auto rounded-2xl border border-border/70">
-          <table className="min-w-full text-sm">
-            <thead className="bg-surface-muted text-left">
-              <tr>
-                <th className="px-3 py-2">제출</th>
-                <th className="px-3 py-2">문제</th>
-                <th className="px-3 py-2">상태</th>
-                <th className="px-3 py-2">점수</th>
-              </tr>
-            </thead>
-            <tbody>
-              {progress.recent_submissions.map((item) => (
-                <tr key={item.submission_id} className="border-t border-border/70">
-                  <td className="px-3 py-2">#{item.submission_id}</td>
-                  <td className="px-3 py-2">
-                    {item.problem_title} (v{item.problem_version})
-                  </td>
-                  <td className="px-3 py-2">{statusLabel(item.status)}</td>
-                  <td className="px-3 py-2">
-                    {item.score === null || item.max_score === null ? "-" : `${item.score}/${item.max_score}`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </section>
     </main>
   );

@@ -53,6 +53,31 @@ export type MeExamResultSummary = {
   grading_ready: boolean;
   results_published: boolean;
   results_published_at: string | null;
+  objective_pending: number;
+  objective_incorrect: number;
+  subjective_total: number;
+  subjective_correct: number;
+  subjective_incorrect: number;
+  subjective_pending: number;
+  coding_correct: number;
+  coding_incorrect: number;
+  coding_review_pending: number;
+  overall_total: number;
+  overall_correct: number;
+  overall_incorrect: number;
+  overall_pending: number;
+  strong_skill_keywords: string[];
+  weak_skill_keywords: string[];
+  question_results: MeExamQuestionResult[];
+};
+
+export type MeExamQuestionResult = {
+  question_id: number;
+  question_order: number;
+  question_type: string;
+  prompt_preview: string;
+  verdict: "correct" | "incorrect" | "pending" | "review_pending";
+  skill_keywords: string[];
 };
 
 export async function fetchMeWithToken(token: string): Promise<MeResponse | null> {

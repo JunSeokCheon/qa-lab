@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BackButton } from "@/components/back-button";
@@ -355,6 +356,16 @@ export function AdminAutoGradingManager({
     });
   };
 
+  const buildDashboardHref = (row: GradingSubmission): string => {
+    const params = new URLSearchParams();
+    params.set("examId", String(row.exam_id));
+    params.set("student", row.user_name);
+    if (row.has_review_pending) {
+      params.set("needsReview", "1");
+    }
+    return `/dashboard?${params.toString()}`;
+  };
+
   const openShareExamConfirm = (published: boolean) => {
     if (published && examShareDisabledReason) {
       setError(examShareDisabledReason);
@@ -603,6 +614,9 @@ export function AdminAutoGradingManager({
                                 : row.results_published
                                   ? "이 학생 공유 해제"
                                   : "이 학생 공유"}
+                          </Button>
+                          <Button type="button" variant="outline" className="h-8 px-2 text-xs" asChild>
+                            <Link href={buildDashboardHref(row)}>대시보드 이동</Link>
                           </Button>
                         </div>
                       </td>

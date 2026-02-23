@@ -322,6 +322,15 @@ class ExamSubmissionSummary(BaseModel):
     submitted_at: datetime
 
 
+class MeExamQuestionResult(BaseModel):
+    question_id: int
+    question_order: int
+    question_type: str
+    prompt_preview: str
+    verdict: str
+    skill_keywords: list[str] = Field(default_factory=list)
+
+
 class MeExamResultSummary(BaseModel):
     submission_id: int
     exam_id: int
@@ -342,6 +351,22 @@ class MeExamResultSummary(BaseModel):
     grading_ready: bool
     results_published: bool
     results_published_at: datetime | None = None
+    objective_pending: int = 0
+    objective_incorrect: int = 0
+    subjective_total: int = 0
+    subjective_correct: int = 0
+    subjective_incorrect: int = 0
+    subjective_pending: int = 0
+    coding_correct: int = 0
+    coding_incorrect: int = 0
+    coding_review_pending: int = 0
+    overall_total: int = 0
+    overall_correct: int = 0
+    overall_incorrect: int = 0
+    overall_pending: int = 0
+    strong_skill_keywords: list[str] = Field(default_factory=list)
+    weak_skill_keywords: list[str] = Field(default_factory=list)
+    question_results: list[MeExamQuestionResult] = Field(default_factory=list)
 
 
 class AdminExamResultPublishRequest(BaseModel):
