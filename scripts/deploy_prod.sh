@@ -78,6 +78,31 @@ wait_http_ok() {
   return 1
 }
 
+wait_service_ready() {
+  local service="$1"
+  local timeout="$2"
+  local elapsed=0
+
+  while (( elapsed < timeout )); do
+    local cid
+    cid="$(compose ps -q "$service" 2>/dev/null || true)"
+    if [[ -n "$cid" ]]; then
+      local status
+      status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)"
+      if [[ "$status" == "healthy" ]] || [[ "$status" == "running" ]]; then
+        return 0
+      fi
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  echo "[deploy] Service did not become ready in time: $service"
+  compose ps "$service" || true
+  compose logs --tail=200 "$service" || true
+  return 1
+}
+
 APP_DOMAIN="${APP_DOMAIN:-}"
 APP_DOMAIN_PRIMARY="$(echo "${APP_DOMAIN}" | cut -d',' -f1 | xargs)"
 API_PORT="${API_PORT:-8000}"
@@ -100,6 +125,11 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
 else
   echo "[deploy] Skipping build (--skip-build)."
 fi
+
+echo "[deploy] Ensuring core dependencies are running: postgres, redis"
+compose up -d postgres redis
+wait_service_ready "postgres" "$TIMEOUT_SECONDS"
+wait_service_ready "redis" "$TIMEOUT_SECONDS"
 
 echo "[deploy] Rolling restart: api -> worker -> web -> caddy"
 compose up -d --force-recreate --no-deps api

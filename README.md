@@ -79,6 +79,7 @@ git fetch --all --prune
 git pull --ff-only origin main
 bash scripts/deploy_prod.sh --env-file infra/.env.prod
 ```
+참고: `deploy_prod.sh`는 `postgres/redis`를 먼저 기동하고 준비 상태를 확인한 뒤 `api/worker/web/caddy`를 순차 재기동합니다.
 
 배포 후 점검:
 ```bash
