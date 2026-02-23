@@ -18,15 +18,18 @@ jobs:
       - name: Resolve deploy variables
         id: resolve
         env:
-          PROD_HOST: ${{ secrets.PROD_HOST }}
-          PROD_PORT: ${{ secrets.PROD_PORT }}
-          PROD_PUBLIC_URL: ${{ secrets.PROD_PUBLIC_URL }}
+          PROD_HOST_SECRET: ${{ secrets.PROD_HOST }}
+          PROD_HOST_VAR: ${{ vars.PROD_HOST }}
+          PROD_PORT_SECRET: ${{ secrets.PROD_PORT }}
+          PROD_PORT_VAR: ${{ vars.PROD_PORT }}
+          PROD_PUBLIC_URL_SECRET: ${{ secrets.PROD_PUBLIC_URL }}
+          PROD_PUBLIC_URL_VAR: ${{ vars.PROD_PUBLIC_URL }}
         run: |
           set -euo pipefail
 
           default_public_url="https://spartaqa.com"
-          public_url="${PROD_PUBLIC_URL:-$default_public_url}"
-          host="${PROD_HOST:-}"
+          public_url="${PROD_PUBLIC_URL_SECRET:-${PROD_PUBLIC_URL_VAR:-$default_public_url}}"
+          host="${PROD_HOST_SECRET:-${PROD_HOST_VAR:-}}"
           if [ -z "$host" ]; then
             stripped="$public_url"
             if [[ "$stripped" == *"://"* ]]; then
@@ -40,7 +43,7 @@ jobs:
             host="spartaqa.com"
           fi
 
-          port="${PROD_PORT:-22}"
+          port="${PROD_PORT_SECRET:-${PROD_PORT_VAR:-22}}"
 
           echo "host=$host" >> "$GITHUB_OUTPUT"
           echo "port=$port" >> "$GITHUB_OUTPUT"
@@ -48,14 +51,14 @@ jobs:
 
       - name: Validate required secrets
         env:
-          PROD_USER: ${{ secrets.PROD_USER }}
-          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
-          PROD_APP_DIR: ${{ secrets.PROD_APP_DIR }}
+          PROD_USER: ${{ secrets.PROD_USER != '' && secrets.PROD_USER || vars.PROD_USER || 'ubuntu' }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY != '' && secrets.PROD_SSH_KEY || vars.PROD_SSH_KEY }}
+          PROD_APP_DIR: ${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || '/home/ubuntu/qa-lab' }}
         run: |
           set -euo pipefail
-          for key in PROD_USER PROD_SSH_KEY PROD_APP_DIR; do
+          for key in PROD_SSH_KEY; do
             if [ -z "${!key}" ]; then
-              echo "Missing required secret: $key"
+              echo "Missing required deploy config: $key (set in Secrets or Variables)."
               exit 1
             fi
           done
@@ -64,13 +67,13 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ steps.resolve.outputs.host }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
+          username: ${{ secrets.PROD_USER != '' && secrets.PROD_USER || vars.PROD_USER || 'ubuntu' }}
+          key: ${{ secrets.PROD_SSH_KEY != '' && secrets.PROD_SSH_KEY || vars.PROD_SSH_KEY }}
           port: ${{ steps.resolve.outputs.port }}
           script_stop: true
           script: |
             set -euo pipefail
-            cd "${{ secrets.PROD_APP_DIR }}"
+            cd "${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || '/home/ubuntu/qa-lab' }}"
             git fetch --all --prune
             git pull --ff-only origin main
             bash scripts/deploy_prod.sh --env-file infra/.env.prod

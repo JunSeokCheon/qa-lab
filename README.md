@@ -114,13 +114,9 @@ git pull --ff-only origin main
 - `Ops Restore Drill` (`.github/workflows/ops-restore-drill.yml`)
   - 현재 비활성화 상태 (`if: false`, 스케줄 실행 없음)
 
-배포 워크플로우 실행 전 GitHub Repository Secrets를 설정하세요.
-- `PROD_HOST`: 운영 서버 IP 또는 도메인
-- `PROD_USER`: SSH 사용자
-- `PROD_SSH_KEY`: 개인키(멀티라인 그대로)
-- `PROD_PORT`: SSH 포트(기본 22)
-- `PROD_APP_DIR`: 서버 내 레포 경로
-- `PROD_PUBLIC_URL`: 공개 URL (예: `https://spartaqa.com`)
+배포 워크플로우 실행 전 GitHub `Secrets` 또는 `Variables`를 설정하세요.
+- 필수: `PROD_SSH_KEY` (개인키, 멀티라인 그대로)
+- 선택: `PROD_HOST`(없으면 `PROD_PUBLIC_URL`에서 추론), `PROD_PORT`(기본 22), `PROD_USER`(기본 `ubuntu`), `PROD_APP_DIR`(기본 `/home/ubuntu/qa-lab`), `PROD_PUBLIC_URL`(기본 `https://spartaqa.com`)
 
 ### 로컬 개발 후 운영 반영 루틴
 권장(CI 검증 + 자동 배포):
