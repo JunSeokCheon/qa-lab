@@ -25,16 +25,12 @@ jobs:
           PROD_PUBLIC_URL: ${{ secrets.PROD_PUBLIC_URL }}
         run: |
           set -euo pipefail
-          for key in PROD_HOST PROD_USER PROD_SSH_KEY PROD_APP_DIR PROD_PUBLIC_URL; do
+          for key in PROD_HOST PROD_USER PROD_SSH_KEY PROD_APP_DIR; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key"
               exit 1
             fi
           done
-          if [ -z "${PROD_PORT}" ]; then
-            echo "Missing required secret: PROD_PORT (use 22 if default SSH port)"
-            exit 1
-          fi
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -42,7 +38,7 @@ jobs:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_PORT }}
+          port: ${{ secrets.PROD_PORT || '22' }}
           script_stop: true
           script: |
             set -euo pipefail
@@ -50,4 +46,4 @@ jobs:
             git fetch --all --prune
             git pull --ff-only origin main
             bash scripts/deploy_prod.sh --env-file infra/.env.prod
-            PUBLIC_BASE_URL="${{ secrets.PROD_PUBLIC_URL }}" bash scripts/ops_healthcheck.sh
+            PUBLIC_BASE_URL="${{ secrets.PROD_PUBLIC_URL || 'https://spartaqa.com' }}" bash scripts/ops_healthcheck.sh
