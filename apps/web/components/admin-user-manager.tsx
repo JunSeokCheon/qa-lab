@@ -18,6 +18,7 @@ type AdminUser = {
 type Props = {
   initialUsers: AdminUser[];
   initialTracks: string[];
+  currentAdminId: number;
 };
 
 function roleLabel(role: string): string {
@@ -26,13 +27,14 @@ function roleLabel(role: string): string {
   return role;
 }
 
-export function AdminUserManager({ initialUsers, initialTracks }: Props) {
+export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }: Props) {
   const [users, setUsers] = useState<AdminUser[]>(initialUsers);
   const [tracks] = useState<string[]>(initialTracks);
   const [selectedTrack, setSelectedTrack] = useState<string>("all");
   const [role, setRole] = useState<"all" | "admin" | "user">("all");
   const [keyword, setKeyword] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const loadUsers = useCallback(async () => {
@@ -60,6 +62,38 @@ export function AdminUserManager({ initialUsers, initialTracks }: Props) {
     }
   }, [keyword, role, selectedTrack]);
 
+  const handleDeleteUser = useCallback(
+    async (target: AdminUser) => {
+      if (target.id === currentAdminId) {
+        setError("현재 로그인한 관리자 계정은 삭제할 수 없습니다.");
+        return;
+      }
+
+      const confirmed = window.confirm(`사용자 '${target.username}' 계정을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`);
+      if (!confirmed) return;
+
+      setDeletingUserId(target.id);
+      setError("");
+      try {
+        const response = await fetch(`/api/admin/users/${target.id}`, {
+          method: "DELETE",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
+          setError(payload.detail ?? payload.message ?? "사용자 삭제에 실패했습니다.");
+          return;
+        }
+        await loadUsers();
+      } catch {
+        setError("사용자 삭제에 실패했습니다.");
+      } finally {
+        setDeletingUserId(null);
+      }
+    },
+    [currentAdminId, loadUsers]
+  );
+
   const summary = useMemo(() => {
     const adminCount = users.filter((user) => user.role === "admin").length;
     const studentCount = users.filter((user) => user.role === "user").length;
@@ -73,7 +107,7 @@ export function AdminUserManager({ initialUsers, initialTracks }: Props) {
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">사용자 관리</h1>
         <p className="mt-2 text-sm text-hero-foreground/90">
-          비밀번호를 제외한 사용자 정보만 조회됩니다. 트랙/권한/검색 필터를 사용할 수 있습니다.
+          비밀번호를 제외한 사용자 정보를 조회하고, 필요 시 계정을 삭제할 수 있습니다.
         </p>
       </section>
 
@@ -126,7 +160,7 @@ export function AdminUserManager({ initialUsers, initialTracks }: Props) {
       </section>
 
       <section className="qa-card overflow-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead>
             <tr className="border-b border-border/70 text-left text-muted-foreground">
               <th className="px-2 py-2">ID</th>
@@ -135,26 +169,42 @@ export function AdminUserManager({ initialUsers, initialTracks }: Props) {
               <th className="px-2 py-2">트랙</th>
               <th className="px-2 py-2">권한</th>
               <th className="px-2 py-2">가입일</th>
+              <th className="px-2 py-2">작업</th>
             </tr>
           </thead>
           <tbody>
             {users.length === 0 ? (
               <tr>
-                <td className="px-2 py-4 text-muted-foreground" colSpan={6}>
+                <td className="px-2 py-4 text-muted-foreground" colSpan={7}>
                   조건에 맞는 사용자가 없습니다.
                 </td>
               </tr>
             ) : (
-              users.map((user) => (
-                <tr key={user.id} className="border-b border-border/50 align-top">
-                  <td className="px-2 py-2">{user.id}</td>
-                  <td className="px-2 py-2">{user.username}</td>
-                  <td className="px-2 py-2">{user.name}</td>
-                  <td className="px-2 py-2">{user.track_name}</td>
-                  <td className="px-2 py-2">{roleLabel(user.role)}</td>
-                  <td className="px-2 py-2">{new Date(user.created_at).toLocaleString()}</td>
-                </tr>
-              ))
+              users.map((user) => {
+                const isSelf = user.id === currentAdminId;
+                const deleting = deletingUserId === user.id;
+                return (
+                  <tr key={user.id} className="border-b border-border/50 align-top">
+                    <td className="px-2 py-2">{user.id}</td>
+                    <td className="px-2 py-2">{user.username}</td>
+                    <td className="px-2 py-2">{user.name}</td>
+                    <td className="px-2 py-2">{user.track_name}</td>
+                    <td className="px-2 py-2">{roleLabel(user.role)}</td>
+                    <td className="px-2 py-2">{new Date(user.created_at).toLocaleString()}</td>
+                    <td className="px-2 py-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isSelf || deleting}
+                        onClick={() => void handleDeleteUser(user)}
+                      >
+                        {isSelf ? "현재 계정" : deleting ? "삭제 중..." : "삭제"}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -162,4 +212,3 @@ export function AdminUserManager({ initialUsers, initialTracks }: Props) {
     </main>
   );
 }
-

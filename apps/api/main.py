@@ -5,7 +5,7 @@ import re
 import shutil
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any
@@ -24,6 +24,8 @@ from app.config import (
     LOGIN_RATE_LIMIT_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     EXAM_RESOURCE_MAX_SIZE_BYTES,
+    EXAM_RESOURCE_RETENTION_BATCH_LIMIT,
+    EXAM_RESOURCE_RETENTION_DAYS,
     EXAM_RESOURCE_ROOT,
     access_token_ttl,
     password_reset_token_ttl,
@@ -72,6 +74,7 @@ from app.schemas import (
     ExamDetail,
     ExamQuestionSummary,
     ExamResourceSummary,
+    ExamResourcePruneResponse,
     ExamSubmitRequest,
     ExamSubmitResponse,
     ExamSubmissionSummary,
@@ -314,6 +317,43 @@ def _resolve_exam_resource_path(exam_id: int, stored_name: str) -> Path:
     if root not in path.parents:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 리소스 경로입니다.")
     return path
+
+
+async def _prune_expired_exam_resources(
+    session: AsyncSession,
+    *,
+    retention_days: int,
+    batch_limit: int = EXAM_RESOURCE_RETENTION_BATCH_LIMIT,
+) -> tuple[int, int]:
+    if retention_days <= 0:
+        return 0, 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    pruned_count = 0
+    pruned_bytes = 0
+
+    while True:
+        expired = (
+            await session.execute(
+                select(ExamResource)
+                .where(ExamResource.created_at < cutoff)
+                .order_by(ExamResource.id.asc())
+                .limit(batch_limit)
+            )
+        ).scalars().all()
+
+        if not expired:
+            break
+
+        for resource in expired:
+            path = _resolve_exam_resource_path(resource.exam_id, resource.stored_name)
+            if path.is_file():
+                path.unlink(missing_ok=True)
+            pruned_count += 1
+            pruned_bytes += int(resource.size_bytes or 0)
+            await session.delete(resource)
+
+    return pruned_count, pruned_bytes
 
 
 def _to_exam_summary(
@@ -810,6 +850,44 @@ async def list_admin_users(
     ]
 
 
+@app.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin_user(
+    user_id: int,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> None:
+    target = await session.scalar(select(User).where(User.id == user_id))
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+    if target.id == admin_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 로그인한 관리자 계정은 삭제할 수 없습니다.")
+
+    if target.role == "admin":
+        admin_count = int(await session.scalar(select(func.count(User.id)).where(User.role == "admin")) or 0)
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="마지막 관리자 계정은 삭제할 수 없습니다.",
+            )
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="user.delete",
+        resource_type="user",
+        resource_id=str(target.id),
+        metadata={
+            "username": target.username,
+            "role": target.role,
+            "track_name": target.track_name,
+        },
+    )
+    await session.delete(target)
+    await session.commit()
+
+
 @app.get("/admin/ops/summary")
 async def admin_ops_summary(
     _: Annotated[User, Depends(require_admin)],
@@ -882,12 +960,18 @@ async def admin_list_audit_logs(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[AdminAuditLogResponse]:
-    rows = await session.execute(select(AdminAuditLog).order_by(AdminAuditLog.id.desc()).limit(limit))
-    logs = rows.scalars().all()
+    rows = await session.execute(
+        select(AdminAuditLog, User.username)
+        .outerjoin(User, User.id == AdminAuditLog.actor_user_id)
+        .order_by(AdminAuditLog.id.desc())
+        .limit(limit)
+    )
+    entries = rows.all()
     return [
         AdminAuditLogResponse(
             id=log.id,
             actor_user_id=log.actor_user_id,
+            actor_username=actor_username,
             action=log.action,
             resource_type=log.resource_type,
             resource_id=log.resource_id,
@@ -899,7 +983,7 @@ async def admin_list_audit_logs(
             metadata_json=log.metadata_json,
             created_at=log.created_at,
         )
-        for log in logs
+        for log, actor_username in entries
     ]
 
 
@@ -1484,6 +1568,39 @@ async def list_admin_exam_resources(
     return [_to_exam_resource_summary(resource) for resource in resources]
 
 
+@app.post("/admin/exam-resources/prune", response_model=ExamResourcePruneResponse)
+async def prune_admin_exam_resources(
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    retention_days: Annotated[int | None, Query(ge=1, le=3650)] = None,
+) -> ExamResourcePruneResponse:
+    resolved_retention_days = int(retention_days or EXAM_RESOURCE_RETENTION_DAYS)
+    pruned_count, pruned_bytes = await _prune_expired_exam_resources(
+        session,
+        retention_days=resolved_retention_days,
+    )
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam_resource.prune",
+        resource_type="exam_resource",
+        resource_id=None,
+        metadata={
+            "retention_days": resolved_retention_days,
+            "pruned_count": pruned_count,
+            "pruned_bytes": pruned_bytes,
+        },
+    )
+    await session.commit()
+    return ExamResourcePruneResponse(
+        retention_days=resolved_retention_days,
+        pruned_count=pruned_count,
+        pruned_bytes=pruned_bytes,
+    )
+
+
 @app.post("/admin/exams/{exam_id}/resources", response_model=ExamResourceSummary, status_code=status.HTTP_201_CREATED)
 async def upload_admin_exam_resource(
     exam_id: int,
@@ -1529,6 +1646,10 @@ async def upload_admin_exam_resource(
         size_bytes=size_bytes,
     )
     session.add(resource)
+    pruned_count, pruned_bytes = await _prune_expired_exam_resources(
+        session,
+        retention_days=EXAM_RESOURCE_RETENTION_DAYS,
+    )
     await session.flush()
     await _write_admin_audit_log(
         session=session,
@@ -1537,7 +1658,14 @@ async def upload_admin_exam_resource(
         action="exam.resource.upload",
         resource_type="exam_resource",
         resource_id=str(resource.id),
-        metadata={"exam_id": exam_id, "file_name": resource.file_name, "size_bytes": resource.size_bytes},
+        metadata={
+            "exam_id": exam_id,
+            "file_name": resource.file_name,
+            "size_bytes": resource.size_bytes,
+            "retention_days": EXAM_RESOURCE_RETENTION_DAYS,
+            "auto_pruned_count": pruned_count,
+            "auto_pruned_bytes": pruned_bytes,
+        },
     )
     await session.commit()
     await session.refresh(resource)

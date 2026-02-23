@@ -75,7 +75,37 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || secrets.APP_DIR != '' && secrets.APP_DIR || vars.APP_DIR || '/home/ubuntu/qa-lab' }}"
+            previous_sha="$(git rev-parse HEAD)"
             git fetch --all --prune
             git pull --ff-only origin main
-            bash scripts/deploy_prod.sh --env-file infra/.env.prod
-            PUBLIC_BASE_URL="${{ steps.resolve.outputs.public_url }}" bash scripts/ops_healthcheck.sh
+            current_sha="$(git rev-parse HEAD)"
+
+            if bash scripts/deploy_prod.sh --env-file infra/.env.prod && PUBLIC_BASE_URL="${{ steps.resolve.outputs.public_url }}" bash scripts/ops_healthcheck.sh; then
+              echo "[deploy] success: ${previous_sha} -> ${current_sha}"
+              exit 0
+            fi
+
+            echo "[deploy][warn] health/deploy failed on ${current_sha}. rolling back to ${previous_sha}"
+            git reset --hard "${previous_sha}"
+            bash scripts/deploy_prod.sh --env-file infra/.env.prod --skip-build || true
+            PUBLIC_BASE_URL="${{ steps.resolve.outputs.public_url }}" bash scripts/ops_healthcheck.sh || true
+            echo "[deploy][warn] rollback attempted. check production health and logs."
+            exit 1
+
+      - name: Notify deploy failure
+        if: ${{ failure() }}
+        env:
+          DEPLOY_ALERT_WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Deploy failed"
+            echo "- Automatic rollback was attempted."
+            echo "- Check the \`Deploy over SSH\` step logs for the root cause."
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "${DEPLOY_ALERT_WEBHOOK_URL:-}" ]; then
+            payload='{"text":"[qa-lab] Deploy Production failed. Rollback attempted. Check GitHub Actions run logs."}'
+            curl -fsS -X POST -H "Content-Type: application/json" -d "$payload" "${DEPLOY_ALERT_WEBHOOK_URL}" || true
+          fi

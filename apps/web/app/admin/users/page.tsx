@@ -42,6 +42,5 @@ export default async function AdminUsersPage() {
   }
 
   const [initialUsers, initialTracks] = await Promise.all([fetchUsers(token), fetchTracks(token)]);
-  return <AdminUserManager initialUsers={initialUsers} initialTracks={initialTracks} />;
+  return <AdminUserManager initialUsers={initialUsers} initialTracks={initialTracks} currentAdminId={me.id} />;
 }
-

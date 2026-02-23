@@ -103,6 +103,7 @@ class WatchdogRequeueResponse(BaseModel):
 class AdminAuditLogResponse(BaseModel):
     id: int
     actor_user_id: int | None = None
+    actor_username: str | None = None
     action: str
     resource_type: str
     resource_id: str | None = None
@@ -113,6 +114,12 @@ class AdminAuditLogResponse(BaseModel):
     user_agent: str | None = None
     metadata_json: dict[str, Any] | None = None
     created_at: datetime
+
+
+class ExamResourcePruneResponse(BaseModel):
+    retention_days: int
+    pruned_count: int
+    pruned_bytes: int
 
 
 class ProgressSkillItem(BaseModel):

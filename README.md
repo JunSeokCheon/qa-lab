@@ -107,6 +107,7 @@ git pull --ff-only origin main
 - `Deploy Production` (`.github/workflows/deploy-prod.yml`)
   - 활성화 상태 (`main` push 시 자동 실행 + 수동 실행 가능)
   - 동작: 운영 서버 SSH 접속 -> `git pull` -> `bash scripts/deploy_prod.sh --env-file infra/.env.prod` -> `ops_healthcheck`
+  - 안정장치: 배포/헬스체크 실패 시 직전 커밋으로 자동 롤백 시도 후 워크플로우 실패 알림
 
 - `Ops Backup` (`.github/workflows/ops-backup.yml`)
   - 현재 비활성화 상태 (`if: false`, 스케줄 실행 없음)
@@ -151,6 +152,7 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 관리자 시험 대시보드: `/dashboard`
 - 관리자 자동채점: `/admin/grading`
 - 관리자 사용자 관리: `/admin/users`
+- 관리자 감사 로그: `/admin/audit-logs`
 
 ## 관리자 대시보드 CSV/엑셀 내보내기
 경로: `/dashboard` (admin 로그인)
@@ -215,6 +217,29 @@ bash scripts/backup_restore_drill.sh --env-file infra/.env.prod --output-dir bac
 ```bash
 bash scripts/install_backup_schedule.sh --app-dir "$(pwd)" --env-file infra/.env.prod --backup-root backups --keep-last 14
 ```
+
+## 관리자 계정 추가
+- 기본 추가 관리자 계정: `admin_test` / `test1234`
+- 해당 계정은 마이그레이션 `0018_admin_audit_immutability_and_seed_admin_test`에서 생성/보정됩니다.
+
+## 감사 로그/권한 이력
+- 저장 위치: PostgreSQL `admin_audit_logs` 테이블
+- 조회 경로:
+  - API: `GET /admin/audit-logs`
+  - UI: `/admin/audit-logs`
+- 불변성: `admin_audit_logs`는 DB 트리거로 `UPDATE/DELETE`가 차단된 append-only 이력입니다.
+- 포함 액션 예시:
+  - 시험 수정/삭제/재발행
+  - 수동 채점/이의제기 재채점
+  - 사용자 삭제
+
+## 시험 리소스 보관 정책
+- 시험 리소스 파일은 기본 `7일` 보관 후 자동 정리됩니다.
+- 설정:
+  - `EXAM_RESOURCE_RETENTION_DAYS` (기본 `7`)
+  - `EXAM_RESOURCE_RETENTION_BATCH_LIMIT` (기본 `500`)
+- 관리자 수동 정리 API:
+  - `POST /admin/exam-resources/prune?retention_days=7`
 
 ## 관리자 수동 채점
 - 경로: `/dashboard` (admin 로그인)
