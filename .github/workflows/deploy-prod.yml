@@ -15,17 +15,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Validate required secrets
+      - name: Resolve deploy variables
+        id: resolve
         env:
           PROD_HOST: ${{ secrets.PROD_HOST }}
-          PROD_USER: ${{ secrets.PROD_USER }}
-          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
           PROD_PORT: ${{ secrets.PROD_PORT }}
-          PROD_APP_DIR: ${{ secrets.PROD_APP_DIR }}
           PROD_PUBLIC_URL: ${{ secrets.PROD_PUBLIC_URL }}
         run: |
           set -euo pipefail
-          for key in PROD_HOST PROD_USER PROD_SSH_KEY PROD_APP_DIR; do
+
+          host="${PROD_HOST:-}"
+          if [ -z "$host" ] && [ -n "${PROD_PUBLIC_URL:-}" ]; then
+            stripped="${PROD_PUBLIC_URL#*://}"
+            stripped="${stripped%%/*}"
+            stripped="${stripped%%:*}"
+            host="$stripped"
+          fi
+
+          port="${PROD_PORT:-22}"
+          public_url="${PROD_PUBLIC_URL:-https://spartaqa.com}"
+
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "port=$port" >> "$GITHUB_OUTPUT"
+          echo "public_url=$public_url" >> "$GITHUB_OUTPUT"
+
+      - name: Validate required secrets
+        env:
+          RESOLVED_HOST: ${{ steps.resolve.outputs.host }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_APP_DIR: ${{ secrets.PROD_APP_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RESOLVED_HOST}" ]; then
+            echo "Missing deploy host. Set PROD_HOST or PROD_PUBLIC_URL secret."
+            exit 1
+          fi
+          for key in PROD_USER PROD_SSH_KEY PROD_APP_DIR; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key"
               exit 1
@@ -35,10 +61,10 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.PROD_HOST }}
+          host: ${{ steps.resolve.outputs.host }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_PORT || '22' }}
+          port: ${{ steps.resolve.outputs.port }}
           script_stop: true
           script: |
             set -euo pipefail
@@ -46,4 +72,4 @@ jobs:
             git fetch --all --prune
             git pull --ff-only origin main
             bash scripts/deploy_prod.sh --env-file infra/.env.prod
-            PUBLIC_BASE_URL="${{ secrets.PROD_PUBLIC_URL || 'https://spartaqa.com' }}" bash scripts/ops_healthcheck.sh
+            PUBLIC_BASE_URL="${{ steps.resolve.outputs.public_url }}" bash scripts/ops_healthcheck.sh
