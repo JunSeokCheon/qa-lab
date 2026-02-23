@@ -217,7 +217,7 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - `answer_key_text`가 비어 있으면 자동채점 대상에서 제외되고 수동 채점이 필요합니다.
 - LLM 자동채점을 사용하려면 `OPENAI_API_KEY`가 설정되어야 합니다.
 - LLM 채점 버전 고정:
-  - `EXAM_LLM_MODEL` (기본 `gpt-5-mini`)
+  - `EXAM_LLM_MODEL` (기본 `gpt-4.1-mini`)
   - `EXAM_LLM_PROMPT_VERSION` (기본 `exam_answer_key_prompt_v2_2026-02-22`)
   - `EXAM_LLM_SCHEMA_VERSION` (기본 `exam_grading_schema_v2`)
 - 채점 근거 구조화:
