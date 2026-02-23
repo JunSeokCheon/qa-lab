@@ -1,4 +1,7 @@
 {
+	# Force a single ACME provider (Let's Encrypt) to avoid issuer fallback issues.
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+
 	log {
 		level {$CADDY_LOG_LEVEL:INFO}
 	}
