@@ -98,14 +98,14 @@ git pull --ff-only origin main
 ```
 
 ## GitHub Actions CI/CD
-이 저장소는 GitHub Actions로 `CI`를 자동 실행하고, 배포는 수동 실행(`workflow_dispatch`)으로 운영합니다.
+이 저장소는 GitHub Actions로 `CI`와 `배포`를 자동 실행합니다(`main` push 기준).
 
 - `CI` (`.github/workflows/ci.yml`)
   - 트리거: `push`, `pull_request`
   - 수행: API 문법 검사, API/worker 기동 스모크, 웹 lint/build, 통합 점검(`scripts/full_system_check.mjs`)
 
 - `Deploy Production` (`.github/workflows/deploy-prod.yml`)
-  - 활성화 상태 (수동 실행)
+  - 활성화 상태 (`main` push 시 자동 실행 + 수동 실행 가능)
   - 동작: 운영 서버 SSH 접속 -> `git pull` -> `bash scripts/deploy_prod.sh --env-file infra/.env.prod` -> `ops_healthcheck`
 
 - `Ops Backup` (`.github/workflows/ops-backup.yml`)
@@ -123,14 +123,13 @@ git pull --ff-only origin main
 - `PROD_PUBLIC_URL`: 공개 URL (예: `https://spartaqa.com`)
 
 ### 로컬 개발 후 운영 반영 루틴
-권장(CI 검증 + GitHub Actions 수동 배포):
+권장(CI 검증 + 자동 배포):
 1. 로컬에서 개발/테스트 완료
 2. `git add -A && git commit -m "..." && git push origin main`
-3. GitHub Actions `CI` 성공 확인
-4. GitHub Actions에서 `Deploy Production` 워크플로우 수동 실행
-5. 배포 후 `https://spartaqa.com` 접속 확인
+3. GitHub Actions `CI`/`Deploy Production` 실행 확인
+4. 배포 후 `https://spartaqa.com` 접속 확인
 
-서버에서 직접 수동 배포도 가능합니다.
+필요 시 GitHub Actions에서 `Deploy Production`을 수동 실행하거나 서버에서 직접 수동 배포도 가능합니다.
 
 수동(서버에서 직접):
 ```bash
