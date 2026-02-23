@@ -1501,6 +1501,27 @@ async def update_admin_exam_results_publish(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     publish = bool(payload.published)
+    if publish:
+        ungraded_count = int(
+            (
+                await session.scalar(
+                    select(func.count(ExamSubmission.id)).where(
+                        ExamSubmission.exam_id == exam.id,
+                        ExamSubmission.status != "GRADED",
+                    )
+                )
+            )
+            or 0
+        )
+        if ungraded_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "채점이 완료되지 않은 제출이 있어 공유할 수 없습니다. "
+                    f"(미완료 {ungraded_count}건)"
+                ),
+            )
+
     exam.results_published = publish
     exam.results_published_at = datetime.now(timezone.utc) if publish else None
 
@@ -2328,6 +2349,17 @@ async def share_admin_exam_submission_results(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="공유 대상 제출을 찾을 수 없습니다.")
 
     publish = bool(payload.published)
+    if publish:
+        blocked_ids = [int(submission.id) for submission in rows if submission.status != "GRADED"]
+        if blocked_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "채점이 완료된 제출만 공유할 수 있습니다. "
+                    f"(미완료 제출 ID: {', '.join(str(submission_id) for submission_id in blocked_ids)})"
+                ),
+            )
+
     published_at = datetime.now(timezone.utc) if publish else None
     for submission in rows:
         submission.results_published = publish

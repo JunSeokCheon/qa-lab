@@ -47,6 +47,20 @@ type ShareResponse = {
   detail?: string;
 };
 
+type ShareConfirmState =
+  | {
+      scope: "exam";
+      published: boolean;
+      examTitle: string;
+    }
+  | {
+      scope: "submission";
+      published: boolean;
+      examTitle: string;
+      submissionId: number;
+      userName: string;
+    };
+
 function examKindLabel(kind: string): string {
   if (kind === "quiz") return "퀴즈";
   if (kind === "assessment") return "성취도 평가";
@@ -79,6 +93,7 @@ export function AdminAutoGradingManager({
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set());
   const [sharingIds, setSharingIds] = useState<Set<number>>(new Set());
   const [sharingExam, setSharingExam] = useState(false);
+  const [shareConfirm, setShareConfirm] = useState<ShareConfirmState | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -120,6 +135,33 @@ export function AdminAutoGradingManager({
     [codingOnly, examIdFilter, statusFilter, studentFilter, studentSearchKeyword]
   );
 
+  const selectedExamRows = useMemo(
+    () => (examIdFilter === "all" ? [] : rows.filter((row) => String(row.exam_id) === examIdFilter)),
+    [examIdFilter, rows]
+  );
+
+  const selectedExamTitle = useMemo(
+    () => initialExams.find((exam) => String(exam.id) === examIdFilter)?.title ?? "선택 시험",
+    [examIdFilter, initialExams]
+  );
+
+  const examShareDisabledReason = useMemo(() => {
+    if (examIdFilter === "all") return "시험을 먼저 선택해 주세요.";
+    if (statusFilter !== "all" || codingOnly) {
+      return "시험 전체 공유는 전체 상태 + 코딩 문항 제출만 보기 해제 상태에서만 가능합니다.";
+    }
+    if (selectedExamRows.length === 0) return "공유할 제출이 없습니다.";
+    if (selectedExamRows.some((row) => row.status !== "GRADED")) {
+      return "채점이 완료되지 않은 제출이 있어 아직 공유할 수 없습니다.";
+    }
+    return null;
+  }, [codingOnly, examIdFilter, selectedExamRows, statusFilter]);
+
+  const canPublishExamResults = examShareDisabledReason === null;
+  const isConfirmingShare =
+    sharingExam ||
+    (shareConfirm?.scope === "submission" ? sharingIds.has(shareConfirm.submissionId) : false);
+
   const buildQuery = useCallback(() => {
     const params = new URLSearchParams();
     if (examIdFilter !== "all") params.set("exam_id", examIdFilter);
@@ -155,6 +197,17 @@ export function AdminAutoGradingManager({
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!shareConfirm) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isConfirmingShare) {
+        setShareConfirm(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isConfirmingShare, shareConfirm]);
 
   const runOne = async (submissionId: number, force: boolean) => {
     setError("");
@@ -273,6 +326,49 @@ export function AdminAutoGradingManager({
     }
   };
 
+  const openShareSubmissionConfirm = (row: GradingSubmission) => {
+    const nextPublished = !row.results_published;
+    if (nextPublished && row.status !== "GRADED") {
+      setError("채점이 완료된 제출만 공유할 수 있습니다.");
+      return;
+    }
+    setError("");
+    setShareConfirm({
+      scope: "submission",
+      published: nextPublished,
+      examTitle: row.exam_title,
+      submissionId: row.submission_id,
+      userName: row.user_name,
+    });
+  };
+
+  const openShareExamConfirm = (published: boolean) => {
+    if (published && examShareDisabledReason) {
+      setError(examShareDisabledReason);
+      return;
+    }
+    if (examIdFilter === "all") {
+      setMessage("시험을 먼저 선택해 주세요.");
+      return;
+    }
+    setError("");
+    setShareConfirm({
+      scope: "exam",
+      published,
+      examTitle: selectedExamTitle,
+    });
+  };
+
+  const confirmShare = async () => {
+    if (!shareConfirm) return;
+    if (shareConfirm.scope === "submission") {
+      await shareOne(shareConfirm.submissionId, shareConfirm.published);
+    } else {
+      await shareExamResults(shareConfirm.published);
+    }
+    setShareConfirm(null);
+  };
+
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
@@ -353,19 +449,23 @@ export function AdminAutoGradingManager({
             <Button
               type="button"
               variant="outline"
-              onClick={() => void shareExamResults(true)}
-              disabled={sharingExam || examIdFilter === "all"}
+              onClick={() => openShareExamConfirm(true)}
+              disabled={sharingExam || !canPublishExamResults}
+              title={examShareDisabledReason ?? undefined}
             >
               {sharingExam ? "처리 중..." : "이 시험 전체 공유"}
             </Button>
             <Button
               type="button"
               variant="outline"
-              onClick={() => void shareExamResults(false)}
+              onClick={() => openShareExamConfirm(false)}
               disabled={sharingExam || examIdFilter === "all"}
             >
               {sharingExam ? "처리 중..." : "이 시험 전체 공유 해제"}
             </Button>
+            {examIdFilter !== "all" && examShareDisabledReason ? (
+              <p className="w-full text-xs text-amber-700">{examShareDisabledReason}</p>
+            ) : null}
           </div>
         </div>
       </section>
@@ -400,6 +500,11 @@ export function AdminAutoGradingManager({
                 {filteredRows.map((row) => {
                   const isRunning = runningIds.has(row.submission_id);
                   const isSharing = sharingIds.has(row.submission_id);
+                  const canPublishSubmission = row.status === "GRADED";
+                  const rowShareDisabled =
+                    isSharing ||
+                    row.results_publish_scope === "exam" ||
+                    (!row.results_published && !canPublishSubmission);
                   return (
                     <tr key={row.submission_id} className="border-t border-border/70">
                       <td className="px-3 py-2">{row.submission_id}</td>
@@ -456,13 +561,16 @@ export function AdminAutoGradingManager({
                             type="button"
                             variant="outline"
                             className="h-8 px-2 text-xs"
-                            onClick={() => void shareOne(row.submission_id, !row.results_published)}
-                            disabled={isSharing || row.results_publish_scope === "exam"}
+                            onClick={() => openShareSubmissionConfirm(row)}
+                            disabled={rowShareDisabled}
+                            title={!row.results_published && !canPublishSubmission ? "채점 완료 후 공유 가능합니다." : undefined}
                           >
                             {row.results_publish_scope === "exam"
                               ? "시험 전체 공유 중"
                               : isSharing
                                 ? "처리 중..."
+                                : !row.results_published && !canPublishSubmission
+                                  ? "채점 완료 후 공유 가능"
                                 : row.results_published
                                   ? "이 학생 공유 해제"
                                   : "이 학생 공유"}
@@ -477,6 +585,33 @@ export function AdminAutoGradingManager({
           </div>
         )}
       </section>
+      {shareConfirm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-2xl border border-border/70 bg-card p-5 shadow-xl">
+            <h2 className="text-lg font-semibold">결과 공유 확정</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {shareConfirm.scope === "exam"
+                ? shareConfirm.published
+                  ? `시험 "${shareConfirm.examTitle}"의 채점 완료 결과를 전체 수강생에게 공유하시겠습니까?`
+                  : `시험 "${shareConfirm.examTitle}"의 전체 공유를 해제하시겠습니까?`
+                : shareConfirm.published
+                  ? `${shareConfirm.userName} 수강생에게 "${shareConfirm.examTitle}" 제출 결과를 공유하시겠습니까?`
+                  : `${shareConfirm.userName} 수강생의 제출 결과 공유를 해제하시겠습니까?`}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              확정 후 즉시 학생 화면에 반영됩니다.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setShareConfirm(null)} disabled={isConfirmingShare}>
+                취소
+              </Button>
+              <Button type="button" onClick={() => void confirmShare()} disabled={isConfirmingShare}>
+                {isConfirmingShare ? "처리 중..." : shareConfirm.published ? "공유 확정" : "해제 확정"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

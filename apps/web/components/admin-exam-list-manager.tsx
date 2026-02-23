@@ -130,7 +130,6 @@ export function AdminExamListManager({
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [sharingResults, setSharingResults] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -141,8 +140,6 @@ export function AdminExamListManager({
   const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
-  const [resultsPublished, setResultsPublished] = useState(false);
-  const [resultsPublishedAt, setResultsPublishedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<"draft" | "published">("published");
   const [questions, setQuestions] = useState<DraftQuestion[]>([]);
   const [copyResources, setCopyResources] = useState(true);
@@ -217,8 +214,6 @@ export function AdminExamListManager({
       setTargetTrackName(detailPayload.target_track_name ?? TRACK_OPTIONS[0]);
       setDurationMinutes(String(detailPayload.duration_minutes ?? 60));
       setNoTimeLimit(detailPayload.duration_minutes === null);
-      setResultsPublished(Boolean(detailPayload.results_published));
-      setResultsPublishedAt(detailPayload.results_published_at ?? null);
       setStatus((detailPayload.status as "draft" | "published") ?? "published");
       setQuestions(detailPayload.questions.map(toDraftQuestion));
       setUploadFile(null);
@@ -348,8 +343,6 @@ export function AdminExamListManager({
           : row
       )
     );
-    setResultsPublished(Boolean(payload.results_published ?? resultsPublished));
-    setResultsPublishedAt(payload.results_published_at ?? resultsPublishedAt);
     setMessage("시험 기본 정보를 저장했습니다.");
     setSavingMeta(false);
   };
@@ -536,49 +529,6 @@ export function AdminExamListManager({
     }
   };
 
-  const toggleResultsShare = async (published: boolean) => {
-    if (!selectedExam) return;
-
-    setSharingResults(true);
-    setError("");
-    setMessage("");
-    const response = await fetch(`/api/admin/exams/${selectedExam.id}/results-share`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ published }),
-    });
-    const payload = (await response.json().catch(() => ({}))) as {
-      id?: number;
-      results_published?: boolean;
-      results_published_at?: string | null;
-      duration_minutes?: number | null;
-      detail?: string;
-      message?: string;
-    };
-    if (!response.ok || !payload.id) {
-      setError(payload.detail ?? payload.message ?? "결과 공유 상태를 변경하지 못했습니다.");
-      setSharingResults(false);
-      return;
-    }
-
-    setResultsPublished(Boolean(payload.results_published));
-    setResultsPublishedAt(payload.results_published_at ?? null);
-    setExams((prev) =>
-      prev.map((exam) =>
-        exam.id === payload.id
-          ? {
-              ...exam,
-              results_published: Boolean(payload.results_published),
-              results_published_at: payload.results_published_at ?? null,
-              duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : exam.duration_minutes,
-            }
-          : exam
-      )
-    );
-    setMessage(published ? "해당 시험 결과를 유저에게 공유했습니다." : "해당 시험 결과 공유를 해제했습니다.");
-    setSharingResults(false);
-  };
-
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
@@ -725,33 +675,7 @@ export function AdminExamListManager({
                     <option value="draft">비공개 (draft)</option>
                   </select>
 
-                  <div className="rounded-xl border border-border/70 bg-surface-muted p-3 text-sm">
-                    <p className="font-semibold">유저 결과 공유</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      상태: {resultsPublished ? "공유 중" : "미공유"}
-                      {resultsPublishedAt ? ` (${formatDateTimeKST(resultsPublishedAt)})` : ""}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant={resultsPublished ? "outline" : "default"}
-                        onClick={() => void toggleResultsShare(true)}
-                        disabled={sharingResults || resultsPublished}
-                      >
-                        유저 공유
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void toggleResultsShare(false)}
-                        disabled={sharingResults || !resultsPublished}
-                      >
-                        공유 해제
-                      </Button>
-                    </div>
-                  </div>
-
-                  <Button disabled={savingMeta || sharingResults}>{savingMeta ? "저장 중..." : "메타 저장"}</Button>
+                  <Button disabled={savingMeta}>{savingMeta ? "저장 중..." : "메타 저장"}</Button>
                 </form>
 
                 <article className="qa-card space-y-4">
