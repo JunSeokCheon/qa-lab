@@ -13,6 +13,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 30
     steps:
       - name: Resolve deploy variables
@@ -51,9 +52,9 @@ jobs:
 
       - name: Validate required secrets
         env:
-          PROD_USER: ${{ secrets.PROD_USER != '' && secrets.PROD_USER || vars.PROD_USER || 'ubuntu' }}
-          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY != '' && secrets.PROD_SSH_KEY || vars.PROD_SSH_KEY }}
-          PROD_APP_DIR: ${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || '/home/ubuntu/qa-lab' }}
+          PROD_USER: ${{ secrets.PROD_USER != '' && secrets.PROD_USER || vars.PROD_USER || secrets.SSH_USER != '' && secrets.SSH_USER || vars.SSH_USER || 'ubuntu' }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY != '' && secrets.PROD_SSH_KEY || vars.PROD_SSH_KEY || secrets.SSH_PRIVATE_KEY != '' && secrets.SSH_PRIVATE_KEY || vars.SSH_PRIVATE_KEY || secrets.EC2_SSH_KEY != '' && secrets.EC2_SSH_KEY || vars.EC2_SSH_KEY }}
+          PROD_APP_DIR: ${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || secrets.APP_DIR != '' && secrets.APP_DIR || vars.APP_DIR || '/home/ubuntu/qa-lab' }}
         run: |
           set -euo pipefail
           for key in PROD_SSH_KEY; do
@@ -67,13 +68,13 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ steps.resolve.outputs.host }}
-          username: ${{ secrets.PROD_USER != '' && secrets.PROD_USER || vars.PROD_USER || 'ubuntu' }}
-          key: ${{ secrets.PROD_SSH_KEY != '' && secrets.PROD_SSH_KEY || vars.PROD_SSH_KEY }}
+          username: ${{ secrets.PROD_USER != '' && secrets.PROD_USER || vars.PROD_USER || secrets.SSH_USER != '' && secrets.SSH_USER || vars.SSH_USER || 'ubuntu' }}
+          key: ${{ secrets.PROD_SSH_KEY != '' && secrets.PROD_SSH_KEY || vars.PROD_SSH_KEY || secrets.SSH_PRIVATE_KEY != '' && secrets.SSH_PRIVATE_KEY || vars.SSH_PRIVATE_KEY || secrets.EC2_SSH_KEY != '' && secrets.EC2_SSH_KEY || vars.EC2_SSH_KEY }}
           port: ${{ steps.resolve.outputs.port }}
           script_stop: true
           script: |
             set -euo pipefail
-            cd "${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || '/home/ubuntu/qa-lab' }}"
+            cd "${{ secrets.PROD_APP_DIR != '' && secrets.PROD_APP_DIR || vars.PROD_APP_DIR || secrets.APP_DIR != '' && secrets.APP_DIR || vars.APP_DIR || '/home/ubuntu/qa-lab' }}"
             git fetch --all --prune
             git pull --ff-only origin main
             bash scripts/deploy_prod.sh --env-file infra/.env.prod

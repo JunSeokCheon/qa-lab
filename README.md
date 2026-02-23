@@ -116,6 +116,7 @@ git pull --ff-only origin main
 
 배포 워크플로우 실행 전 GitHub `Secrets` 또는 `Variables`를 설정하세요.
 - 필수: `PROD_SSH_KEY` (개인키, 멀티라인 그대로)
+- 호환 키 이름도 지원: `SSH_PRIVATE_KEY`, `EC2_SSH_KEY`
 - 선택: `PROD_HOST`(없으면 `PROD_PUBLIC_URL`에서 추론), `PROD_PORT`(기본 22), `PROD_USER`(기본 `ubuntu`), `PROD_APP_DIR`(기본 `/home/ubuntu/qa-lab`), `PROD_PUBLIC_URL`(기본 `https://spartaqa.com`)
 
 ### 로컬 개발 후 운영 반영 루틴
