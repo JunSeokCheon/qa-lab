@@ -69,6 +69,8 @@ from app.schemas import (
     AdminExamSubmissionDetail,
     AdminExamSubmissionAnswer,
     AdminExamResultPublishRequest,
+    AdminSubmissionResultShareRequest,
+    AdminSubmissionResultShareResponse,
     AdminUserSummary,
     AuthTokenResponse,
     ExamCreate,
@@ -397,6 +399,16 @@ def _to_exam_summary(
         created_at=exam.created_at,
         updated_at=exam.updated_at,
     )
+
+
+def _resolve_submission_result_visibility(
+    exam: Exam, submission: ExamSubmission
+) -> tuple[bool, datetime | None, str]:
+    if bool(exam.results_published):
+        return True, exam.results_published_at, "exam"
+    if bool(submission.results_published):
+        return True, submission.results_published_at, "submission"
+    return False, None, "none"
 
 def _request_context(request: Request) -> dict[str, str | None]:
     return {
@@ -2050,14 +2062,16 @@ async def get_my_exam_submission_detail(
         for answer, question in answer_rows
     ]
 
+    results_published, results_published_at, _ = _resolve_submission_result_visibility(exam, submission)
+
     return MeExamSubmissionDetail(
         submission_id=submission.id,
         exam_id=exam.id,
         exam_title=exam.title,
         status=submission.status,
         submitted_at=submission.submitted_at,
-        results_published=bool(exam.results_published),
-        results_published_at=exam.results_published_at,
+        results_published=results_published,
+        results_published_at=results_published_at,
         answers=answers,
     )
 
@@ -2125,7 +2139,7 @@ async def get_my_exam_results(
 
     payload: list[MeExamResultSummary] = []
     for submission, exam in items:
-        results_published = bool(exam.results_published)
+        results_published, results_published_at, _ = _resolve_submission_result_visibility(exam, submission)
         objective_total = 0
         objective_answered = 0
         objective_correct = 0
@@ -2189,7 +2203,7 @@ async def get_my_exam_results(
                 has_subjective=has_subjective,
                 grading_ready=submission.status == "GRADED" and results_published,
                 results_published=results_published,
-                results_published_at=exam.results_published_at,
+                results_published_at=results_published_at,
             )
         )
     return payload
@@ -2263,6 +2277,9 @@ async def list_admin_grading_exam_submissions(
             continue
         if coding_only and coding_question_counts[int(submission.id)] == 0:
             continue
+        results_published, results_published_at, results_publish_scope = _resolve_submission_result_visibility(
+            exam, submission
+        )
         payload.append(
             AdminGradingSubmissionSummary(
                 submission_id=submission.id,
@@ -2278,9 +2295,70 @@ async def list_admin_grading_exam_submissions(
                 coding_graded_count=stat["graded"],
                 coding_failed_count=stat["failed"],
                 coding_pending_count=stat["pending"],
+                results_published=results_published,
+                results_published_at=results_published_at,
+                results_publish_scope=results_publish_scope,
             )
         )
     return payload
+
+
+@app.post(
+    "/admin/grading/exam-submissions/share",
+    response_model=AdminSubmissionResultShareResponse,
+)
+async def share_admin_exam_submission_results(
+    payload: AdminSubmissionResultShareRequest,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminSubmissionResultShareResponse:
+    submission_ids = sorted({int(submission_id) for submission_id in payload.submission_ids if int(submission_id) > 0})
+    if not submission_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="공유할 제출 ID를 1개 이상 선택해 주세요.")
+
+    rows = (
+        await session.execute(
+            select(ExamSubmission)
+            .where(ExamSubmission.id.in_(submission_ids))
+            .order_by(ExamSubmission.id.asc())
+        )
+    ).scalars().all()
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="공유 대상 제출을 찾을 수 없습니다.")
+
+    publish = bool(payload.published)
+    published_at = datetime.now(timezone.utc) if publish else None
+    for submission in rows:
+        submission.results_published = publish
+        submission.results_published_at = published_at
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam_submission.results_share",
+        resource_type="exam_submission",
+        resource_id=",".join(str(submission.id) for submission in rows),
+        metadata={
+            "published": publish,
+            "updated_count": len(rows),
+            "submission_ids": [int(submission.id) for submission in rows],
+            "exam_ids": sorted({int(submission.exam_id) for submission in rows}),
+            "user_ids": sorted({int(submission.user_id) for submission in rows}),
+        },
+    )
+    await session.commit()
+
+    message = (
+        f"{len(rows)}건 제출 결과를 해당 수강생에게 공유했습니다."
+        if publish
+        else f"{len(rows)}건 제출 결과 공유를 해제했습니다."
+    )
+    return AdminSubmissionResultShareResponse(
+        updated_count=len(rows),
+        message=message,
+    )
 
 
 @app.post("/admin/grading/exam-submissions/{submission_id}/enqueue", response_model=AdminGradingEnqueueResponse)

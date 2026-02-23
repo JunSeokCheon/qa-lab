@@ -181,13 +181,87 @@ function toBinaryCorrect(answer: ExamSubmissionAnswer | undefined): number {
   return isFullyCorrect(answer) ? 1 : 0;
 }
 
-function toKoreanReason(reason: string, isCorrect: boolean): string {
-  const trimmed = reason.trim();
-  if (!trimmed) {
+function translateEnglishReasonToKorean(reason: string, isCorrect: boolean): string {
+  const normalized = reason.trim().replace(/\s+/g, " ");
+  if (!normalized) {
     return isCorrect ? "정답입니다." : "오답입니다. 정답 기준과 일치하지 않습니다.";
   }
+
+  const lower = normalized.toLowerCase();
+  if (/(quota|billing|status=429|too many requests)/.test(lower)) {
+    return "오답입니다. LLM 사용량 한도로 자동 채점이 제한되어 대체 채점이 적용되었습니다.";
+  }
+  if (/timeout|time out|timed out/.test(lower)) {
+    return "오답입니다. 채점 요청 시간이 초과되어 정상 채점이 완료되지 않았습니다.";
+  }
+  if (/syntaxerror/.test(lower)) {
+    return "오답입니다. 코드 문법 오류(SyntaxError)가 있어 실행되지 않았습니다.";
+  }
+  if (/nameerror/.test(lower)) {
+    return "오답입니다. 정의되지 않은 변수/함수(NameError)가 포함되어 있습니다.";
+  }
+  if (/typeerror/.test(lower)) {
+    return "오답입니다. 자료형 처리(TypeError)에 문제가 있습니다.";
+  }
+  if (/valueerror/.test(lower)) {
+    return "오답입니다. 값 처리(ValueError)에 문제가 있습니다.";
+  }
+  if (/indexerror/.test(lower)) {
+    return "오답입니다. 인덱스 범위(IndexError)를 벗어났습니다.";
+  }
+  if (/keyerror/.test(lower)) {
+    return "오답입니다. 사전에 없는 키(KeyError)를 참조했습니다.";
+  }
+  if (/assertionerror|assert failed|failed case/.test(lower)) {
+    return "오답입니다. 채점 기준 테스트를 통과하지 못했습니다.";
+  }
+
+  const converted = normalized
+    .replace(/^the student\s+/i, "수강생은 ")
+    .replace(/\bcorrectly\b/gi, "정확하게")
+    .replace(/\bhowever\b/gi, "다만")
+    .replace(/\bomitted\b/gi, "누락했습니다")
+    .replace(/\brequired\b/gi, "필수로 요구된")
+    .replace(/\bmissing\b/gi, "누락된")
+    .replace(/\bprint statement\b/gi, "출력 구문")
+    .replace(/\bcolumn names\b/gi, "컬럼명")
+    .replace(/\bprompt\b/gi, "문항 요구사항")
+    .replace(/\banswer key\b/gi, "정답 기준");
+
+  if (/[가-힣]/.test(converted)) return converted;
+  return isCorrect
+    ? "정답입니다."
+    : `오답입니다. 원본 채점 로그 요약: ${normalized.slice(0, 180)}`;
+}
+
+function summarizeReasonFromLogs(logs: string | null | undefined, isCorrect: boolean): string | null {
+  if (!logs || !logs.trim()) return null;
+
+  const lines = logs
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== "[stdout]" && line !== "[stderr]");
+  if (lines.length === 0) return null;
+
+  const preferredPrefixes = ["wrong_reason_ko=", "reason=", "fallback_notice=", "llm_error=", "issues="];
+  for (const prefix of preferredPrefixes) {
+    const matched = lines.find((line) => line.toLowerCase().startsWith(prefix));
+    if (!matched) continue;
+    const reasonPart = matched.slice(matched.indexOf("=") + 1).trim();
+    if (reasonPart) return translateEnglishReasonToKorean(reasonPart, isCorrect);
+  }
+
+  const meaningful = lines.find((line) => !line.startsWith("score=") && !line.startsWith("prompt_version=")) ?? lines[0];
+  return translateEnglishReasonToKorean(meaningful, isCorrect);
+}
+
+function toKoreanReason(reason: string, isCorrect: boolean, gradingLogs?: string | null): string {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return summarizeReasonFromLogs(gradingLogs, isCorrect) ?? (isCorrect ? "정답입니다." : "오답입니다. 정답 기준과 일치하지 않습니다.");
+  }
   if (/[가-힣]/.test(trimmed)) return trimmed;
-  return isCorrect ? "정답입니다." : "오답입니다. 정답 기준과 일치하지 않습니다.";
+  return translateEnglishReasonToKorean(trimmed, isCorrect);
 }
 
 function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
@@ -199,13 +273,13 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   const isCorrect = isFullyCorrect(answer);
 
   if (feedback && typeof feedback.wrong_reason_ko === "string" && feedback.wrong_reason_ko.trim()) {
-    return toKoreanReason(feedback.wrong_reason_ko, isCorrect);
+    return toKoreanReason(feedback.wrong_reason_ko, isCorrect, answer.grading_logs);
   }
   if (feedback && typeof feedback.reason === "string" && feedback.reason.trim()) {
-    return toKoreanReason(feedback.reason, isCorrect);
+    return toKoreanReason(feedback.reason, isCorrect, answer.grading_logs);
   }
   if (feedback && typeof feedback.note === "string" && feedback.note.trim()) {
-    return toKoreanReason(feedback.note, isCorrect);
+    return toKoreanReason(feedback.note, isCorrect, answer.grading_logs);
   }
 
   const fallbackReasonCode =
@@ -221,14 +295,8 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
     return "정답입니다. 정답 기준을 충족했습니다.";
   }
 
-  if (answer.grading_logs && answer.grading_logs.trim()) {
-    const firstMeaningfulLine =
-      answer.grading_logs
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line && line !== "[stdout]" && line !== "[stderr]") ?? "";
-    if (firstMeaningfulLine) return toKoreanReason(firstMeaningfulLine, false);
-  }
+  const fromLogs = summarizeReasonFromLogs(answer.grading_logs, false);
+  if (fromLogs) return fromLogs;
 
   return "오답입니다. 정답 기준과 일치하지 않습니다.";
 }
@@ -785,7 +853,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
             >
               {exams.map((exam) => (
                 <option key={exam.id} value={exam.id}>
-                  #{exam.id} {exam.title} ({examKindLabel(exam.exam_kind)} / {exam.target_track_name ?? "미지정"})
+                  {exam.title} ({examKindLabel(exam.exam_kind)} / {exam.target_track_name ?? "미지정"})
                 </option>
               ))}
             </select>
@@ -1021,14 +1089,6 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                                 {summarizeNonObjectiveReason(answer)}
                               </p>
 
-                              {answer.grading_logs ? (
-                                <details className="mt-2">
-                                  <summary className="cursor-pointer text-muted-foreground">원본 채점 로그 보기</summary>
-                                  <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-2 text-[11px]">
-                                    {answer.grading_logs}
-                                  </pre>
-                                </details>
-                              ) : null}
                             </div>
                           ) : null}
 

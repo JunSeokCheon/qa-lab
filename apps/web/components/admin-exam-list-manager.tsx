@@ -619,7 +619,7 @@ export function AdminExamListManager({
                 }}
               >
                 <p className="font-semibold">
-                  #{exam.id} {exam.title}
+                  {exam.title}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {examKindLabel(exam.exam_kind)} | {exam.question_count}문항 | {exam.target_track_name ?? "미지정"} |{" "}
@@ -975,7 +975,7 @@ export function AdminExamListManager({
             </div>
             <div className="space-y-3 p-5 text-sm text-foreground">
               <p className="rounded-xl border border-primary/20 bg-secondary/50 p-3">
-                <span className="font-semibold">#{selectedExam.id}</span> {selectedExam.title}
+                <span className="font-semibold">{selectedExam.title}</span>
               </p>
               <p>삭제 후에는 문항/리소스/제출 기록을 복구할 수 없습니다. 정말 삭제하시겠습니까?</p>
             </div>

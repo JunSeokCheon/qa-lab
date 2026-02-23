@@ -25,6 +25,9 @@ type GradingSubmission = {
   coding_graded_count: number;
   coding_failed_count: number;
   coding_pending_count: number;
+  results_published: boolean;
+  results_published_at: string | null;
+  results_publish_scope: "none" | "exam" | "submission";
 };
 
 export default async function AdminGradingPage() {

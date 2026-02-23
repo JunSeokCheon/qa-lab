@@ -392,6 +392,9 @@ class AdminGradingSubmissionSummary(BaseModel):
     coding_graded_count: int
     coding_failed_count: int
     coding_pending_count: int
+    results_published: bool = False
+    results_published_at: datetime | None = None
+    results_publish_scope: str = "none"
 
 
 class AdminGradingEnqueueRequest(BaseModel):
@@ -433,4 +436,14 @@ class AdminAppealRegradeResponse(BaseModel):
     question_id: int
     queued: bool
     status: str
+    message: str
+
+
+class AdminSubmissionResultShareRequest(BaseModel):
+    submission_ids: list[int]
+    published: bool = True
+
+
+class AdminSubmissionResultShareResponse(BaseModel):
+    updated_count: int
     message: str

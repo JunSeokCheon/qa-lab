@@ -28,6 +28,9 @@ type GradingSubmission = {
   coding_graded_count: number;
   coding_failed_count: number;
   coding_pending_count: number;
+  results_published: boolean;
+  results_published_at: string | null;
+  results_publish_scope: "none" | "exam" | "submission";
 };
 
 type EnqueueResponse = {
@@ -36,6 +39,12 @@ type EnqueueResponse = {
   queued: boolean;
   status: string;
   message: string;
+};
+
+type ShareResponse = {
+  updated_count?: number;
+  message?: string;
+  detail?: string;
 };
 
 function examKindLabel(kind: string): string {
@@ -68,6 +77,8 @@ export function AdminAutoGradingManager({
   const [codingOnly, setCodingOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set());
+  const [sharingIds, setSharingIds] = useState<Set<number>>(new Set());
+  const [sharingExam, setSharingExam] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -206,6 +217,62 @@ export function AdminAutoGradingManager({
     }
   };
 
+  const shareOne = async (submissionId: number, published: boolean) => {
+    setError("");
+    setMessage("");
+    setSharingIds((prev) => new Set(prev).add(submissionId));
+    try {
+      const response = await fetch("/api/admin/grading/exam-submissions/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submission_ids: [submissionId], published }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as ShareResponse;
+      if (!response.ok) {
+        setError(payload.detail ?? payload.message ?? "결과 공유 상태를 변경하지 못했습니다.");
+        return;
+      }
+      setMessage(payload.message ?? (published ? "해당 수강생에게 결과를 공유했습니다." : "해당 수강생 공유를 해제했습니다."));
+      await reload();
+    } catch {
+      setError("결과 공유 요청에 실패했습니다.");
+    } finally {
+      setSharingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(submissionId);
+        return next;
+      });
+    }
+  };
+
+  const shareExamResults = async (published: boolean) => {
+    if (examIdFilter === "all") {
+      setMessage("시험을 먼저 선택해 주세요.");
+      return;
+    }
+    setError("");
+    setMessage("");
+    setSharingExam(true);
+    try {
+      const response = await fetch(`/api/admin/exams/${examIdFilter}/results-share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ published }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as ShareResponse;
+      if (!response.ok) {
+        setError(payload.detail ?? payload.message ?? "시험 전체 결과 공유 상태를 변경하지 못했습니다.");
+        return;
+      }
+      setMessage(published ? "해당 시험 전체 수강생에게 결과를 공유했습니다." : "해당 시험 전체 결과 공유를 해제했습니다.");
+      await reload();
+    } catch {
+      setError("시험 결과 공유 요청에 실패했습니다.");
+    } finally {
+      setSharingExam(false);
+    }
+  };
+
   return (
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
@@ -233,7 +300,7 @@ export function AdminAutoGradingManager({
             <option value="all">전체 시험</option>
             {initialExams.map((exam) => (
               <option key={exam.id} value={exam.id}>
-                #{exam.id} {exam.title}
+                {exam.title}
               </option>
             ))}
           </select>
@@ -283,6 +350,22 @@ export function AdminAutoGradingManager({
             <Button type="button" onClick={() => void runBulk()} disabled={loading || queueableRows.length === 0}>
               자동 채점 시작!
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void shareExamResults(true)}
+              disabled={sharingExam || examIdFilter === "all"}
+            >
+              {sharingExam ? "처리 중..." : "이 시험 전체 공유"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void shareExamResults(false)}
+              disabled={sharingExam || examIdFilter === "all"}
+            >
+              {sharingExam ? "처리 중..." : "이 시험 전체 공유 해제"}
+            </Button>
           </div>
         </div>
       </section>
@@ -303,10 +386,11 @@ export function AdminAutoGradingManager({
             <table className="min-w-full text-sm">
               <thead className="bg-surface-muted text-left">
                 <tr>
-                  <th className="px-3 py-2">제출</th>
+                  <th className="px-3 py-2">제출 ID</th>
                   <th className="px-3 py-2">시험</th>
                   <th className="px-3 py-2">응시자</th>
                   <th className="px-3 py-2">상태</th>
+                  <th className="px-3 py-2">결과 공유</th>
                   <th className="px-3 py-2">LLM 채점</th>
                   <th className="px-3 py-2">제출 시각</th>
                   <th className="px-3 py-2">액션</th>
@@ -315,11 +399,12 @@ export function AdminAutoGradingManager({
               <tbody>
                 {filteredRows.map((row) => {
                   const isRunning = runningIds.has(row.submission_id);
+                  const isSharing = sharingIds.has(row.submission_id);
                   return (
                     <tr key={row.submission_id} className="border-t border-border/70">
-                      <td className="px-3 py-2">#{row.submission_id}</td>
+                      <td className="px-3 py-2">{row.submission_id}</td>
                       <td className="px-3 py-2">
-                        #{row.exam_id} {row.exam_title}
+                        {row.exam_title}
                         <div className="text-xs text-muted-foreground">{examKindLabel(row.exam_kind)}</div>
                       </td>
                       <td className="px-3 py-2">
@@ -327,6 +412,20 @@ export function AdminAutoGradingManager({
                         <div className="text-xs text-muted-foreground">{row.username}</div>
                       </td>
                       <td className="px-3 py-2">{statusLabel(row.status)}</td>
+                      <td className="px-3 py-2">
+                        {row.results_published ? (
+                          <div className="text-xs">
+                            <p className="font-medium text-emerald-700">
+                              {row.results_publish_scope === "exam" ? "시험 전체 공유" : "개별 공유"}
+                            </p>
+                            {row.results_published_at ? (
+                              <p className="text-muted-foreground">{formatDateTimeKST(row.results_published_at)}</p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">미공유</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         {row.coding_graded_count}/{row.coding_question_count} 완료
                         <div className="text-xs text-muted-foreground">
@@ -352,6 +451,21 @@ export function AdminAutoGradingManager({
                             disabled={isRunning}
                           >
                             강제 재채점 시작
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => void shareOne(row.submission_id, !row.results_published)}
+                            disabled={isSharing || row.results_publish_scope === "exam"}
+                          >
+                            {row.results_publish_scope === "exam"
+                              ? "시험 전체 공유 중"
+                              : isSharing
+                                ? "처리 중..."
+                                : row.results_published
+                                  ? "이 학생 공유 해제"
+                                  : "이 학생 공유"}
                           </Button>
                         </div>
                       </td>

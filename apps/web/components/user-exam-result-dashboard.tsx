@@ -76,7 +76,7 @@ export function UserExamResultDashboard({ results }: { results: ExamResult[] }) 
       >
         {results.map((item) => (
           <option key={item.submission_id} value={item.submission_id}>
-            #{item.submission_id} {item.exam_title} ({examKindLabel(item.exam_kind)})
+            {item.exam_title} ({examKindLabel(item.exam_kind)})
           </option>
         ))}
       </select>
