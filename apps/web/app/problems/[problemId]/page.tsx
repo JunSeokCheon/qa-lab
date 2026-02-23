@@ -113,9 +113,9 @@ export default async function ProblemPage({ params }: Params) {
           <span className="rounded-full bg-surface-muted px-2 py-1">{exam.folder_path ?? "미분류"}</span>
           <span className="rounded-full bg-surface-muted px-2 py-1">{exam.question_count}문항</span>
           <span className="rounded-full bg-surface-muted px-2 py-1">응시자: {me.username}</span>
-          <span className="rounded-full bg-surface-muted px-2 py-1">
-            시험 시간: {exam.duration_minutes === null ? "제한 없음" : `${exam.duration_minutes}분`}
-          </span>
+          {exam.duration_minutes !== null ? (
+            <span className="rounded-full bg-surface-muted px-2 py-1">시험 시간: {exam.duration_minutes}분</span>
+          ) : null}
         </div>
       </section>
 

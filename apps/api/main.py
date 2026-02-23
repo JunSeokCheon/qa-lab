@@ -607,7 +607,7 @@ async def forgot_password(
     username = payload.username.strip()
     user = await session.scalar(select(User).where(User.username == username))
     if user is None:
-        return PasswordForgotResponse(message="If the account exists, reset instructions were generated.")
+        return PasswordForgotResponse(message="입력한 계정이 존재하면 재설정 안내가 전송됩니다.")
 
     raw_token = uuid4().hex
     expires_at = datetime.now(timezone.utc) + password_reset_token_ttl()
@@ -619,12 +619,11 @@ async def forgot_password(
     session.add(reset)
     await session.commit()
 
-    if APP_ENV in {"development", "dev", "test"}:
-        return PasswordForgotResponse(
-            message="Reset token generated (development mode).",
-            reset_token=raw_token,
-        )
-    return PasswordForgotResponse(message="If the account exists, reset instructions were generated.")
+    # 현재는 이메일 발송 연동이 없어, 환경과 관계없이 재설정 토큰을 직접 반환합니다.
+    return PasswordForgotResponse(
+        message="비밀번호 재설정 토큰이 생성되었습니다. 아래 토큰으로 비밀번호를 재설정해 주세요.",
+        reset_token=raw_token,
+    )
 
 
 @app.post("/auth/password/reset", response_model=PasswordResetResponse)
@@ -633,22 +632,22 @@ async def reset_password(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> PasswordResetResponse:
     if len(payload.new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="비밀번호는 8자 이상이어야 합니다.")
 
     hashed = _hash_reset_token(payload.token)
     reset_token = await session.scalar(select(PasswordResetToken).where(PasswordResetToken.token_hash == hashed))
     now = datetime.now(timezone.utc)
     if reset_token is None or reset_token.used_at is not None or reset_token.expires_at < now:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="유효하지 않거나 만료된 재설정 토큰입니다.")
 
     user = await session.scalar(select(User).where(User.id == reset_token.user_id))
     if user is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="유효하지 않은 재설정 토큰입니다.")
 
     user.password_hash = hash_password(payload.new_password)
     reset_token.used_at = now
     await session.commit()
-    return PasswordResetResponse(message="Password has been reset successfully")
+    return PasswordResetResponse(message="비밀번호가 성공적으로 변경되었습니다.")
 
 
 @app.get("/me", response_model=MeResponse)

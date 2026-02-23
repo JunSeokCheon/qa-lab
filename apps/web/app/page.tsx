@@ -143,7 +143,7 @@ export default async function HomePage() {
               <p className="qa-kicker">TEAM SPARTA | 내일배움캠프</p>
               <h2 className="mt-2 text-2xl font-bold">수업 운영에 맞춘 시험/채점 대시보드</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                로그인 후 시험 생성부터 자동 채점 승인, 학생별 제출 상세 확인까지 바로 시작할 수 있습니다.
+                로그인 후 수강생은 시험 응시, 튜터는 시험 생성부터 자동 채점 승인, 학생별 제출 상세 확인까지 바로 시작할 수 있습니다.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Link href="/login">

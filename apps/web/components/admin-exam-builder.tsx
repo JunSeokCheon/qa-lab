@@ -185,6 +185,7 @@ export function AdminExamBuilder({
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
   const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
   const [durationMinutes, setDurationMinutes] = useState("60");
+  const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [questions, setQuestions] = useState<DraftQuestion[]>([newQuestion(1, "multiple_choice")]);
   const [resourceFiles, setResourceFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -299,11 +300,14 @@ export function AdminExamBuilder({
       setLoading(false);
       return;
     }
-    const parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
-    if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
-      setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
-      setLoading(false);
-      return;
+    let parsedDuration: number | null = null;
+    if (!noTimeLimit) {
+      parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
+      if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
+        setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
+        setLoading(false);
+        return;
+      }
     }
 
     const normalizedQuestions = [];
@@ -372,6 +376,7 @@ export function AdminExamBuilder({
     setDescription("");
     setTargetTrackName(TRACK_OPTIONS[0]);
     setDurationMinutes("60");
+    setNoTimeLimit(false);
     setQuestions([newQuestion(Date.now(), "multiple_choice")]);
     setResourceFiles([]);
     if (fileInputRef.current) {
@@ -452,15 +457,28 @@ export function AdminExamBuilder({
           ))}
         </select>
 
-        <Input
-          type="number"
-          min={1}
-          max={1440}
-          value={durationMinutes}
-          onChange={(event) => setDurationMinutes(event.target.value)}
-          placeholder="시험 시간(분)"
-          required
-        />
+        <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium">시험 시간 (분)</p>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={noTimeLimit}
+                onChange={(event) => setNoTimeLimit(event.target.checked)}
+              />
+              시간 제한 없음
+            </label>
+          </div>
+          <Input
+            type="number"
+            min={1}
+            max={1440}
+            value={durationMinutes}
+            onChange={(event) => setDurationMinutes(event.target.value)}
+            placeholder="예: 60"
+            disabled={noTimeLimit}
+          />
+        </div>
 
         <div className="space-y-3">
           {questions.map((question, index) => (

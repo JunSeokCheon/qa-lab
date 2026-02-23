@@ -154,6 +154,10 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 사용자: `user` / `user1234`
 - 로그인 화면은 기본 아이디/비밀번호 자동 입력이 없으며, `자동 로그인` 체크 시에만 장기 세션(remember me)이 적용됩니다.
 
+## 비밀번호 재설정
+- `/forgot-password`에서 아이디로 재설정 토큰을 발급받고, `/reset-password`에서 새 비밀번호로 변경합니다.
+- 현재는 이메일 발송 연동 대신 화면에 재설정 토큰을 직접 표시합니다.
+
 ## 주요 페이지
 - 사용자 시험 목록: `/problems`
 - 사용자 시험 응시: `/problems/{examId}`
@@ -172,6 +176,8 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 
 ## 시험 시간/제출 UX
 - 시험 생성/수정 시 `duration_minutes`(1~1440분)를 설정할 수 있습니다.
+- 관리자 시험 생성/수정 화면에서 `시간 제한 없음` 체크 시 `duration_minutes=null`로 저장됩니다.
+- 시간 제한이 없는 시험은 사용자 시험 화면에서 시험 시간 배지가 표시되지 않습니다.
 - 응시자가 시험 페이지에 진입하면 서버 기준으로 응시 시작 시각이 기록되고, 남은 시간이 내려갑니다.
 - 브라우저를 닫았다가 다시 열어도 타이머는 계속 흐릅니다.
 - 제출 버튼 클릭 시 확인 모달(`시험지를 제출하시겠습니까?`)이 표시됩니다.

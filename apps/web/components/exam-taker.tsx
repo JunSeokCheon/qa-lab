@@ -191,7 +191,7 @@ export function ExamTaker({
       <div className="rounded-xl bg-surface-muted p-3 text-xs text-muted-foreground">
         <p>필수 문항: {requiredCount}개</p>
         <p>제출 후에는 수정할 수 없습니다.</p>
-        <p>시험 시간: {durationMinutes === null ? "제한 없음" : `${durationMinutes}분`}</p>
+        {durationMinutes !== null ? <p>시험 시간: {durationMinutes}분</p> : null}
         {isTimeLimited ? (
           <p className={isExpired ? "font-semibold text-destructive" : "font-semibold text-primary"}>
             남은 시간: {formatTimer(remainingSeconds ?? 0)}

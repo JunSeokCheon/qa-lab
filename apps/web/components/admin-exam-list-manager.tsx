@@ -138,6 +138,7 @@ export function AdminExamListManager({
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
   const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
   const [durationMinutes, setDurationMinutes] = useState("60");
+  const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [resultsPublished, setResultsPublished] = useState(false);
   const [resultsPublishedAt, setResultsPublishedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<"draft" | "published">("published");
@@ -213,6 +214,7 @@ export function AdminExamListManager({
       setExamKind((detailPayload.exam_kind as "quiz" | "assessment") ?? "quiz");
       setTargetTrackName(detailPayload.target_track_name ?? TRACK_OPTIONS[0]);
       setDurationMinutes(String(detailPayload.duration_minutes ?? 60));
+      setNoTimeLimit(detailPayload.duration_minutes === null);
       setResultsPublished(Boolean(detailPayload.results_published));
       setResultsPublishedAt(detailPayload.results_published_at ?? null);
       setStatus((detailPayload.status as "draft" | "published") ?? "published");
@@ -279,11 +281,14 @@ export function AdminExamListManager({
     setError("");
     setMessage("");
     setSavingMeta(true);
-    const parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
-    if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
-      setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
-      setSavingMeta(false);
-      return;
+    let parsedDuration: number | null = null;
+    if (!noTimeLimit) {
+      parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
+      if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
+        setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
+        setSavingMeta(false);
+        return;
+      }
     }
     const response = await fetch(`/api/admin/exams/${selectedExam.id}`, {
       method: "PUT",
@@ -332,7 +337,7 @@ export function AdminExamListManager({
               folder_path: payload.folder_path ?? row.folder_path,
               exam_kind: payload.exam_kind ?? row.exam_kind,
               target_track_name: payload.target_track_name ?? row.target_track_name,
-              duration_minutes: payload.duration_minutes ?? row.duration_minutes,
+              duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : row.duration_minutes,
               results_published: payload.results_published ?? row.results_published,
               results_published_at: payload.results_published_at ?? row.results_published_at,
               status: payload.status ?? row.status,
@@ -360,10 +365,13 @@ export function AdminExamListManager({
       setError("응시 대상 반을 선택해 주세요.");
       return;
     }
-    const parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
-    if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
-      setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
-      return;
+    let parsedDuration: number | null = null;
+    if (!noTimeLimit) {
+      parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
+      if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
+        setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
+        return;
+      }
     }
     if (questions.length === 0) {
       setError("최소 1개 문항이 필요합니다.");
@@ -449,7 +457,7 @@ export function AdminExamListManager({
       folder_path: payload.folder_path ?? null,
       exam_kind: payload.exam_kind ?? examKind,
       target_track_name: payload.target_track_name ?? targetTrackName,
-      duration_minutes: payload.duration_minutes ?? parsedDuration,
+      duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : parsedDuration,
       results_published: payload.results_published ?? false,
       results_published_at: payload.results_published_at ?? null,
       status: payload.status ?? "published",
@@ -560,7 +568,7 @@ export function AdminExamListManager({
               ...exam,
               results_published: Boolean(payload.results_published),
               results_published_at: payload.results_published_at ?? null,
-              duration_minutes: payload.duration_minutes ?? exam.duration_minutes,
+              duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : exam.duration_minutes,
             }
           : exam
       )
@@ -683,15 +691,28 @@ export function AdminExamListManager({
                     ))}
                   </select>
 
-                  <Input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={durationMinutes}
-                    onChange={(event) => setDurationMinutes(event.target.value)}
-                    placeholder="시험 시간(분)"
-                    required
-                  />
+                  <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium">시험 시간 (분)</p>
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={noTimeLimit}
+                          onChange={(event) => setNoTimeLimit(event.target.checked)}
+                        />
+                        시간 제한 없음
+                      </label>
+                    </div>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={durationMinutes}
+                      onChange={(event) => setDurationMinutes(event.target.value)}
+                      placeholder="예: 60"
+                      disabled={noTimeLimit}
+                    />
+                  </div>
 
                   <select
                     className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
