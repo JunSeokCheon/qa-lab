@@ -3,7 +3,9 @@
 import { FASTAPI_BASE_URL } from "@/lib/auth";
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  const rawBody = await request.json().catch(() => ({}));
+  const body = typeof rawBody === "object" && rawBody !== null ? rawBody : {};
+  const rememberMe = (body as { remember_me?: unknown }).remember_me === true;
 
   const response = await fetch(`${FASTAPI_BASE_URL}/auth/login`, {
     method: "POST",
@@ -35,7 +37,7 @@ export async function POST(request: Request) {
     sameSite: "lax",
     secure: secureCookie,
     path: "/",
-    maxAge: 60 * 60,
+    ...(rememberMe ? { maxAge: 60 * 60 * 24 * 30 } : {}),
   });
 
   return nextResponse;

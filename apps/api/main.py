@@ -479,7 +479,11 @@ async def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
 
     _reset_login_attempts(client_key)
-    token = create_access_token(subject=user.username, role=user.role, expires_delta=access_token_ttl())
+    token = create_access_token(
+        subject=user.username,
+        role=user.role,
+        expires_delta=access_token_ttl(remember_me=payload.remember_me),
+    )
     return AuthTokenResponse(access_token=token, token_type="bearer")
 
 
