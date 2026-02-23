@@ -7,6 +7,18 @@ Next.js(App Router) + FastAPI + Docker Compose 기반 QA 서비스입니다.
 - `apps/api`: FastAPI 백엔드
 - `infra/docker-compose.prod.yml`: Docker Compose 배포 구성
 - `grader-images/python/Dockerfile`: 코딩 자동채점 이미지
+- `docs/system-architecture.md`: 시스템 아키텍처/기술 스택/기능 문서
+- `docs/user-admin-guide.md`: 사용자/관리자(튜터) 사용 가이드
+
+## 문서
+- 아키텍처 문서: `docs/system-architecture.md`
+- 사용자/관리자 가이드: `docs/user-admin-guide.md`
+
+```bash
+# 문서 빠르게 열기(Windows PowerShell)
+start docs/system-architecture.md
+start docs/user-admin-guide.md
+```
 
 ## 로컬 실행
 
@@ -153,6 +165,27 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 관리자 자동채점: `/admin/grading`
 - 관리자 사용자 관리: `/admin/users`
 - 관리자 감사 로그: `/admin/audit-logs`
+
+## 관리자 사용자 삭제 정책
+- 관리자 계정은 관리자 사용자 관리 페이지에서 삭제할 수 없습니다.
+- 삭제 가능한 대상은 수강생(`role=user`) 계정만입니다.
+
+## 시험 시간/제출 UX
+- 시험 생성/수정 시 `duration_minutes`(1~1440분)를 설정할 수 있습니다.
+- 응시자가 시험 페이지에 진입하면 서버 기준으로 응시 시작 시각이 기록되고, 남은 시간이 내려갑니다.
+- 브라우저를 닫았다가 다시 열어도 타이머는 계속 흐릅니다.
+- 제출 버튼 클릭 시 확인 모달(`시험지를 제출하시겠습니까?`)이 표시됩니다.
+- 제출 후 재응시는 차단되며, 같은 페이지(`/problems/{examId}`)에서 `내 제출 답안`(문항/내 답/정답 기준)을 확인할 수 있습니다.
+- API:
+  - `GET /exams/{exam_id}` (타이머 필드 포함: `duration_minutes`, `remaining_seconds`)
+  - `POST /exams/{exam_id}/submit`
+  - `GET /exams/{exam_id}/my-submission`
+
+## 시험 결과 공유(관리자)
+- 관리자는 `/admin/exams`에서 시험별 `유저 공유` 버튼으로 결과 공개를 토글할 수 있습니다.
+- 결과가 공개되기 전에는 사용자 대시보드(`/dashboard`)에 점수가 표시되지 않습니다.
+- API:
+  - `POST /admin/exams/{exam_id}/results/share` with `{ "published": true|false }`
 
 ## 관리자 대시보드 CSV/엑셀 내보내기
 경로: `/dashboard` (admin 로그인)

@@ -202,7 +202,7 @@ export function AdminAutoGradingManager({
       {message ? <p className="qa-card text-sm text-emerald-700">{message}</p> : null}
 
       <section className="qa-card space-y-3">
-        <div className="grid gap-3 md:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <select
             className="h-11 rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
             value={examIdFilter}
@@ -254,7 +254,7 @@ export function AdminAutoGradingManager({
             코딩 문항 제출만 보기
           </label>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 xl:col-span-2">
             <Button type="button" variant="outline" onClick={() => void reload()} disabled={loading}>
               {loading ? "불러오는 중..." : "새로고침"}
             </Button>

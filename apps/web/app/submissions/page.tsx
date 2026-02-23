@@ -46,7 +46,7 @@ export default async function SubmissionsPage() {
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
         <BackButton tone="hero" />
-        <p className="qa-kicker text-hero-foreground/80">학습자</p>
+        <p className="qa-kicker text-hero-foreground/80">학습</p>
         <h1 className="mt-2 text-3xl font-bold">내 시험 제출 이력</h1>
       </section>
 
@@ -63,6 +63,7 @@ export default async function SubmissionsPage() {
                   <th className="px-3 py-2">카테고리</th>
                   <th className="px-3 py-2">상태</th>
                   <th className="px-3 py-2">제출 시각</th>
+                  <th className="px-3 py-2">상세</th>
                 </tr>
               </thead>
               <tbody>
@@ -73,6 +74,11 @@ export default async function SubmissionsPage() {
                     <td className="px-3 py-2">{item.folder_path ?? "미분류"}</td>
                     <td className="px-3 py-2">{item.status}</td>
                     <td className="px-3 py-2">{new Date(item.submitted_at).toLocaleString()}</td>
+                    <td className="px-3 py-2">
+                      <Link href={`/problems/${item.exam_id}`} className="font-semibold underline">
+                        내 제출 보기
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

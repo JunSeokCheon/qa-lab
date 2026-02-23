@@ -64,6 +64,11 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
 
   const handleDeleteUser = useCallback(
     async (target: AdminUser) => {
+      if (target.role === "admin") {
+        setError("관리자 계정은 삭제할 수 없습니다.");
+        return;
+      }
+
       if (target.id === currentAdminId) {
         setError("현재 로그인한 관리자 계정은 삭제할 수 없습니다.");
         return;
@@ -182,6 +187,7 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
             ) : (
               users.map((user) => {
                 const isSelf = user.id === currentAdminId;
+                const isAdmin = user.role === "admin";
                 const deleting = deletingUserId === user.id;
                 return (
                   <tr key={user.id} className="border-b border-border/50 align-top">
@@ -196,10 +202,10 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={isSelf || deleting}
+                        disabled={isSelf || isAdmin || deleting}
                         onClick={() => void handleDeleteUser(user)}
                       >
-                        {isSelf ? "현재 계정" : deleting ? "삭제 중..." : "삭제"}
+                        {isSelf ? "현재 계정" : isAdmin ? "관리자 계정" : deleting ? "삭제 중..." : "삭제"}
                       </Button>
                     </td>
                   </tr>

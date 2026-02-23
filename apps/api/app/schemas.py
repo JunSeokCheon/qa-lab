@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -190,6 +190,7 @@ class ExamCreate(BaseModel):
     exam_kind: str = "quiz"
     target_track_name: str
     status: str = "published"
+    duration_minutes: int | None = Field(default=60, ge=1, le=1440)
     questions: list[ExamQuestionCreate]
 
 
@@ -200,6 +201,7 @@ class ExamUpdate(BaseModel):
     exam_kind: str = "quiz"
     target_track_name: str
     status: str = "published"
+    duration_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
 class ExamRepublish(BaseModel):
@@ -209,6 +211,7 @@ class ExamRepublish(BaseModel):
     exam_kind: str = "quiz"
     target_track_name: str
     status: str = "published"
+    duration_minutes: int | None = Field(default=60, ge=1, le=1440)
     questions: list[ExamQuestionCreate]
     copy_resources: bool = True
 
@@ -239,6 +242,9 @@ class ExamSummary(BaseModel):
     exam_kind: str
     target_track_name: str | None = None
     status: str
+    duration_minutes: int | None = None
+    results_published: bool = False
+    results_published_at: datetime | None = None
     question_count: int
     submitted: bool = False
     created_at: datetime
@@ -246,6 +252,9 @@ class ExamSummary(BaseModel):
 
 
 class ExamDetail(ExamSummary):
+    attempt_started_at: datetime | None = None
+    attempt_expires_at: datetime | None = None
+    remaining_seconds: int | None = None
     questions: list[ExamQuestionSummary]
 
 
@@ -273,6 +282,34 @@ class ExamSubmitResponse(BaseModel):
     exam_id: int
     status: str
     submitted_at: datetime
+
+
+class MeExamSubmissionAnswer(BaseModel):
+    question_id: int
+    question_order: int
+    question_type: str
+    prompt_md: str
+    choices: list[str] | None = None
+    correct_choice_index: int | None = None
+    answer_key_text: str | None = None
+    answer_text: str | None = None
+    selected_choice_index: int | None = None
+    grading_status: str | None = None
+    grading_score: int | None = None
+    grading_max_score: int | None = None
+    grading_feedback_json: dict[str, Any] | None = None
+    graded_at: datetime | None = None
+
+
+class MeExamSubmissionDetail(BaseModel):
+    submission_id: int
+    exam_id: int
+    exam_title: str
+    status: str
+    submitted_at: datetime
+    results_published: bool
+    results_published_at: datetime | None = None
+    answers: list[MeExamSubmissionAnswer]
 
 
 class ExamSubmissionSummary(BaseModel):
@@ -303,6 +340,12 @@ class MeExamResultSummary(BaseModel):
     coding_max_score: int | None = None
     has_subjective: bool
     grading_ready: bool
+    results_published: bool
+    results_published_at: datetime | None = None
+
+
+class AdminExamResultPublishRequest(BaseModel):
+    published: bool = True
 
 
 class AdminExamSubmissionAnswer(BaseModel):

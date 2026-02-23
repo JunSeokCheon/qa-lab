@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
-import { ExamTaker } from "@/components/exam-taker";
+import { ExamTaker, type MyExamSubmissionDetail } from "@/components/exam-taker";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 type ExamQuestion = {
@@ -21,8 +21,10 @@ type ExamDetail = {
   description: string | null;
   folder_path: string | null;
   exam_kind: string;
+  duration_minutes: number | null;
   question_count: number;
   submitted: boolean;
+  remaining_seconds: number | null;
   questions: ExamQuestion[];
 };
 
@@ -78,6 +80,17 @@ export default async function ProblemPage({ params }: Params) {
 
   const exam = (await response.json()) as ExamDetail;
 
+  let mySubmission: MyExamSubmissionDetail | null = null;
+  if (exam.submitted) {
+    const submissionResponse = await fetch(`${FASTAPI_BASE_URL}/exams/${problemId}/my-submission`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (submissionResponse.ok) {
+      mySubmission = (await submissionResponse.json()) as MyExamSubmissionDetail;
+    }
+  }
+
   const resourcesResponse = await fetch(`${FASTAPI_BASE_URL}/exams/${problemId}/resources`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -94,10 +107,15 @@ export default async function ProblemPage({ params }: Params) {
         <h1 className="mt-2 text-3xl font-bold">{exam.title}</h1>
         {exam.description ? <p className="mt-2 text-sm text-muted-foreground">{exam.description}</p> : null}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">{examKindLabel(exam.exam_kind)}</span>
+          <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">
+            {examKindLabel(exam.exam_kind)}
+          </span>
           <span className="rounded-full bg-surface-muted px-2 py-1">{exam.folder_path ?? "미분류"}</span>
           <span className="rounded-full bg-surface-muted px-2 py-1">{exam.question_count}문항</span>
           <span className="rounded-full bg-surface-muted px-2 py-1">응시자: {me.username}</span>
+          <span className="rounded-full bg-surface-muted px-2 py-1">
+            시험 시간: {exam.duration_minutes === null ? "제한 없음" : `${exam.duration_minutes}분`}
+          </span>
         </div>
       </section>
 
@@ -127,7 +145,14 @@ export default async function ProblemPage({ params }: Params) {
         )}
       </section>
 
-      <ExamTaker examId={exam.id} questions={exam.questions} submitted={exam.submitted} />
+      <ExamTaker
+        examId={exam.id}
+        questions={exam.questions}
+        submitted={exam.submitted}
+        durationMinutes={exam.duration_minutes}
+        initialRemainingSeconds={exam.remaining_seconds}
+        initialSubmission={mySubmission}
+      />
     </main>
   );
 }

@@ -51,6 +51,8 @@ export type MeExamResultSummary = {
   coding_max_score: number | null;
   has_subjective: boolean;
   grading_ready: boolean;
+  results_published: boolean;
+  results_published_at: string | null;
 };
 
 export async function fetchMeWithToken(token: string): Promise<MeResponse | null> {

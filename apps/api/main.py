@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Uploa
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
@@ -35,6 +36,7 @@ from app.deps import get_current_user, require_admin
 from app.models import (
     AdminAuditLog,
     Exam,
+    ExamAttempt,
     ExamAnswer,
     ExamQuestion,
     ExamResource,
@@ -66,6 +68,7 @@ from app.schemas import (
     AdminExamQuestionSummary,
     AdminExamSubmissionDetail,
     AdminExamSubmissionAnswer,
+    AdminExamResultPublishRequest,
     AdminUserSummary,
     AuthTokenResponse,
     ExamCreate,
@@ -86,6 +89,8 @@ from app.schemas import (
     PasswordResetResponse,
     MeProgressResponse,
     MeExamResultSummary,
+    MeExamSubmissionAnswer,
+    MeExamSubmissionDetail,
     MeResponse,
     ProblemFolderCreate,
     ProblemFolderResponse,
@@ -205,6 +210,17 @@ def _sanitize_exam_target_track_name(raw_track_name: str) -> str:
             detail=f"시험 대상 반은 다음 중 하나여야 합니다: {options}",
         )
     return track_name
+
+
+def _sanitize_exam_duration_minutes(duration_minutes: int | None) -> int | None:
+    if duration_minutes is None:
+        return None
+    if duration_minutes < 1 or duration_minutes > 1440:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="시험 시간은 1분 이상 1440분 이하로 설정해 주세요.",
+        )
+    return int(duration_minutes)
 
 
 def _can_user_access_exam(exam: Exam, user: User) -> bool:
@@ -372,6 +388,9 @@ def _to_exam_summary(
         exam_kind=exam.exam_kind,
         target_track_name=exam.target_track_name,
         status=exam.status,
+        duration_minutes=exam.duration_minutes,
+        results_published=bool(exam.results_published),
+        results_published_at=exam.results_published_at,
         question_count=question_count,
         submitted=submitted,
         created_at=exam.created_at,
@@ -864,12 +883,7 @@ async def delete_admin_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 로그인한 관리자 계정은 삭제할 수 없습니다.")
 
     if target.role == "admin":
-        admin_count = int(await session.scalar(select(func.count(User.id)).where(User.role == "admin")) or 0)
-        if admin_count <= 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="마지막 관리자 계정은 삭제할 수 없습니다.",
-            )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="관리자 계정은 삭제할 수 없습니다.")
 
     await _write_admin_audit_log(
         session=session,
@@ -1119,6 +1133,7 @@ async def _create_exam_with_questions(
         exam_kind=_normalize_exam_kind(payload.exam_kind),
         target_track_name=_sanitize_exam_target_track_name(payload.target_track_name),
         status=_sanitize_exam_status(payload.status),
+        duration_minutes=_sanitize_exam_duration_minutes(payload.duration_minutes),
     )
     session.add(exam)
     await session.flush()
@@ -1283,6 +1298,7 @@ async def create_exam(
             "question_count": len(questions),
             "exam_kind": exam.exam_kind,
             "target_track_name": exam.target_track_name,
+            "duration_minutes": exam.duration_minutes,
         },
     )
     await session.commit()
@@ -1374,6 +1390,7 @@ async def republish_admin_exam(
             "question_count": len(new_questions),
             "copied_resources": copied_resources,
             "target_track_name": new_exam.target_track_name,
+            "duration_minutes": new_exam.duration_minutes,
         },
     )
     await session.commit()
@@ -1417,6 +1434,7 @@ async def update_admin_exam(
     exam.exam_kind = _normalize_exam_kind(payload.exam_kind)
     exam.target_track_name = _sanitize_exam_target_track_name(payload.target_track_name)
     exam.status = _sanitize_exam_status(payload.status)
+    exam.duration_minutes = _sanitize_exam_duration_minutes(payload.duration_minutes)
 
     await _write_admin_audit_log(
         session=session,
@@ -1431,6 +1449,50 @@ async def update_admin_exam(
             "target_track_name": exam.target_track_name,
             "status": exam.status,
             "folder_id": exam.folder_id,
+            "duration_minutes": exam.duration_minutes,
+        },
+    )
+    await session.commit()
+    await session.refresh(exam)
+
+    question_count = int(
+        (
+            await session.scalar(
+                select(func.count(ExamQuestion.id)).where(ExamQuestion.exam_id == exam.id)
+            )
+        )
+        or 0
+    )
+    folder_path_map = await _load_folder_path_map(session)
+    return _to_exam_summary(exam, folder_path_map=folder_path_map, question_count=question_count, submitted=False)
+
+
+@app.post("/admin/exams/{exam_id}/results/share", response_model=ExamSummary)
+async def update_admin_exam_results_publish(
+    exam_id: int,
+    payload: AdminExamResultPublishRequest,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ExamSummary:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    publish = bool(payload.published)
+    exam.results_published = publish
+    exam.results_published_at = datetime.now(timezone.utc) if publish else None
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.results_publish",
+        resource_type="exam",
+        resource_id=str(exam.id),
+        metadata={
+            "results_published": exam.results_published,
+            "results_published_at": exam.results_published_at.isoformat() if exam.results_published_at else None,
         },
     )
     await session.commit()
@@ -1763,12 +1825,38 @@ async def get_exam(
         await session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc()))
     ).scalars().all()
     folder_path_map = await _load_folder_path_map(session)
-    submitted = (
-        await session.scalar(
-            select(func.count(ExamSubmission.id)).where(ExamSubmission.exam_id == exam_id, ExamSubmission.user_id == user.id)
+    existing_submission = await session.scalar(
+        select(ExamSubmission).where(ExamSubmission.exam_id == exam_id, ExamSubmission.user_id == user.id)
+    )
+    submitted = existing_submission is not None
+
+    attempt_started_at: datetime | None = None
+    attempt_expires_at: datetime | None = None
+    remaining_seconds: int | None = None
+    if user.role != "admin" and not submitted and exam.duration_minutes is not None:
+        attempt = await session.scalar(
+            select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id)
         )
-        or 0
-    ) > 0
+        if attempt is None:
+            attempt = ExamAttempt(exam_id=exam_id, user_id=user.id)
+            session.add(attempt)
+            try:
+                await session.commit()
+                await session.refresh(attempt)
+            except IntegrityError:
+                await session.rollback()
+                attempt = await session.scalar(
+                    select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id)
+                )
+                if attempt is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="응시 시작 처리 중 충돌이 발생했습니다. 잠시 후 다시 시도해 주세요.",
+                    )
+
+        attempt_started_at = attempt.started_at
+        attempt_expires_at = attempt.started_at + timedelta(minutes=exam.duration_minutes)
+        remaining_seconds = max(0, int((attempt_expires_at - datetime.now(timezone.utc)).total_seconds()))
 
     return ExamDetail(
         **_to_exam_summary(
@@ -1777,6 +1865,9 @@ async def get_exam(
             question_count=len(questions),
             submitted=submitted,
         ).model_dump(),
+        attempt_started_at=attempt_started_at,
+        attempt_expires_at=attempt_expires_at,
+        remaining_seconds=remaining_seconds,
         questions=[_to_exam_question_summary(question) for question in questions],
     )
 
@@ -1797,6 +1888,33 @@ async def submit_exam(
     )
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 제출한 시험입니다.")
+
+    if user.role != "admin" and exam.duration_minutes is not None:
+        attempt = await session.scalar(
+            select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id)
+        )
+        if attempt is None:
+            attempt = ExamAttempt(exam_id=exam_id, user_id=user.id)
+            session.add(attempt)
+            try:
+                await session.flush()
+            except IntegrityError:
+                await session.rollback()
+                attempt = await session.scalar(
+                    select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id)
+                )
+                if attempt is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="응시 시작 처리 중 충돌이 발생했습니다. 잠시 후 다시 시도해 주세요.",
+                    )
+
+        expires_at = attempt.started_at + timedelta(minutes=exam.duration_minutes)
+        if datetime.now(timezone.utc) >= expires_at:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="시험 시간이 종료되어 제출할 수 없습니다.",
+            )
 
     questions = (
         await session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc()))
@@ -1878,6 +1996,63 @@ async def submit_exam(
     )
 
 
+@app.get("/exams/{exam_id}/my-submission", response_model=MeExamSubmissionDetail)
+async def get_my_exam_submission_detail(
+    exam_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> MeExamSubmissionDetail:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None or not _can_user_access_exam(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    submission = await session.scalar(
+        select(ExamSubmission).where(ExamSubmission.exam_id == exam_id, ExamSubmission.user_id == user.id)
+    )
+    if submission is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 시험 제출 내역이 없습니다.")
+
+    answer_rows = (
+        await session.execute(
+            select(ExamAnswer, ExamQuestion)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(ExamAnswer.exam_submission_id == submission.id)
+            .order_by(ExamQuestion.order_index.asc())
+        )
+    ).all()
+
+    answers = [
+        MeExamSubmissionAnswer(
+            question_id=question.id,
+            question_order=question.order_index,
+            question_type=question.type,
+            prompt_md=question.prompt_md,
+            choices=list(question.choices_json or []) if question.choices_json is not None else None,
+            correct_choice_index=question.correct_choice_index,
+            answer_key_text=question.answer_key_text,
+            answer_text=answer.answer_text,
+            selected_choice_index=answer.selected_choice_index,
+            grading_status=answer.grading_status,
+            grading_score=answer.grading_score,
+            grading_max_score=answer.grading_max_score,
+            grading_feedback_json=answer.grading_feedback_json,
+            graded_at=answer.graded_at,
+        )
+        for answer, question in answer_rows
+    ]
+
+    return MeExamSubmissionDetail(
+        submission_id=submission.id,
+        exam_id=exam.id,
+        exam_title=exam.title,
+        status=submission.status,
+        submitted_at=submission.submitted_at,
+        results_published=bool(exam.results_published),
+        results_published_at=exam.results_published_at,
+        answers=answers,
+    )
+
+
 @app.get("/me/exam-submissions", response_model=list[ExamSubmissionSummary])
 async def get_my_exam_submissions(
     user: Annotated[User, Depends(get_current_user)],
@@ -1941,6 +2116,7 @@ async def get_my_exam_results(
 
     payload: list[MeExamResultSummary] = []
     for submission, exam in items:
+        results_published = bool(exam.results_published)
         objective_total = 0
         objective_answered = 0
         objective_correct = 0
@@ -2002,7 +2178,9 @@ async def get_my_exam_results(
                 coding_score=coding_score_acc if coding_score_seen else None,
                 coding_max_score=coding_max_acc if coding_max_seen else None,
                 has_subjective=has_subjective,
-                grading_ready=submission.status == "GRADED",
+                grading_ready=submission.status == "GRADED" and results_published,
+                results_published=results_published,
+                results_published_at=exam.results_published_at,
             )
         )
     return payload

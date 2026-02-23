@@ -20,6 +20,8 @@ type ExamResult = {
   coding_max_score: number | null;
   has_subjective: boolean;
   grading_ready: boolean;
+  results_published: boolean;
+  results_published_at: string | null;
 };
 
 function examKindLabel(kind: string): string {
@@ -87,7 +89,9 @@ export function UserExamResultDashboard({ results }: { results: ExamResult[] }) 
 
           {!selected.grading_ready ? (
             <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-800">
-              아직 평가되지 않았습니다. 관리자 자동 채점이 완료되면 결과가 표시됩니다.
+              {selected.status === "GRADED" && !selected.results_published
+                ? "채점은 완료되었지만, 관리자가 아직 결과를 공유하지 않았습니다."
+                : "아직 평가되지 않았습니다. 관리자 자동 채점이 완료되면 결과가 표시됩니다."}
             </div>
           ) : (
             <div className="mt-3 grid gap-3 md:grid-cols-2">

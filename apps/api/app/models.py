@@ -39,6 +39,12 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    exam_attempts: Mapped[list["ExamAttempt"]] = relationship(
+        "ExamAttempt",
+        foreign_keys="ExamAttempt.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -162,6 +168,9 @@ class Exam(Base):
     exam_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="quiz")
     target_track_name: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    results_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    results_published_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -174,6 +183,7 @@ class Exam(Base):
     resources: Mapped[list["ExamResource"]] = relationship(
         back_populates="exam", cascade="all, delete-orphan", order_by="ExamResource.id.desc()"
     )
+    attempts: Mapped[list["ExamAttempt"]] = relationship(back_populates="exam", cascade="all, delete-orphan")
     submissions: Mapped[list["ExamSubmission"]] = relationship(back_populates="exam", cascade="all, delete-orphan")
 
 
@@ -208,6 +218,19 @@ class ExamResource(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     exam: Mapped["Exam"] = relationship(back_populates="resources")
+
+
+class ExamAttempt(Base):
+    __tablename__ = "exam_attempts"
+    __table_args__ = (UniqueConstraint("exam_id", "user_id", name="uq_exam_attempts_exam_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    started_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    exam: Mapped["Exam"] = relationship(back_populates="attempts")
+    user: Mapped["User"] = relationship(back_populates="exam_attempts")
 
 
 class ExamSubmission(Base):
