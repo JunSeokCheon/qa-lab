@@ -24,16 +24,23 @@ jobs:
         run: |
           set -euo pipefail
 
+          default_public_url="https://spartaqa.com"
+          public_url="${PROD_PUBLIC_URL:-$default_public_url}"
           host="${PROD_HOST:-}"
-          if [ -z "$host" ] && [ -n "${PROD_PUBLIC_URL:-}" ]; then
-            stripped="${PROD_PUBLIC_URL#*://}"
+          if [ -z "$host" ]; then
+            stripped="$public_url"
+            if [[ "$stripped" == *"://"* ]]; then
+              stripped="${stripped#*://}"
+            fi
             stripped="${stripped%%/*}"
             stripped="${stripped%%:*}"
             host="$stripped"
           fi
+          if [ -z "$host" ]; then
+            host="spartaqa.com"
+          fi
 
           port="${PROD_PORT:-22}"
-          public_url="${PROD_PUBLIC_URL:-https://spartaqa.com}"
 
           echo "host=$host" >> "$GITHUB_OUTPUT"
           echo "port=$port" >> "$GITHUB_OUTPUT"
@@ -41,16 +48,11 @@ jobs:
 
       - name: Validate required secrets
         env:
-          RESOLVED_HOST: ${{ steps.resolve.outputs.host }}
           PROD_USER: ${{ secrets.PROD_USER }}
           PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
           PROD_APP_DIR: ${{ secrets.PROD_APP_DIR }}
         run: |
           set -euo pipefail
-          if [ -z "${RESOLVED_HOST}" ]; then
-            echo "Missing deploy host. Set PROD_HOST or PROD_PUBLIC_URL secret."
-            exit 1
-          fi
           for key in PROD_USER PROD_SSH_KEY PROD_APP_DIR; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key"
