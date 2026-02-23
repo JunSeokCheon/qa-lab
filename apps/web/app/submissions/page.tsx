@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type ExamSubmissionItem = {
   id: number;
@@ -73,7 +74,7 @@ export default async function SubmissionsPage() {
                     <td className="px-3 py-2">{examKindLabel(item.exam_kind)}</td>
                     <td className="px-3 py-2">{item.folder_path ?? "미분류"}</td>
                     <td className="px-3 py-2">{item.status}</td>
-                    <td className="px-3 py-2">{new Date(item.submitted_at).toLocaleString()}</td>
+                    <td className="px-3 py-2">{formatDateTimeKST(item.submitted_at)}</td>
                     <td className="px-3 py-2">
                       <Link href={`/problems/${item.exam_id}`} className="font-semibold underline">
                         내 제출 보기

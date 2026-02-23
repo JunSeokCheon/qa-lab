@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BackButton } from "@/components/back-button";
+import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type ExamSummary = {
   id: number;
@@ -57,6 +59,13 @@ type ChoiceStat = {
   totalResponses: number;
 };
 
+type QuestionFilterItem = {
+  questionId: number;
+  questionOrder: number;
+  questionType: string;
+  prompt: string;
+};
+
 type ManualGradeResponse = {
   message?: string;
   detail?: string;
@@ -83,6 +92,13 @@ function examKindLabel(kind: string): string {
   if (kind === "quiz") return "퀴즈";
   if (kind === "assessment") return "성취도 평가";
   return kind;
+}
+
+function questionTypeLabel(type: string): string {
+  if (type === "multiple_choice") return "객관식";
+  if (type === "subjective") return "주관식";
+  if (type === "coding") return "코딩";
+  return type;
 }
 
 function manualGradeKey(submissionId: number, questionId: number): string {
@@ -196,6 +212,9 @@ function summarizeRationale(feedback: GradingFeedback): string | null {
 }
 
 function summarizeFeedbackFallback(answer: ExamSubmissionAnswer, feedback: GradingFeedback): string | null {
+  if (feedback && typeof feedback.fallback_notice === "string" && feedback.fallback_notice.trim()) {
+    return feedback.fallback_notice.trim();
+  }
   if (feedback && typeof feedback.reason === "string" && feedback.reason.trim()) {
     return feedback.reason.trim();
   }
@@ -254,6 +273,15 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   }
 
   const feedback = answer.grading_feedback_json as GradingFeedback;
+  const fallbackReasonCode =
+    feedback && typeof feedback.fallback_reason_code === "string" ? feedback.fallback_reason_code : "";
+  const fallbackUsed = feedback && feedback.fallback_used === true;
+  if (fallbackUsed && fallbackReasonCode === "quota") {
+    const notice =
+      feedback && typeof feedback.fallback_notice === "string" ? feedback.fallback_notice.trim() : "";
+    return notice || "LLM 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.";
+  }
+
   const rationaleSummary = summarizeRationale(feedback);
   if (rationaleSummary) return rationaleSummary;
 
@@ -264,17 +292,6 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
     return "정답 기준을 충족했습니다.";
   }
   return "채점 로그에서 명확한 오답 사유를 찾지 못했습니다. 원본 로그를 확인해 주세요.";
-}
-
-function gradingEngineSummary(answer: ExamSubmissionAnswer): string | null {
-  const feedback = answer.grading_feedback_json as Record<string, unknown> | null;
-  if (!feedback) return null;
-  const model = typeof feedback.model === "string" ? feedback.model : null;
-  const promptVersion = typeof feedback.prompt_version === "string" ? feedback.prompt_version : null;
-  const schemaVersion = typeof feedback.schema_version === "string" ? feedback.schema_version : null;
-  const pieces = [model, promptVersion, schemaVersion].filter((value) => Boolean(value));
-  if (pieces.length === 0) return null;
-  return pieces.join(" | ");
 }
 
 function renderAnswerBlock(
@@ -466,13 +483,30 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
     return [...byQuestion.values()].sort((a, b) => a.questionOrder - b.questionOrder);
   }, [submissions]);
 
+  const allQuestionOptions = useMemo(() => {
+    const byQuestion = new Map<number, QuestionFilterItem>();
+    for (const row of submissions) {
+      for (const answer of row.answers) {
+        if (!byQuestion.has(answer.question_id)) {
+          byQuestion.set(answer.question_id, {
+            questionId: answer.question_id,
+            questionOrder: answer.question_order,
+            questionType: answer.question_type,
+            prompt: answer.prompt_md,
+          });
+        }
+      }
+    }
+    return [...byQuestion.values()].sort((a, b) => a.questionOrder - b.questionOrder);
+  }, [submissions]);
+
   const questionOptions = useMemo(
     () =>
-      questionStats.map((item) => ({
+      allQuestionOptions.map((item) => ({
         value: String(item.questionId),
-        label: `${item.questionOrder}번 문항`,
+        label: `${item.questionOrder}번 문항 (${questionTypeLabel(item.questionType)})`,
       })),
-    [questionStats]
+    [allQuestionOptions]
   );
 
   const studentOptions = useMemo(() => {
@@ -491,6 +525,12 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
     const questionId = Number(questionFilter);
     return questionStats.filter((item) => item.questionId === questionId);
   }, [questionFilter, questionStats]);
+
+  const selectedQuestionOption = useMemo(() => {
+    if (questionFilter === "all") return null;
+    const questionId = Number(questionFilter);
+    return allQuestionOptions.find((item) => item.questionId === questionId) ?? null;
+  }, [allQuestionOptions, questionFilter]);
 
   const filteredSubmissions = useMemo(() => {
     const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
@@ -814,7 +854,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
               value={questionFilter}
               onChange={(event) => setQuestionFilter(event.target.value)}
             >
-              <option value="all">전체 객관식 문항</option>
+              <option value="all">전체 문항</option>
               {questionOptions.map((question) => (
                 <option key={question.value} value={question.value}>
                   {question.label}
@@ -900,15 +940,18 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
 
       <section className="qa-card space-y-3">
         <h2 className="text-lg font-semibold">객관식 문항 통계</h2>
-        {filteredQuestionStats.length === 0 ? (
+        {questionFilter !== "all" && selectedQuestionOption?.questionType !== "multiple_choice" ? (
+          <p className="text-sm text-muted-foreground">선택한 문항은 객관식이 아니어서 객관식 통계를 표시할 수 없습니다.</p>
+        ) : filteredQuestionStats.length === 0 ? (
           <p className="text-sm text-muted-foreground">객관식 응답 데이터가 없습니다.</p>
         ) : (
           <div className="space-y-3">
             {filteredQuestionStats.map((stat) => (
               <article key={stat.questionId} className="rounded-xl border border-border/70 bg-surface p-3">
-                <p className="text-sm font-semibold">
-                  {stat.questionOrder}. {stat.prompt}
-                </p>
+                <div className="text-sm font-semibold">
+                  <span>{stat.questionOrder}. </span>
+                  <MarkdownContent content={stat.prompt} />
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground">총 응답 수: {stat.totalResponses}</p>
                 <div className="mt-2 space-y-3">
                   {stat.choices.map((choice, index) => {
@@ -955,7 +998,7 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
             {filteredSubmissions.map((submission) => (
               <article key={submission.submission_id} className="rounded-xl border border-border/70 bg-surface p-3">
                 <p className="text-sm font-semibold">
-                  {submission.user_name} ({new Date(submission.submitted_at).toLocaleString()})
+                  {submission.user_name} ({formatDateTimeKST(submission.submitted_at)})
                 </p>
                 <div className="mt-2 space-y-2">
                   {submission.answers
@@ -968,14 +1011,14 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                       const isAppealRunning = appealRunningKeys.has(key);
                       const scoreInput =
                         manualScoreByKey[key] ?? (answer.grading_score === null ? "100" : String(answer.grading_score));
-                      const gradingEngine = gradingEngineSummary(answer);
 
                       return (
                         <div key={key} className="rounded-lg bg-surface-muted p-2 text-xs">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium">
-                              {answer.question_order}. {answer.prompt_md}
-                            </p>
+                            <div className="font-medium">
+                              <span>{answer.question_order}. </span>
+                              <MarkdownContent content={answer.prompt_md} />
+                            </div>
                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${verdict.className}`}>
                               {verdict.label}
                             </span>
@@ -1001,12 +1044,9 @@ export function AdminExamDashboard({ initialExams }: { initialExams: ExamSummary
                               채점 상태: {answer.grading_status ?? "미채점"}
                             </p>
                           ) : null}
-                          {answer.question_type !== "multiple_choice" && gradingEngine ? (
-                            <p className="mt-1 text-[11px] text-muted-foreground">채점 엔진: {gradingEngine}</p>
-                          ) : null}
                           {answer.graded_at ? (
                             <p className="mt-1 text-muted-foreground">
-                              채점 시각: {new Date(answer.graded_at).toLocaleString()}
+                              채점 시각: {formatDateTimeKST(answer.graded_at)}
                             </p>
                           ) : null}
                           {answer.question_type !== "multiple_choice" ? (

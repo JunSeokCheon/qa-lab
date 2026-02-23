@@ -1,5 +1,6 @@
 "use client";
-import { useSearchParams } from "next/navigation";
+
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
@@ -8,15 +9,20 @@ import { Input } from "@/components/ui/input";
 
 export function ResetPasswordClient() {
   const params = useSearchParams();
+  const router = useRouter();
   const initialToken = params.get("token") ?? "";
+
   const [token, setToken] = useState(initialToken);
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [completed, setCompleted] = useState(false);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (loading || completed) return;
+
     setMessage("");
     setError("");
     if (newPassword.length < 8) {
@@ -37,8 +43,13 @@ export function ResetPasswordClient() {
       setLoading(false);
       return;
     }
-    setMessage(payload.message ?? "비밀번호가 변경되었습니다.");
+
+    setMessage(payload.message ?? "비밀번호가 성공적으로 변경되었습니다. 로그인 화면으로 이동합니다.");
+    setCompleted(true);
     setLoading(false);
+    setTimeout(() => {
+      router.replace("/login");
+    }, 900);
   };
 
   return (
@@ -49,17 +60,23 @@ export function ResetPasswordClient() {
           <p className="qa-kicker">새 비밀번호 설정</p>
           <h1 className="text-3xl font-bold">비밀번호 재설정</h1>
           <form onSubmit={onSubmit} className="space-y-3">
-            <Input placeholder="재설정 토큰" value={token} onChange={(e) => setToken(e.target.value)} />
+            <Input
+              placeholder="재설정 토큰"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              disabled={completed}
+            />
             <Input
               type="password"
               placeholder="새 비밀번호 (8자 이상)"
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              onChange={(event) => setNewPassword(event.target.value)}
+              disabled={completed}
             />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
-            <Button className="w-full" disabled={loading}>
-              {loading ? "변경 중..." : "비밀번호 변경"}
+            <Button className="w-full" disabled={loading || completed}>
+              {loading ? "변경 중..." : completed ? "완료" : "비밀번호 변경"}
             </Button>
           </form>
         </section>
@@ -67,3 +84,4 @@ export function ResetPasswordClient() {
     </div>
   );
 }
+

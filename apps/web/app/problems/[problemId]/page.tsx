@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
 import { ExamTaker, type MyExamSubmissionDetail } from "@/components/exam-taker";
+import { MarkdownContent } from "@/components/markdown-content";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
 
 type ExamQuestion = {
@@ -105,7 +106,7 @@ export default async function ProblemPage({ params }: Params) {
         <BackButton />
         <p className="qa-kicker mt-3">시험 응시</p>
         <h1 className="mt-2 text-3xl font-bold">{exam.title}</h1>
-        {exam.description ? <p className="mt-2 text-sm text-muted-foreground">{exam.description}</p> : null}
+        {exam.description ? <MarkdownContent className="mt-2" content={exam.description} /> : null}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">
             {examKindLabel(exam.exam_kind)}

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
 import { FASTAPI_BASE_URL, fetchMeWithToken } from "@/lib/auth";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type AdminAuditLog = {
   id: number;
@@ -75,7 +76,7 @@ export default async function AdminAuditLogsPage() {
               logs.map((log) => (
                 <tr key={log.id} className="border-b border-border/50 align-top">
                   <td className="px-2 py-2">{log.id}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateTimeKST(log.created_at)}</td>
                   <td className="px-2 py-2">
                     {log.actor_username ?? "-"}
                     {log.actor_user_id ? <span className="text-xs text-muted-foreground"> (#{log.actor_user_id})</span> : null}

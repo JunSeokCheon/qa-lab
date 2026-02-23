@@ -157,6 +157,7 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 ## 비밀번호 재설정
 - `/forgot-password`에서 아이디로 재설정 토큰을 발급받고, `/reset-password`에서 새 비밀번호로 변경합니다.
 - 현재는 이메일 발송 연동 대신 화면에 재설정 토큰을 직접 표시합니다.
+- 재설정이 성공하면 로그인 화면(`/login`)으로 자동 이동합니다.
 
 ## 주요 페이지
 - 사용자 시험 목록: `/problems`
@@ -178,10 +179,13 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 시험 생성/수정 시 `duration_minutes`(1~1440분)를 설정할 수 있습니다.
 - 관리자 시험 생성/수정 화면에서 `시간 제한 없음` 체크 시 `duration_minutes=null`로 저장됩니다.
 - 시간 제한이 없는 시험은 사용자 시험 화면에서 시험 시간 배지가 표시되지 않습니다.
+- 관리자 시험 생성 시 `시험 생성` 버튼을 누르면 확인 모달(`시험을 생성하시겠습니까?`)이 먼저 표시됩니다.
 - 응시자가 시험 페이지에 진입하면 서버 기준으로 응시 시작 시각이 기록되고, 남은 시간이 내려갑니다.
 - 브라우저를 닫았다가 다시 열어도 타이머는 계속 흐릅니다.
 - 제출 버튼 클릭 시 확인 모달(`시험지를 제출하시겠습니까?`)이 표시됩니다.
 - 제출 후 재응시는 차단되며, 같은 페이지(`/problems/{examId}`)에서 `내 제출 답안`(문항/내 답/정답 기준)을 확인할 수 있습니다.
+- 시험 설명/문항 본문은 개행과 코드 블록(```` fenced code ````) 렌더링을 지원합니다.
+- 제출 시각/채점 시각 표시는 `Asia/Seoul`(KST) 기준으로 통일됩니다.
 - API:
   - `GET /exams/{exam_id}` (타이머 필드 포함: `duration_minutes`, `remaining_seconds`)
   - `POST /exams/{exam_id}/submit`
@@ -213,12 +217,14 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - `answer_key_text`가 비어 있으면 자동채점 대상에서 제외되고 수동 채점이 필요합니다.
 - LLM 자동채점을 사용하려면 `OPENAI_API_KEY`가 설정되어야 합니다.
 - LLM 채점 버전 고정:
-  - `EXAM_LLM_MODEL` (기본 `gpt-4.1-mini`)
+  - `EXAM_LLM_MODEL` (기본 `gpt-5-mini`)
   - `EXAM_LLM_PROMPT_VERSION` (기본 `exam_answer_key_prompt_v2_2026-02-22`)
   - `EXAM_LLM_SCHEMA_VERSION` (기본 `exam_grading_schema_v2`)
 - 채점 근거 구조화:
   - `rationale.summary`, `matched_points`, `missing_points`, `deductions`, `confidence`를 저장합니다.
 - LLM 호출이 실패(예: 429 quota, timeout)하면 자동으로 `answer_key_fallback_v2` 폴백 채점이 수행되어 채점이 중단되지 않습니다.
+- quota(429) 등 폴백 시 `fallback_used`, `fallback_reason_code`, `fallback_notice`, `provider_error_redacted` 메타가 저장되어 친화적으로 사유를 확인할 수 있습니다.
+- 모델 미지원/쿼터 부족 상황에서도 폴백 채점으로 서비스는 계속 동작합니다.
 - 리소스 파일 업로드 최대 용량은 파일당 500MB입니다.
 - 500MB를 초과하는 자료는 Google Drive 링크를 시험 설명/문항에 함께 첨부하는 방식을 권장합니다.
 

@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
+import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type Folder = { id: number; path: string };
 type ExamSummary = {
@@ -727,7 +729,7 @@ export function AdminExamListManager({
                     <p className="font-semibold">유저 결과 공유</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       상태: {resultsPublished ? "공유 중" : "미공유"}
-                      {resultsPublishedAt ? ` (${new Date(resultsPublishedAt).toLocaleString()})` : ""}
+                      {resultsPublishedAt ? ` (${formatDateTimeKST(resultsPublishedAt)})` : ""}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button
@@ -805,7 +807,7 @@ export function AdminExamListManager({
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {resource.content_type ?? "application/octet-stream"} | {formatBytes(resource.size_bytes)} |{" "}
-                            {new Date(resource.created_at).toLocaleString()}
+                            {formatDateTimeKST(resource.created_at)}
                           </p>
                         </article>
                       ))}
@@ -840,11 +842,15 @@ export function AdminExamListManager({
                         </select>
 
                         <Textarea
-                          className="mt-2 min-h-24"
+                          className="mt-2 min-h-48"
                           value={question.prompt_md}
                           onChange={(event) => updateQuestion(question.key, { prompt_md: event.target.value })}
                           placeholder="문항 내용"
                         />
+                        <div className="mt-2 rounded-xl border border-border/70 bg-background/70 p-3">
+                          <p className="text-[11px] font-semibold text-muted-foreground">문항 미리보기</p>
+                          <MarkdownContent className="mt-2" content={question.prompt_md} />
+                        </div>
 
                         <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
                           <p className="text-xs font-semibold">정답/채점 기준</p>

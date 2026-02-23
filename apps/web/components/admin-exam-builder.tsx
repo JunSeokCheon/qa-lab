@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { BackButton } from "@/components/back-button";
+import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -178,6 +179,7 @@ export function AdminExamBuilder({
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploadingResources, setUploadingResources] = useState(false);
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -284,8 +286,9 @@ export function AdminExamBuilder({
     setResourceFiles(nextFiles);
   };
 
-  const onCreateExam = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const createExam = async () => {
+    if (loading || uploadingResources) return;
+    setShowCreateConfirm(false);
     setError("");
     setMessage("");
     setLoading(true);
@@ -412,7 +415,14 @@ export function AdminExamBuilder({
         </details>
       </section>
 
-      <form className="qa-card space-y-4" onSubmit={onCreateExam}>
+      <form
+        className="qa-card space-y-4"
+        onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          if (loading || uploadingResources) return;
+          setShowCreateConfirm(true);
+        }}
+      >
         <h2 className="text-lg font-semibold">새 시험 만들기</h2>
         <Input placeholder="시험 제목" value={title} onChange={(event) => setTitle(event.target.value)} required />
         <Textarea
@@ -501,12 +511,16 @@ export function AdminExamBuilder({
               </select>
 
               <Textarea
-                className="mt-2 min-h-24"
+                className="mt-2 min-h-48"
                 placeholder="문항 내용을 입력해 주세요."
                 value={question.prompt_md}
                 onChange={(event) => updateQuestion(question.key, { prompt_md: event.target.value })}
                 required
               />
+              <div className="mt-2 rounded-xl border border-border/70 bg-background/70 p-3">
+                <p className="text-[11px] font-semibold text-muted-foreground">문항 미리보기</p>
+                <MarkdownContent className="mt-2" content={question.prompt_md} />
+              </div>
 
               <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -623,6 +637,36 @@ export function AdminExamBuilder({
 
         <Button disabled={loading || uploadingResources}>{loading || uploadingResources ? "생성 중..." : "시험 생성"}</Button>
       </form>
+
+      {showCreateConfirm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-primary/40 bg-white shadow-2xl">
+            <div className="bg-gradient-to-r from-primary to-[#d80028] px-5 py-4 text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]">확인</p>
+              <h3 className="mt-1 text-lg font-bold">시험 생성 확인</h3>
+            </div>
+            <div className="space-y-3 p-5 text-sm text-foreground">
+              <p className="rounded-xl border border-primary/20 bg-secondary/50 p-3">
+                <span className="font-semibold">{title.trim() || "(제목 없음)"}</span>
+              </p>
+              <p>시험을 생성하시겠습니까?</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCreateConfirm(false)}
+                disabled={loading || uploadingResources}
+              >
+                취소
+              </Button>
+              <Button type="button" onClick={() => void createExam()} disabled={loading || uploadingResources}>
+                {loading || uploadingResources ? "생성 중..." : "생성"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -220,6 +220,32 @@ def _tokenize_eval_text(value: str) -> set[str]:
     return set(re.findall(r"[A-Za-z_가-힣][A-Za-z0-9_가-힣]*", normalized))
 
 
+def _redact_provider_error(raw_error: str) -> str:
+    compact = re.sub(r"\s+", " ", (raw_error or "")).strip()
+    compact = compact.replace("https://platform.openai.com/docs/guides/error-codes/api-errors.", "").strip()
+    if len(compact) > 260:
+        compact = f"{compact[:260]}..."
+    return compact or "llm_error"
+
+
+def _classify_llm_error(raw_error: str) -> tuple[str, str]:
+    lowered = (raw_error or "").lower()
+    if (
+        "status=429" in lowered
+        or "insufficient_quota" in lowered
+        or "exceeded your current quota" in lowered
+        or "quota" in lowered
+    ):
+        return ("quota", "LLM 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.")
+    if "status=401" in lowered or "status=403" in lowered or "invalid_api_key" in lowered or "authentication" in lowered:
+        return ("auth", "LLM 인증 문제로 대체 채점이 적용되었습니다. API 키/권한 설정을 확인해 주세요.")
+    if "rate limit" in lowered or "too many requests" in lowered:
+        return ("rate", "LLM 요청 제한으로 대체 채점이 적용되었습니다. 잠시 후 재채점해 주세요.")
+    if "timeout" in lowered or "timed out" in lowered or "connection" in lowered or "temporarily unavailable" in lowered:
+        return ("network", "LLM 연결 문제로 대체 채점이 적용되었습니다. 네트워크 상태를 확인해 주세요.")
+    return ("unknown", "LLM 오류로 대체 채점이 적용되었습니다. 필요 시 수동 채점 또는 재채점을 진행해 주세요.")
+
+
 def _grade_exam_answer_with_fallback(
     *,
     question_type: str,
@@ -228,6 +254,9 @@ def _grade_exam_answer_with_fallback(
     answer_key_text: str,
     answer_text: str,
     llm_error: str,
+    fallback_reason_code: str,
+    fallback_notice: str,
+    provider_error_redacted: str,
 ) -> tuple[int, dict[str, Any], str]:
     normalized_key = _normalize_eval_text(answer_key_text)
     normalized_answer = _normalize_eval_text(answer_text)
@@ -326,15 +355,19 @@ def _grade_exam_answer_with_fallback(
         "missing_points": missing_points,
         "deductions": deductions[:5],
         "confidence": 0.35,
+        "fallback_used": True,
+        "fallback_reason_code": fallback_reason_code,
+        "fallback_notice": fallback_notice,
+        "provider_error_redacted": provider_error_redacted,
         "rationale": {
             "summary": reason,
             "matched_points": matched_points,
             "missing_points": missing_points,
             "deductions": deductions[:5],
             "confidence": 0.35,
-            "llm_error": llm_error[:300],
+            "llm_error": provider_error_redacted,
         },
-        "llm_error": llm_error[:300],
+        "llm_error": provider_error_redacted,
         "public": {
             "passed": 1 if is_correct else 0,
             "total": 1,
@@ -358,7 +391,9 @@ def _grade_exam_answer_with_fallback(
                 f"reason={reason}",
                 f"prompt_version={EXAM_LLM_PROMPT_VERSION}",
                 f"schema_version={EXAM_LLM_SCHEMA_VERSION}",
-                f"llm_error={llm_error[:280]}",
+                f"fallback_reason_code={fallback_reason_code}",
+                f"fallback_notice={fallback_notice}",
+                f"llm_error={provider_error_redacted}",
             ]
         ),
         MAX_OUTPUT_BYTES,
@@ -832,6 +867,8 @@ async def _grade_exam_submission_async(exam_submission_id: int) -> None:
                 )
             except Exception as exc:
                 llm_message = f"llm grading failed: {exc}"
+                fallback_reason_code, fallback_notice = _classify_llm_error(llm_message)
+                provider_error_redacted = _redact_provider_error(llm_message)
                 try:
                     score, feedback, logs = _grade_exam_answer_with_fallback(
                         question_type=question.type,
@@ -840,17 +877,27 @@ async def _grade_exam_submission_async(exam_submission_id: int) -> None:
                         answer_key_text=answer_key,
                         answer_text=submitted_text,
                         llm_error=llm_message,
+                        fallback_reason_code=fallback_reason_code,
+                        fallback_notice=fallback_notice,
+                        provider_error_redacted=provider_error_redacted,
                     )
                     fallback_count += 1
                 except Exception as fallback_exc:
                     failed_count += 1
-                    message = f"{llm_message}; fallback failed: {fallback_exc}"
+                    message = (
+                        f"llm grading failed ({fallback_reason_code}): {provider_error_redacted}; "
+                        f"fallback failed: {str(fallback_exc)[:200]}"
+                    )
                     answer.grading_status = "FAILED"
                     answer.grading_feedback_json = _attach_feedback_metadata(
                         {
                             "mode": LLM_GRADING_MODE,
                             "error": message,
                             "confidence": 0.0,
+                            "fallback_used": True,
+                            "fallback_reason_code": fallback_reason_code,
+                            "fallback_notice": fallback_notice,
+                            "provider_error_redacted": provider_error_redacted,
                             "matched_points": [],
                             "missing_points": [],
                             "deductions": [],

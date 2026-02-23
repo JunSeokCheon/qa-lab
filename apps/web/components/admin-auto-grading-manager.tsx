@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type ExamSummary = {
   id: number;
@@ -78,6 +79,9 @@ export function AdminAutoGradingManager({
   const filteredRows = useMemo(() => {
     const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
     return rows.filter((row) => {
+      if (examIdFilter !== "all" && String(row.exam_id) !== examIdFilter) return false;
+      if (statusFilter !== "all" && row.status.toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (codingOnly && Number(row.coding_question_count) === 0) return false;
       if (studentFilter !== "all" && row.user_name !== studentFilter) return false;
       if (!keyword) return true;
       return (
@@ -85,7 +89,7 @@ export function AdminAutoGradingManager({
         row.username.toLocaleLowerCase("ko").includes(keyword)
       );
     });
-  }, [rows, studentFilter, studentSearchKeyword]);
+  }, [codingOnly, examIdFilter, rows, statusFilter, studentFilter, studentSearchKeyword]);
 
   const queueableRows = useMemo(
     () =>
@@ -95,33 +99,51 @@ export function AdminAutoGradingManager({
     [filteredRows]
   );
 
-  const buildQuery = () => {
+  const hasActiveFilters = useMemo(
+    () =>
+      examIdFilter !== "all" ||
+      statusFilter !== "all" ||
+      codingOnly ||
+      studentFilter !== "all" ||
+      studentSearchKeyword.trim().length > 0,
+    [codingOnly, examIdFilter, statusFilter, studentFilter, studentSearchKeyword]
+  );
+
+  const buildQuery = useCallback(() => {
     const params = new URLSearchParams();
     if (examIdFilter !== "all") params.set("exam_id", examIdFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     params.set("coding_only", String(codingOnly));
     return params.toString();
-  };
+  }, [codingOnly, examIdFilter, statusFilter]);
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setLoading(true);
     setError("");
-    const query = buildQuery();
-    const response = await fetch(`/api/admin/grading/exam-submissions${query ? `?${query}` : ""}`, {
-      cache: "no-store",
-    });
-    const payload = (await response.json().catch(() => [])) as
-      | GradingSubmission[]
-      | { detail?: string; message?: string };
-    if (!response.ok) {
-      const apiError = payload as { detail?: string; message?: string };
-      setError(apiError.detail ?? apiError.message ?? "자동 채점 목록을 불러오지 못했습니다.");
+    try {
+      const query = buildQuery();
+      const response = await fetch(`/api/admin/grading/exam-submissions${query ? `?${query}` : ""}`, {
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => [])) as
+        | GradingSubmission[]
+        | { detail?: string; message?: string };
+      if (!response.ok) {
+        const apiError = payload as { detail?: string; message?: string };
+        setError(apiError.detail ?? apiError.message ?? "자동 채점 목록을 불러오지 못했습니다.");
+        return;
+      }
+      setRows(payload as GradingSubmission[]);
+    } catch {
+      setError("자동 채점 목록을 불러오지 못했습니다.");
+    } finally {
       setLoading(false);
-      return;
     }
-    setRows(payload as GradingSubmission[]);
-    setLoading(false);
-  };
+  }, [buildQuery]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   const runOne = async (submissionId: number, force: boolean) => {
     setError("");
@@ -268,8 +290,7 @@ export function AdminAutoGradingManager({
       <section className="qa-card space-y-3">
         <h2 className="text-lg font-semibold">자동 채점 대상 목록</h2>
         <p className="text-xs text-muted-foreground">
-          전체 {rows.length}건
-          {studentFilter !== "all" || studentSearchKeyword.trim().length > 0 ? ` | 필터 적용 ${filteredRows.length}건` : ""}
+          전체 {rows.length}건{hasActiveFilters ? ` | 필터 적용 ${filteredRows.length}건` : ""}
         </p>
         {filteredRows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -312,7 +333,7 @@ export function AdminAutoGradingManager({
                           실패 {row.coding_failed_count}, 대기 {row.coding_pending_count}
                         </div>
                       </td>
-                      <td className="px-3 py-2">{new Date(row.submitted_at).toLocaleString()}</td>
+                      <td className="px-3 py-2">{formatDateTimeKST(row.submitted_at)}</td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-2">
                           <Button

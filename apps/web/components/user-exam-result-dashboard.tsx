@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 
+import { formatDateTimeKST } from "@/lib/datetime";
+
 type ExamResult = {
   submission_id: number;
   exam_id: number;
@@ -83,7 +85,7 @@ export function UserExamResultDashboard({ results }: { results: ExamResult[] }) 
         <article className="rounded-2xl border border-border/70 bg-surface p-4 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-semibold">{selected.exam_title}</p>
-            <p className="text-xs text-muted-foreground">{new Date(selected.submitted_at).toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">{formatDateTimeKST(selected.submitted_at)}</p>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">상태: {statusLabel(selected.status)}</p>
 

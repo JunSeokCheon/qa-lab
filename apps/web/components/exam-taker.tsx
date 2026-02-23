@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type QuestionItem = {
   id: number;
@@ -203,20 +205,21 @@ export function ExamTaker({
         <article className="space-y-3 rounded-2xl border border-border/70 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold">내 제출 답안</h2>
-            <p className="text-xs text-muted-foreground">{new Date(submissionDetail.submitted_at).toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">{formatDateTimeKST(submissionDetail.submitted_at)}</p>
           </div>
           <p className="text-xs text-muted-foreground">
             제출 상태: {statusLabel(submissionDetail.status)}
             {submissionDetail.results_published
-              ? ` | 점수 공개됨${submissionDetail.results_published_at ? ` (${new Date(submissionDetail.results_published_at).toLocaleString()})` : ""}`
+              ? ` | 점수 공개됨${submissionDetail.results_published_at ? ` (${formatDateTimeKST(submissionDetail.results_published_at)})` : ""}`
               : " | 점수 비공개(관리자 공유 대기)"}
           </p>
           <div className="space-y-3">
             {submissionDetail.answers.map((answer) => (
               <article key={answer.question_id} className="rounded-xl border border-border/70 bg-background p-3 text-sm">
-                <p className="font-semibold">
-                  {answer.question_order}. {answer.prompt_md}
-                </p>
+                <div className="font-semibold">
+                  <span>{answer.question_order}. </span>
+                  <MarkdownContent content={answer.prompt_md} />
+                </div>
                 {answer.question_type === "multiple_choice" ? (
                   <div className="mt-2 space-y-2 text-xs">
                     <p>
@@ -260,9 +263,11 @@ export function ExamTaker({
         <>
           {questions.map((question) => (
             <article key={question.id} className="rounded-2xl border border-border/70 bg-surface p-4">
-              <p className="text-sm font-semibold">
-                {question.order_index}. {question.prompt_md} {question.required ? "*" : ""}
-              </p>
+              <div className="text-sm font-semibold">
+                <span>{question.order_index}. </span>
+                <MarkdownContent content={question.prompt_md} />
+                {question.required ? <span className="ml-1">*</span> : null}
+              </div>
 
               {question.type === "multiple_choice" ? (
                 <div className="mt-3 space-y-2">

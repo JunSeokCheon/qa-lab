@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from "react";
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatDateTimeKST } from "@/lib/datetime";
 
 type AdminUser = {
   id: number;
@@ -196,7 +197,7 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
                     <td className="px-2 py-2">{user.name}</td>
                     <td className="px-2 py-2">{user.track_name}</td>
                     <td className="px-2 py-2">{roleLabel(user.role)}</td>
-                    <td className="px-2 py-2">{new Date(user.created_at).toLocaleString()}</td>
+                    <td className="px-2 py-2">{formatDateTimeKST(user.created_at)}</td>
                     <td className="px-2 py-2">
                       <Button
                         type="button"
