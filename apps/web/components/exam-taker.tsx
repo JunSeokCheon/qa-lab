@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 
 import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,16 @@ export function ExamTaker({
 
     return () => window.clearInterval(timer);
   }, [isSubmitted, isTimeLimited, remainingSeconds]);
+
+  useEffect(() => {
+    if (!showSubmitConfirm && !answerEditorQuestion) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showSubmitConfirm, answerEditorQuestion]);
 
   useEffect(() => {
     if (!showSubmitConfirm) return;
@@ -316,7 +327,10 @@ export function ExamTaker({
         </>
       ) : null}
 
-      {showSubmitConfirm ? (
+      {typeof document !== "undefined"
+        ? createPortal(
+            <>
+              {showSubmitConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-border/70 bg-white p-5 shadow-xl">
             <h3 className="text-base font-semibold">시험 제출 확인</h3>
@@ -332,9 +346,9 @@ export function ExamTaker({
             </div>
           </div>
         </div>
-      ) : null}
+              ) : null}
 
-      {answerEditorQuestion ? (
+              {answerEditorQuestion ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
           <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-border/70 bg-white shadow-2xl">
             <div className="border-b border-border/70 px-5 py-4">
@@ -363,7 +377,11 @@ export function ExamTaker({
             </div>
           </div>
         </div>
-      ) : null}
+              ) : null}
+            </>,
+            document.body
+          )
+        : null}
     </section>
   );
 }

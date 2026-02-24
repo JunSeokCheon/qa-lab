@@ -150,6 +150,7 @@ export function AdminExamListManager({
 
   const [resourceRows, setResourceRows] = useState<ExamResource[]>([]);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const pageTopRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [republishResourceFiles, setRepublishResourceFiles] = useState<File[]>([]);
@@ -157,6 +158,17 @@ export function AdminExamListManager({
   const answerKeyModalQuestion = questions.find((question) => question.key === answerKeyModalQuestionKey) ?? null;
   const answerKeyModalOrder =
     answerKeyModalQuestion !== null ? questions.findIndex((question) => question.key === answerKeyModalQuestion.key) + 1 : null;
+
+  const scrollToPageTop = () => {
+    window.requestAnimationFrame(() => {
+      pageTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const setRepublishError = (nextError: string) => {
+    setError(nextError);
+    scrollToPageTop();
+  };
 
   useEffect(() => {
     if (!deleteDialogOpen) return;
@@ -373,41 +385,41 @@ export function AdminExamListManager({
     setError("");
     setMessage("");
     if (!title.trim()) {
-      setError("시험 제목을 입력해 주세요.");
+      setRepublishError("시험 제목을 입력해 주세요.");
       return;
     }
     const normalizedTitle = title.trim().toLowerCase();
     if (exams.some((exam) => exam.title.trim().toLowerCase() === normalizedTitle)) {
-      setError("같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.");
+      setRepublishError("같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.");
       return;
     }
     if (!targetTrackName) {
-      setError("응시 대상 반을 선택해 주세요.");
+      setRepublishError("응시 대상 반을 선택해 주세요.");
       return;
     }
     let parsedDuration: number | null = null;
     if (!noTimeLimit) {
       parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
       if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
-        setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
+        setRepublishError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
         return;
       }
     }
     if (questions.length === 0) {
-      setError("최소 1개 문항이 필요합니다.");
+      setRepublishError("최소 1개 문항이 필요합니다.");
       return;
     }
 
     const normalizedQuestions = [];
     for (const question of questions) {
       if (!question.prompt_md.trim()) {
-        setError("모든 문항 내용을 입력해 주세요.");
+        setRepublishError("모든 문항 내용을 입력해 주세요.");
         return;
       }
       if (question.type === "multiple_choice") {
         const trimmedChoices = question.choices.map((choice) => choice.trim());
         if (trimmedChoices.some((choice) => !choice)) {
-          setError("객관식 선택지 4개를 모두 입력해 주세요.");
+          setRepublishError("객관식 선택지 4개를 모두 입력해 주세요.");
           return;
         }
         normalizedQuestions.push({
@@ -464,7 +476,7 @@ export function AdminExamListManager({
       message?: string;
     };
     if (!response.ok || !payload.id) {
-      setError(payload.detail ?? payload.message ?? "재출제에 실패했습니다.");
+      setRepublishError(payload.detail ?? payload.message ?? "재출제에 실패했습니다.");
       setRepublishing(false);
       return;
     }
@@ -494,14 +506,14 @@ export function AdminExamListManager({
     setRepublishResourceFiles([]);
     if (republishFileInputRef.current) republishFileInputRef.current.value = "";
     if (resourceUpload.failed.length > 0) {
-      setError(`새 시험은 생성됐지만 일부 리소스 업로드에 실패했습니다: ${resourceUpload.failed.join(", ")}`);
+      setRepublishError(`새 시험은 생성됐지만 일부 리소스 업로드에 실패했습니다: ${resourceUpload.failed.join(", ")}`);
       setRepublishing(false);
       return;
     }
 
     setMessage(`수정본으로 새 시험을 생성했습니다. (ID: ${newSummary.id}${uploadSummary}) 관리자 허브로 이동합니다.`);
     setRepublishing(false);
-    router.push("/admin");
+    router.push("/");
     router.refresh();
   };
 
@@ -561,6 +573,7 @@ export function AdminExamListManager({
 
   return (
     <main className="qa-shell space-y-6">
+      <div ref={pageTopRef} className="h-0 w-0" aria-hidden="true" />
       <section className="qa-card bg-hero text-hero-foreground">
         <BackButton fallbackHref="/" tone="hero" />
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
