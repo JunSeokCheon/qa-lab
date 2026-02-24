@@ -1025,7 +1025,7 @@ export function AdminExamDashboard({
               <article key={stat.questionId} className="rounded-xl border border-border/70 bg-surface p-3">
                 <div className="text-sm font-semibold">
                   <span>{stat.questionOrder}. </span>
-                  <MarkdownContent content={stat.prompt} />
+                  <MarkdownContent className="inline space-y-0" textClassName="inline text-sm leading-6" content={stat.prompt} />
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">총 응답 수: {stat.totalResponses}</p>
                 <div className="mt-2 space-y-3">
@@ -1093,7 +1093,7 @@ export function AdminExamDashboard({
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1 font-medium">
                               <span>{answer.question_order}. </span>
-                              <MarkdownContent content={answer.prompt_md} />
+                              <MarkdownContent className="inline space-y-0" textClassName="inline text-xs leading-5" content={answer.prompt_md} />
                             </div>
                             <span
                               className={`mt-0.5 inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${verdict.className}`}
@@ -1234,7 +1234,7 @@ export function AdminExamDashboard({
                                     {isAppealRunning ? "재채점 등록 중..." : "이의제기 재채점 요청"}
                                   </Button>
                                   <p className="text-[11px] text-muted-foreground">
-                                    해당 문항만 즉시 재채점하며, 이의제기는 gpt-5-mini로 처리합니다.
+                                    해당 문항만 즉시 재채점하며, 이의제기는 다른 모델을 사용해서 처리합니다.
                                   </p>
                                 </div>
                               </div>

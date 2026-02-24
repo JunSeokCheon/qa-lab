@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
 import { MarkdownContent } from "@/components/markdown-content";
@@ -116,6 +117,7 @@ export function AdminExamListManager({
   initialFolders: Folder[];
   initialExams: ExamSummary[];
 }) {
+  const router = useRouter();
   const [folders] = useState(initialFolders);
   const [exams, setExams] = useState(initialExams);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(initialExams[0]?.id ?? null);
@@ -129,6 +131,7 @@ export function AdminExamListManager({
   const [republishing, setRepublishing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [republishConfirmOpen, setRepublishConfirmOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -143,6 +146,7 @@ export function AdminExamListManager({
   const [status, setStatus] = useState<"draft" | "published">("published");
   const [questions, setQuestions] = useState<DraftQuestion[]>([]);
   const [copyResources, setCopyResources] = useState(true);
+  const [answerKeyModalQuestionKey, setAnswerKeyModalQuestionKey] = useState<number | null>(null);
 
   const [resourceRows, setResourceRows] = useState<ExamResource[]>([]);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -150,6 +154,9 @@ export function AdminExamListManager({
 
   const [republishResourceFiles, setRepublishResourceFiles] = useState<File[]>([]);
   const republishFileInputRef = useRef<HTMLInputElement | null>(null);
+  const answerKeyModalQuestion = questions.find((question) => question.key === answerKeyModalQuestionKey) ?? null;
+  const answerKeyModalOrder =
+    answerKeyModalQuestion !== null ? questions.findIndex((question) => question.key === answerKeyModalQuestion.key) + 1 : null;
 
   useEffect(() => {
     if (!deleteDialogOpen) return;
@@ -161,6 +168,12 @@ export function AdminExamListManager({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [deleteDialogOpen, deleting]);
+
+  useEffect(() => {
+    if (answerKeyModalQuestionKey === null) return;
+    if (questions.some((question) => question.key === answerKeyModalQuestionKey)) return;
+    setAnswerKeyModalQuestionKey(null);
+  }, [questions, answerKeyModalQuestionKey]);
 
   const loadResources = async (examId: number) => {
     const response = await fetch(`/api/admin/exams/${examId}/resources`, { cache: "no-store" });
@@ -218,6 +231,8 @@ export function AdminExamListManager({
       setQuestions(detailPayload.questions.map(toDraftQuestion));
       setUploadFile(null);
       setRepublishResourceFiles([]);
+      setRepublishConfirmOpen(false);
+      setAnswerKeyModalQuestionKey(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (republishFileInputRef.current) republishFileInputRef.current.value = "";
       setDetailLoading(false);
@@ -245,6 +260,10 @@ export function AdminExamListManager({
 
   const removeQuestion = (key: number) => {
     setQuestions((prev) => (prev.length > 1 ? prev.filter((question) => question.key !== key) : prev));
+  };
+
+  const openAnswerKeyModal = (questionKey: number) => {
+    setAnswerKeyModalQuestionKey(questionKey);
   };
 
   const uploadResourceFilesToExam = async (examId: number, files: File[]) => {
@@ -350,10 +369,16 @@ export function AdminExamListManager({
   const onRepublish = async () => {
     if (!selectedExam) return;
 
+    setRepublishConfirmOpen(false);
     setError("");
     setMessage("");
     if (!title.trim()) {
       setError("시험 제목을 입력해 주세요.");
+      return;
+    }
+    const normalizedTitle = title.trim().toLowerCase();
+    if (exams.some((exam) => exam.title.trim().toLowerCase() === normalizedTitle)) {
+      setError("같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.");
       return;
     }
     if (!targetTrackName) {
@@ -470,9 +495,14 @@ export function AdminExamListManager({
     if (republishFileInputRef.current) republishFileInputRef.current.value = "";
     if (resourceUpload.failed.length > 0) {
       setError(`새 시험은 생성됐지만 일부 리소스 업로드에 실패했습니다: ${resourceUpload.failed.join(", ")}`);
+      setRepublishing(false);
+      return;
     }
-    setMessage(`수정본으로 새 시험을 생성했습니다. (ID: ${newSummary.id}${uploadSummary})`);
+
+    setMessage(`수정본으로 새 시험을 생성했습니다. (ID: ${newSummary.id}${uploadSummary}) 관리자 허브로 이동합니다.`);
     setRepublishing(false);
+    router.push("/admin");
+    router.refresh();
   };
 
   const onDeleteExam = async () => {
@@ -802,20 +832,24 @@ export function AdminExamListManager({
                             </div>
                           ) : (
                             <div className="mt-2 space-y-2">
-                              <Textarea
-                                className="min-h-20"
-                                placeholder={
-                                  question.type === "subjective"
-                                    ? "주관식 자동채점 정답 키를 입력하세요. (비우면 수동 채점 대상)"
-                                    : "코딩 문항의 참고 정답/채점 기준을 입력하세요. (선택)"
-                                }
-                                value={question.answerKeyText}
-                                onChange={(event) => updateQuestion(question.key, { answerKeyText: event.target.value })}
-                              />
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs text-muted-foreground">긴 정답/채점 기준은 큰 입력창에서 작성해 주세요.</p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 px-3 text-xs"
+                                  onClick={() => openAnswerKeyModal(question.key)}
+                                >
+                                  정답/채점 기준
+                                </Button>
+                              </div>
+                              <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-background p-2 text-xs leading-5">
+                                {question.answerKeyText.trim() || "(아직 입력된 정답/채점 기준이 없습니다.)"}
+                              </pre>
                               <p className="text-xs text-muted-foreground">
                                 {question.type === "subjective"
                                   ? "주관식은 정답/채점 기준을 입력하면 LLM이 제출 답안을 비교해 0~100점으로 자동채점합니다."
-                                  : "코딩은 정답 코드/채점 기준을 입력하면 LLM이 제출 코드를 비교해 0~100점으로 자동채점합니다."}
+                                  : "코딩은 정답 코드/채점 기준을 입력하면 LLM이 제출 코드를 비교해 자동채점합니다."}
                               </p>
                             </div>
                           )}
@@ -880,7 +914,7 @@ export function AdminExamListManager({
                     </p>
                   </div>
 
-                  <Button type="button" onClick={() => void onRepublish()} disabled={republishing}>
+                  <Button type="button" onClick={() => setRepublishConfirmOpen(true)} disabled={republishing}>
                     {republishing ? "재출제 중..." : "수정본 재출제 (새 시험 생성)"}
                   </Button>
                 </article>
@@ -889,6 +923,65 @@ export function AdminExamListManager({
           </section>
         </section>
       )}
+
+      {answerKeyModalQuestion ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-border/70 bg-white shadow-2xl">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-lg font-semibold">문항 {answerKeyModalOrder ?? "-"} 정답/채점 기준</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {answerKeyModalQuestion.type === "coding"
+                  ? "코딩 정답 코드/채점 기준을 길게 입력할 수 있습니다."
+                  : "주관식 정답 키/채점 기준을 길게 입력할 수 있습니다."}
+              </p>
+            </div>
+            <div className="p-5">
+              <Textarea
+                className={`min-h-[55vh] ${
+                  answerKeyModalQuestion.type === "coding" ? "font-mono text-xs leading-5" : "text-sm leading-6"
+                }`}
+                placeholder={
+                  answerKeyModalQuestion.type === "coding"
+                    ? "코딩 문항의 참고 정답/채점 기준을 입력하세요. (선택)"
+                    : "주관식 자동채점 정답 키를 입력하세요. (비우면 수동 채점 대상)"
+                }
+                value={answerKeyModalQuestion.answerKeyText}
+                onChange={(event) => updateQuestion(answerKeyModalQuestion.key, { answerKeyText: event.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button type="button" variant="outline" onClick={() => setAnswerKeyModalQuestionKey(null)}>
+                닫기
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {republishConfirmOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md overflow-hidden rounded-3xl border border-primary/40 bg-white shadow-2xl">
+            <div className="bg-gradient-to-r from-primary to-[#d80028] px-5 py-4 text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]">확인</p>
+              <h3 className="mt-1 text-lg font-bold">수정본 재생성 확인</h3>
+            </div>
+            <div className="space-y-3 p-5 text-sm text-foreground">
+              <p className="rounded-xl border border-primary/20 bg-secondary/50 p-3">
+                <span className="font-semibold">{title.trim() || "(제목 없음)"}</span>
+              </p>
+              <p>수정본을 재생성하시겠습니까?</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button type="button" variant="outline" onClick={() => setRepublishConfirmOpen(false)} disabled={republishing}>
+                취소
+              </Button>
+              <Button type="button" onClick={() => void onRepublish()} disabled={republishing}>
+                {republishing ? "재출제 중..." : "확인"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {deleteDialogOpen && selectedExam ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">

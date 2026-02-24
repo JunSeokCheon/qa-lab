@@ -43,6 +43,17 @@ pnpm dev
 - Web: `http://localhost:3000`
 - API Docs: `http://127.0.0.1:8000/docs`
 
+### 4) 변경사항 빠른 검증 명령
+```bash
+# web 정적 검사/빌드
+pnpm --dir apps/web lint
+pnpm --dir apps/web build
+
+# 로컬 도커 최신 반영(web/api/worker)
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull web api worker
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --no-deps web api worker
+```
+
 ## Docker 실행/갱신
 로컬 통합 테스트 기준:
 ```bash
@@ -182,8 +193,9 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 관리자 시험 생성 시 `시험 생성` 버튼을 누르면 확인 모달(`시험을 생성하시겠습니까?`)이 먼저 표시됩니다.
 - 응시자가 시험 페이지에 진입하면 서버 기준으로 응시 시작 시각이 기록되고, 남은 시간이 내려갑니다.
 - 브라우저를 닫았다가 다시 열어도 타이머는 계속 흐릅니다.
-- 제출 버튼 클릭 시 확인 모달(`시험지를 제출하시겠습니까?`)이 표시됩니다.
-- 제출 후 재응시는 차단되며, 같은 페이지(`/problems/{examId}`)에서 `내 제출 답안`(문항/내 답/정답 기준)을 확인할 수 있습니다.
+- 제출 버튼 클릭 시 확인 모달(`시험지를 제출하시겠습니까?`)이 표시되고, 확인 버튼으로 바로 이동할 수 있도록 스크롤/포커스가 맞춰집니다.
+- 제출 후 재응시는 차단되며 `/problems` 시험 목록으로 자동 이동합니다.
+- 제출된 시험은 목록에서 즉시 `제출 완료`/`응답 보기` 상태로 표시되고, `응답 보기`로 문항별 답안/정답 기준을 확인할 수 있습니다.
 - 시험 설명/문항 본문은 개행과 코드 블록(```` fenced code ````) 렌더링을 지원합니다.
 - 제출 시각/채점 시각 표시는 `Asia/Seoul`(KST) 기준으로 통일됩니다.
 - API:
@@ -238,7 +250,7 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 
 ## 자동채점 정답 키 입력
 - 관리자 시험 생성/재출판 화면에서 주관식 문항에 정답 키 텍스트를 입력할 수 있습니다.
-- 문항 카드의 `정답/채점 기준` 섹션에서 문항별 정답을 입력할 수 있습니다.
+- 문항 카드의 `정답/채점 기준` 버튼으로 큰 모달 입력창을 열어 문항별 정답을 길게 입력할 수 있습니다.
 - 객관식은 해당 섹션의 라디오 버튼으로 정답 번호를 지정합니다.
 - 문항 유형을 `subjective` 또는 `coding`으로 바꾸면 텍스트 기반 정답/채점 기준 입력 칸이 표시됩니다.
 - 주관식/코딩은 LLM이 정답 키 대비 의미/로직 일치도를 평가해 0~100점으로 채점합니다.

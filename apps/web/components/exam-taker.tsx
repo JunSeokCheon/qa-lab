@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
@@ -100,16 +101,20 @@ export function ExamTaker({
   initialRemainingSeconds: number | null;
   initialSubmission: MyExamSubmissionDetail | null;
 }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState<Record<number, AnswerState>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(submitted ? "이미 제출한 시험입니다." : "");
   const [loading, setLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(submitted);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [submissionDetail, setSubmissionDetail] = useState<MyExamSubmissionDetail | null>(initialSubmission);
+  const [answerEditorQuestionId, setAnswerEditorQuestionId] = useState<number | null>(null);
+  const [submissionDetail] = useState<MyExamSubmissionDetail | null>(initialSubmission);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(
     typeof initialRemainingSeconds === "number" ? Math.max(0, initialRemainingSeconds) : null
   );
+  const finalSubmitButtonRef = useRef<HTMLButtonElement | null>(null);
+  const answerEditorQuestion = questions.find((question) => question.id === answerEditorQuestionId) ?? null;
 
   const requiredCount = useMemo(() => questions.filter((question) => question.required).length, [questions]);
   const isTimeLimited = durationMinutes !== null && remainingSeconds !== null;
@@ -129,6 +134,13 @@ export function ExamTaker({
     return () => window.clearInterval(timer);
   }, [isSubmitted, isTimeLimited, remainingSeconds]);
 
+  useEffect(() => {
+    if (!showSubmitConfirm) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    const timer = window.setTimeout(() => finalSubmitButtonRef.current?.focus(), 120);
+    return () => window.clearTimeout(timer);
+  }, [showSubmitConfirm]);
+
   const displayError = isExpired ? "시험 시간이 종료되었습니다. 제출이 제한됩니다." : error;
 
   const setTextAnswer = (questionId: number, value: string) => {
@@ -139,17 +151,8 @@ export function ExamTaker({
     setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], selected_choice_index: value } }));
   };
 
-  const fetchMySubmissionDetail = async () => {
-    const response = await fetch(`/api/exams/${examId}/my-submission`, { cache: "no-store" });
-    const body = (await response.json().catch(() => ({}))) as MyExamSubmissionDetail & {
-      detail?: string;
-      message?: string;
-    };
-    if (!response.ok || !body.submission_id) {
-      return body.detail ?? body.message ?? "제출 상세를 불러오지 못했습니다.";
-    }
-    setSubmissionDetail(body);
-    return null;
+  const openAnswerEditor = (questionId: number) => {
+    setAnswerEditorQuestionId(questionId);
   };
 
   const submitExam = async () => {
@@ -179,13 +182,12 @@ export function ExamTaker({
       return;
     }
 
-    setSuccess("시험이 제출되었습니다.");
+    setSuccess("시험이 제출되었습니다. 시험 목록으로 이동합니다.");
     setIsSubmitted(true);
-    const detailError = await fetchMySubmissionDetail();
-    if (detailError) {
-      setError(detailError);
-    }
+    setAnswerEditorQuestionId(null);
     setLoading(false);
+    router.push("/problems");
+    router.refresh();
   };
 
   return (
@@ -285,13 +287,23 @@ export function ExamTaker({
                   ))}
                 </div>
               ) : (
-                <Textarea
-                  className="mt-3 min-h-28"
-                  value={answers[question.id]?.answer_text ?? ""}
-                  onChange={(event) => setTextAnswer(question.id, event.target.value)}
-                  placeholder={question.type === "coding" ? "코드 또는 풀이를 입력하세요." : "답안을 입력하세요."}
-                  disabled={loading || isExpired}
-                />
+                <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">긴 답안은 큰 입력창에서 작성해 주세요.</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 px-3 text-xs"
+                      onClick={() => openAnswerEditor(question.id)}
+                      disabled={loading || isExpired}
+                    >
+                      정답 입력
+                    </Button>
+                  </div>
+                  <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs leading-5">
+                    {(answers[question.id]?.answer_text ?? "").trim() || "(아직 입력한 답안이 없습니다.)"}
+                  </pre>
+                </div>
               )}
             </article>
           ))}
@@ -314,8 +326,39 @@ export function ExamTaker({
               <Button type="button" variant="outline" onClick={() => setShowSubmitConfirm(false)} disabled={loading}>
                 취소
               </Button>
-              <Button type="button" onClick={() => void submitExam()} disabled={loading}>
+              <Button ref={finalSubmitButtonRef} type="button" onClick={() => void submitExam()} disabled={loading}>
                 최종 제출
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {answerEditorQuestion ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-border/70 bg-white shadow-2xl">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-lg font-semibold">문항 {answerEditorQuestion.order_index} 답안 입력</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {answerEditorQuestion.type === "coding"
+                  ? "코딩 답안을 길게 입력하거나 수정할 수 있습니다."
+                  : "주관식 답안을 길게 입력하거나 수정할 수 있습니다."}
+              </p>
+            </div>
+            <div className="p-5">
+              <Textarea
+                className={`min-h-[55vh] ${
+                  answerEditorQuestion.type === "coding" ? "font-mono text-xs leading-5" : "text-sm leading-6"
+                }`}
+                value={answers[answerEditorQuestion.id]?.answer_text ?? ""}
+                onChange={(event) => setTextAnswer(answerEditorQuestion.id, event.target.value)}
+                placeholder={answerEditorQuestion.type === "coding" ? "코드 또는 풀이를 입력하세요." : "답안을 입력하세요."}
+                disabled={loading || isExpired}
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button type="button" variant="outline" onClick={() => setAnswerEditorQuestionId(null)} disabled={loading}>
+                닫기
               </Button>
             </div>
           </div>

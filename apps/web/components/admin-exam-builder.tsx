@@ -171,6 +171,7 @@ export function AdminExamBuilder({
 }: {
   initialFolders: Folder[];
 }) {
+  const [existingExamTitles, setExistingExamTitles] = useState<string[]>([]);
   const [folders, setFolders] = useState(initialFolders);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -187,6 +188,7 @@ export function AdminExamBuilder({
   const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [questions, setQuestions] = useState<DraftQuestion[]>([newQuestion(1, "multiple_choice")]);
   const [resourceFiles, setResourceFiles] = useState<File[]>([]);
+  const [answerKeyModalQuestionKey, setAnswerKeyModalQuestionKey] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -201,7 +203,28 @@ export function AdminExamBuilder({
     })();
   }, [folders.length]);
 
+  useEffect(() => {
+    void (async () => {
+      const response = await fetch("/api/admin/exams", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json().catch(() => [])) as { title?: string }[];
+      const titles = payload
+        .map((exam) => (exam.title ?? "").trim().toLowerCase())
+        .filter((title) => title.length > 0);
+      setExistingExamTitles(titles);
+    })();
+  }, []);
+
   const hasCodingQuestion = useMemo(() => questions.some((question) => question.type === "coding"), [questions]);
+  const answerKeyModalQuestion = questions.find((question) => question.key === answerKeyModalQuestionKey) ?? null;
+  const answerKeyModalOrder =
+    answerKeyModalQuestion !== null ? questions.findIndex((question) => question.key === answerKeyModalQuestion.key) + 1 : null;
+
+  useEffect(() => {
+    if (answerKeyModalQuestionKey === null) return;
+    if (questions.some((question) => question.key === answerKeyModalQuestionKey)) return;
+    setAnswerKeyModalQuestionKey(null);
+  }, [questions, answerKeyModalQuestionKey]);
 
   const updateQuestion = (key: number, patch: Partial<DraftQuestion>) => {
     setQuestions((prev) => prev.map((question) => (question.key === key ? { ...question, ...patch } : question)));
@@ -244,6 +267,10 @@ export function AdminExamBuilder({
 
   const removeQuestion = (key: number) => {
     setQuestions((prev) => (prev.length > 1 ? prev.filter((question) => question.key !== key) : prev));
+  };
+
+  const openAnswerKeyModal = (questionKey: number) => {
+    setAnswerKeyModalQuestionKey(questionKey);
   };
 
   const uploadResourceFilesToExam = async (examId: number, files: File[]) => {
@@ -292,6 +319,12 @@ export function AdminExamBuilder({
 
     if (!title.trim()) {
       setError("시험 제목을 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+    const normalizedTitle = title.trim().toLowerCase();
+    if (existingExamTitles.includes(normalizedTitle)) {
+      setError("같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.");
       setLoading(false);
       return;
     }
@@ -372,6 +405,7 @@ export function AdminExamBuilder({
 
     const uploadMessage = uploadResult.uploaded > 0 ? `, 리소스 ${uploadResult.uploaded}개 업로드 완료` : "";
     setMessage(`시험을 생성했습니다. (ID: ${payload.id}${uploadMessage})`);
+    setExistingExamTitles((prev) => [...prev, normalizedTitle]);
     setTitle("");
     setDescription("");
     setTargetTrackName(TRACK_OPTIONS[0]);
@@ -379,6 +413,7 @@ export function AdminExamBuilder({
     setNoTimeLimit(false);
     setQuestions([newQuestion(Date.now(), "multiple_choice")]);
     setResourceFiles([]);
+    setAnswerKeyModalQuestionKey(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -571,16 +606,20 @@ export function AdminExamBuilder({
                       </div>
                     ) : null}
 
-                    <Textarea
-                      className="min-h-28"
-                      placeholder={
-                        question.type === "subjective"
-                          ? "주관식 정답/채점 기준을 입력해 주세요."
-                          : "코딩 정답 코드 + 체크포인트(선택)를 입력해 주세요."
-                      }
-                      value={question.answerKeyText}
-                      onChange={(event) => updateQuestion(question.key, { answerKeyText: event.target.value })}
-                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">긴 정답/채점 기준은 큰 입력창에서 작성해 주세요.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => openAnswerKeyModal(question.key)}
+                      >
+                        정답/채점 기준
+                      </Button>
+                    </div>
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-background p-2 text-xs leading-5">
+                      {question.answerKeyText.trim() || "(아직 입력된 정답/채점 기준이 없습니다.)"}
+                    </pre>
                     <p className="text-xs text-muted-foreground">
                       {question.type === "subjective"
                         ? "입력한 정답/채점 기준을 바탕으로 LLM이 제출 답안을 자동 평가합니다."
@@ -638,6 +677,38 @@ export function AdminExamBuilder({
 
         <Button disabled={loading || uploadingResources}>{loading || uploadingResources ? "생성 중..." : "시험 생성"}</Button>
       </form>
+
+      {answerKeyModalQuestion ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-border/70 bg-white shadow-2xl">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-lg font-semibold">문항 {answerKeyModalOrder ?? "-"} 정답/채점 기준</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {answerKeyModalQuestion.type === "coding"
+                  ? "코딩 문항의 정답 코드/채점 체크포인트를 충분히 길게 입력할 수 있습니다."
+                  : "주관식 문항의 정답 키워드/채점 기준을 충분히 자세히 입력할 수 있습니다."}
+              </p>
+            </div>
+            <div className="p-5">
+              <Textarea
+                className={`min-h-[55vh] ${answerKeyModalQuestion.type === "coding" ? "font-mono text-xs" : "text-sm leading-6"}`}
+                placeholder={
+                  answerKeyModalQuestion.type === "coding"
+                    ? "코딩 정답 코드 + 체크포인트(선택)를 입력해 주세요."
+                    : "주관식 정답/채점 기준을 입력해 주세요."
+                }
+                value={answerKeyModalQuestion.answerKeyText}
+                onChange={(event) => updateQuestion(answerKeyModalQuestion.key, { answerKeyText: event.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button type="button" variant="outline" onClick={() => setAnswerKeyModalQuestionKey(null)}>
+                닫기
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showCreateConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
