@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -28,9 +28,9 @@ const TEMPLATE_VISUAL_STATS = "visual_stats";
 type CodingTemplateKey = typeof TEMPLATE_PANDAS_HEAD | typeof TEMPLATE_FUNCTION_IO | typeof TEMPLATE_VISUAL_STATS;
 
 const CODING_TEMPLATE_LABEL: Record<CodingTemplateKey, string> = {
-  [TEMPLATE_PANDAS_HEAD]: "CSV 읽기/5행 출력",
-  [TEMPLATE_FUNCTION_IO]: "함수 구현",
-  [TEMPLATE_VISUAL_STATS]: "시각화/통계",
+  [TEMPLATE_PANDAS_HEAD]: "CSV 읽기/5행",
+  [TEMPLATE_FUNCTION_IO]: "함수 구현형",
+  [TEMPLATE_VISUAL_STATS]: "시각화/통계형",
 };
 
 const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
@@ -45,8 +45,15 @@ const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
     "",
     "## 채점 체크포인트",
     "- pandas import가 있는가",
-    '- `pd.read_csv("test.csv")`로 파일을 읽는가',
+    '- `pd.read_csv(\"test.csv\")`로 파일을 읽는가',
     "- `head()` 결과를 출력하는가",
+    "",
+    "## 정답 판정 기준",
+    "- 파일 읽기 + head 출력까지 충족하면 정답",
+    "- 필수 단계가 누락되면 오답",
+    "",
+    "## 오답 처리",
+    "- 파일명 오류, 함수 미사용, 출력 누락 시 오답 처리",
   ].join("\n"),
   [TEMPLATE_FUNCTION_IO]: [
     "## 정답 코드 예시",
@@ -58,6 +65,14 @@ const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
     "## 채점 체크포인트",
     "- 함수명/인자 시그니처가 요구사항과 일치하는가",
     "- 반환값 로직이 문제 요구를 만족하는가",
+    "- 기본/경계 입력에서 오동작이 없는가",
+    "",
+    "## 정답 판정 기준",
+    "- 함수 시그니처와 핵심 로직이 요구사항을 모두 충족하면 정답",
+    "- 핵심 요구사항이 하나라도 누락되면 오답",
+    "",
+    "## 오답 처리",
+    "- print만 하고 return이 없으면 오답 처리",
   ].join("\n"),
   [TEMPLATE_VISUAL_STATS]: [
     "## 정답 코드 예시",
@@ -75,8 +90,15 @@ const CODING_TEMPLATE_TEXT: Record<CodingTemplateKey, string> = {
     "",
     "## 채점 체크포인트",
     "- 데이터 로드 성공",
-    "- 통계 요약 출력",
-    "- 시각화 코드 포함",
+    "- 통계 요약 결과 출력",
+    "- 시각화 코드(그래프 생성/표시) 포함",
+    "",
+    "## 정답 판정 기준",
+    "- 로드 + 통계 + 시각화 요구사항을 모두 충족하면 정답",
+    "- 필수 출력/시각화가 누락되면 오답",
+    "",
+    "## 오답 처리",
+    "- 시각화 누락 또는 통계 함수 미사용 시 오답 처리",
   ].join("\n"),
 };
 
@@ -93,8 +115,7 @@ function newQuestion(key: number, type: QuestionType): DraftQuestion {
 }
 
 function buildRubricHelperText(question: DraftQuestion): string {
-  const answerPreview =
-    question.answerKeyText.trim() || "(정답/채점 기준을 먼저 간단히 작성해 주세요)";
+  const answerPreview = question.answerKeyText.trim() || "(정답/채점 기준을 먼저 간단히 작성해 주세요)";
   if (question.type === "coding") {
     return [
       "",
@@ -102,16 +123,22 @@ function buildRubricHelperText(question: DraftQuestion): string {
       `문항 요약: ${question.prompt_md.trim()}`,
       "",
       "[필수 체크포인트]",
-      "- 입력 데이터/파일 접근 방식이 문제 요구와 일치하는가",
-      "- 요구된 함수/메서드를 올바르게 사용했는가",
-      "- 결과 출력 또는 반환 형식이 문제 요구와 일치하는가",
+      "- 입력 데이터/파일 접근 방식이 맞는가",
+      "- 핵심 함수/메서드를 올바르게 사용했는가",
+      "- 결과 출력 또는 반환 형식이 맞는가",
+      "- 예외/경계값 처리 관점에서 치명적 오류가 없는가",
       "",
-      "[정답/오답 기준 예시]",
-      "- 필수 요구사항을 모두 만족하면 정답",
-      "- 필수 요구사항이 누락되면 오답",
+      "[정답/오답 기준(예시)]",
+      "- 필수 요구사항(입력 처리/핵심 로직/출력 형식)을 모두 충족하면 정답",
+      "- 필수 요구사항 중 하나라도 누락되면 오답",
       "",
       "[정답 기준 요약]",
       answerPreview,
+      "",
+      "[오답 사유 예시]",
+      "- 파일 경로/파일명 오류",
+      "- 요구한 함수 미사용",
+      "- 출력/반환 누락",
     ].join("\n");
   }
 
@@ -120,16 +147,22 @@ function buildRubricHelperText(question: DraftQuestion): string {
     "## 채점기준 도우미 초안",
     `문항 요약: ${question.prompt_md.trim()}`,
     "",
-    "[필수 체크포인트]",
+    "[핵심 체크포인트]",
     "- 핵심 개념을 정확히 설명했는가",
-    "- 문제에서 요구한 근거가 포함되었는가",
+    "- 문제에서 요구한 키워드/근거가 포함되었는가",
+    "- 답변 구조가 논리적인가",
     "",
-    "[정답/오답 기준 예시]",
-    "- 정답 기준과 일치하면 정답",
-    "- 핵심 개념/근거가 누락되면 오답",
+    "[정답/오답 기준(예시)]",
+    "- 핵심 개념과 결론이 정답 기준과 일치하면 정답",
+    "- 핵심 개념 또는 결론이 누락되면 오답",
     "",
     "[정답 기준 요약]",
     answerPreview,
+    "",
+    "[오답 사유 예시]",
+    "- 핵심 개념 누락",
+    "- 질문과 무관한 답변",
+    "- 근거 부족",
   ].join("\n");
 }
 
@@ -144,11 +177,6 @@ export function AdminExamBuilder({
   const [loading, setLoading] = useState(false);
   const [uploadingResources, setUploadingResources] = useState(false);
   const [showCreateConfirm, setShowCreateConfirm] = useState(false);
-  const [answerKeyEditor, setAnswerKeyEditor] = useState<{
-    questionKey: number;
-    questionLabel: string;
-    value: string;
-  } | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -173,17 +201,6 @@ export function AdminExamBuilder({
     })();
   }, [folders.length]);
 
-  useEffect(() => {
-    if (!answerKeyEditor) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setAnswerKeyEditor(null);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [answerKeyEditor]);
-
   const hasCodingQuestion = useMemo(() => questions.some((question) => question.type === "coding"), [questions]);
 
   const updateQuestion = (key: number, patch: Partial<DraftQuestion>) => {
@@ -204,35 +221,21 @@ export function AdminExamBuilder({
   const applyCodingTemplate = (questionKey: number, templateKey: CodingTemplateKey) => {
     const template = CODING_TEMPLATE_TEXT[templateKey];
     updateQuestion(questionKey, { answerKeyText: template });
-    setMessage(`肄붾뵫 ?뺣떟 ?쒗뵆由우쓣 ?곸슜?덉뒿?덈떎: ${CODING_TEMPLATE_LABEL[templateKey]}`);
+    setMessage(`코딩 정답 템플릿을 적용했습니다: ${CODING_TEMPLATE_LABEL[templateKey]}`);
     setError("");
   };
 
   const appendRubricHelper = (question: DraftQuestion) => {
     if (!question.prompt_md.trim()) {
-      setError("梨꾩젏湲곗? ?꾩슦誘몃? ?ъ슜?섎젮硫?癒쇱? 臾명빆 ?댁슜???낅젰??二쇱꽭??");
+      setError("채점기준 도우미를 사용하려면 먼저 문항 내용을 입력해 주세요.");
       setMessage("");
       return;
     }
     const helper = buildRubricHelperText(question);
     const next = question.answerKeyText.trim() ? `${question.answerKeyText.trim()}\n${helper}` : helper.trim();
     updateQuestion(question.key, { answerKeyText: next });
-    setMessage(`臾명빆 ${questions.findIndex((item) => item.key === question.key) + 1}??梨꾩젏湲곗? 珥덉븞??異붽??덉뒿?덈떎.`);
+    setMessage(`문항 ${questions.findIndex((item) => item.key === question.key) + 1}에 채점기준 초안을 추가했습니다.`);
     setError("");
-  };
-
-  const openAnswerKeyEditor = (question: DraftQuestion, questionIndex: number) => {
-    setAnswerKeyEditor({
-      questionKey: question.key,
-      questionLabel: `${questionIndex + 1}踰?臾명빆`,
-      value: question.answerKeyText,
-    });
-  };
-
-  const saveAnswerKeyEditor = () => {
-    if (!answerKeyEditor) return;
-    updateQuestion(answerKeyEditor.questionKey, { answerKeyText: answerKeyEditor.value });
-    setAnswerKeyEditor(null);
   };
 
   const addQuestion = (type: QuestionType) => {
@@ -288,12 +291,12 @@ export function AdminExamBuilder({
     setLoading(true);
 
     if (!title.trim()) {
-      setError("?쒗뿕 ?쒕ぉ???낅젰??二쇱꽭??");
+      setError("시험 제목을 입력해 주세요.");
       setLoading(false);
       return;
     }
     if (!targetTrackName) {
-      setError("?묒떆 ???諛섏쓣 ?좏깮??二쇱꽭??");
+      setError("응시 대상 반을 선택해 주세요.");
       setLoading(false);
       return;
     }
@@ -301,7 +304,7 @@ export function AdminExamBuilder({
     if (!noTimeLimit) {
       parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
       if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
-        setError("?쒗뿕 ?쒓컙? 1遺??댁긽 1440遺??댄븯濡??낅젰??二쇱꽭??");
+        setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
         setLoading(false);
         return;
       }
@@ -310,14 +313,14 @@ export function AdminExamBuilder({
     const normalizedQuestions = [];
     for (const question of questions) {
       if (!question.prompt_md.trim()) {
-        setError("紐⑤뱺 臾명빆 ?댁슜???낅젰??二쇱꽭??");
+        setError("모든 문항 내용을 입력해 주세요.");
         setLoading(false);
         return;
       }
       if (question.type === "multiple_choice") {
         const trimmedChoices = question.choices.map((choice) => choice.trim());
         if (trimmedChoices.some((choice) => choice.length === 0)) {
-          setError("媛앷??앹? ?좏깮吏 4媛쒕? 紐⑤몢 ?낅젰??二쇱꽭??");
+          setError("객관식은 선택지 4개를 모두 입력해 주세요.");
           setLoading(false);
           return;
         }
@@ -357,18 +360,18 @@ export function AdminExamBuilder({
     });
     const payload = (await response.json().catch(() => ({}))) as { id?: number; detail?: string; message?: string };
     if (!response.ok || !payload.id) {
-      setError(payload.detail ?? payload.message ?? "?쒗뿕 ?앹꽦???ㅽ뙣?덉뒿?덈떎.");
+      setError(payload.detail ?? payload.message ?? "시험 생성에 실패했습니다.");
       setLoading(false);
       return;
     }
 
     const uploadResult = await uploadResourceFilesToExam(payload.id, resourceFiles);
     if (uploadResult.failed.length > 0) {
-      setError(`?쒗뿕? ?앹꽦?섏뿀吏留?由ъ냼???낅줈?쒖뿉 ?ㅽ뙣???뚯씪???덉뒿?덈떎: ${uploadResult.failed.join(", ")}`);
+      setError(`시험은 생성되었지만 리소스 업로드에 실패한 파일이 있습니다: ${uploadResult.failed.join(", ")}`);
     }
 
-    const uploadMessage = uploadResult.uploaded > 0 ? `, 由ъ냼??${uploadResult.uploaded}媛??낅줈???꾨즺` : "";
-    setMessage(`?쒗뿕???앹꽦?덉뒿?덈떎. (ID: ${payload.id}${uploadMessage})`);
+    const uploadMessage = uploadResult.uploaded > 0 ? `, 리소스 ${uploadResult.uploaded}개 업로드 완료` : "";
+    setMessage(`시험을 생성했습니다. (ID: ${payload.id}${uploadMessage})`);
     setTitle("");
     setDescription("");
     setTargetTrackName(TRACK_OPTIONS[0]);
@@ -386,13 +389,13 @@ export function AdminExamBuilder({
     <main className="qa-shell space-y-6">
       <section className="qa-card bg-hero text-hero-foreground">
         <BackButton fallbackHref="/" tone="hero" />
-        <p className="qa-kicker mt-4 text-hero-foreground/80">愿由ъ옄</p>
+        <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
         <p className="mt-3 text-sm text-hero-foreground/90">
-          臾명빆蹂??뺣떟/梨꾩젏湲곗????낅젰?섎㈃ ?먮룞 梨꾩젏(媛앷???湲곗? 梨꾩젏 + 二쇨???肄붾뵫 LLM 梨꾩젏)???쒖슜?⑸땲??
+          문항별 정답/채점기준을 입력하면 자동 채점(객관식 기준 채점 + 주관식/코딩 LLM 채점)에 활용됩니다.
         </p>
         <p className="mt-2 text-xs text-hero-foreground/90">
-          肄붾뱶 釉붾줉 ?묒꽦: 臾명빆/?ㅻ챸??<code>```python</code>?쇰줈 ?쒖옉?섍퀬 <code>```</code>?쇰줈 ?レ쑝硫?誘몃━蹂닿린? ?묒떆 ?붾㈃??肄붾뱶 釉붾줉?쇰줈 ?쒖떆?⑸땲??
+          코드 블록 작성: 문항/설명에 <code>```python</code>으로 시작하고 <code>```</code>으로 닫으면 미리보기와 응시 화면에 코드 블록으로 표시됩니다.
         </p>
       </section>
 
@@ -401,16 +404,14 @@ export function AdminExamBuilder({
 
       <section className="qa-card">
         <details open className="space-y-2">
-          <summary className="cursor-pointer text-sm font-semibold">?쒗꽣??臾몄젣-?뺣떟 ?묒꽦 媛?대뱶</summary>
+          <summary className="cursor-pointer text-sm font-semibold">튜터용 문제-정답 작성 가이드</summary>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            <li>媛앷??? ?뺣떟 ?쇰뵒??踰꾪듉留??뺥솗???좏깮?섎㈃ ?⑸땲??</li>
-            <li>二쇨??? ?뺣떟 ?ㅼ썙?쒖? ?꾩닔 ?ы븿 ?댁슜(?? ?⑹뼱, 洹쇨굅)??吏㏐쾶 ?곸뼱二쇱꽭??</li>
-            <li>肄붾뵫: ?뺣떟 肄붾뱶 ?덉떆 + 泥댄겕?ъ씤???좏깮)???곸뼱二쇱꽭??</li>
-            <li>
-              코드 블록: <code>```python</code>으로 시작하고 마지막 줄에 <code>```</code>을 입력하세요.
-            </li>
-            <li>肄붾뵫 由ъ냼???뚯씪紐낆? ?곗씠???뱀? ?ㅼ뒿 ?뚯씪???낅줈?쒗빐???⑸땲??</li>
-            <li>梨꾩젏湲곗? ?꾩슦誘?踰꾪듉?쇰줈 珥덉븞??留뚮뱺 ?? ?ㅼ젣 ?섏뾽 湲곗???留욊쾶 ?섏젙?섎㈃ ?⑸땲?? ?대떦 ?댁슜? ?좏깮?낅땲??</li>
+            <li>객관식: 정답 라디오 버튼만 정확히 선택하면 됩니다.</li>
+            <li>주관식: 정답 키워드와 필수 포함 내용(예: 용어, 근거)을 짧게 적어주세요.</li>
+            <li>코딩: 정답 코드 예시 + 체크포인트(선택)을 적어주세요.</li>
+            <li>코드 블록: <code>```언어명</code>으로 시작하고 마지막 줄에 <code>```</code>을 입력하세요.</li>
+            <li>코딩 리소스 파일명은 데이터 혹은 실습 파일을 업로드해도 됩니다.</li>
+            <li>채점기준 도우미 버튼으로 초안을 만든 뒤, 실제 수업 기준에 맞게 수정하면 됩니다. 해당 내용은 선택입니다.</li>
           </ul>
         </details>
       </section>
@@ -424,10 +425,10 @@ export function AdminExamBuilder({
         }}
       >
         <h2 className="text-lg font-semibold">새 시험 만들기</h2>
-        <Input placeholder="?쒗뿕 ?쒕ぉ" value={title} onChange={(event) => setTitle(event.target.value)} required />
+        <Input placeholder="시험 제목" value={title} onChange={(event) => setTitle(event.target.value)} required />
         <Textarea
           className="min-h-24"
-          placeholder="?쒗뿕 ?ㅻ챸 (?좏깮)"
+          placeholder="시험 설명 (선택)"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
         />
@@ -438,7 +439,7 @@ export function AdminExamBuilder({
             value={folderId}
             onChange={(event) => setFolderId(event.target.value)}
           >
-            <option value="">移댄뀒怨좊━ ?좏깮 (?좏깮)</option>
+            <option value="">카테고리 선택 (선택)</option>
             {folders.map((folder) => (
               <option key={folder.id} value={folder.id}>
                 {folder.path}
@@ -450,8 +451,8 @@ export function AdminExamBuilder({
             value={examKind}
             onChange={(event) => setExamKind(event.target.value as "quiz" | "assessment")}
           >
-            <option value="quiz">?댁쫰</option>
-            <option value="assessment">?깆랬???됯?</option>
+            <option value="quiz">퀴즈</option>
+            <option value="assessment">성취도 평가</option>
           </select>
         </div>
 
@@ -462,21 +463,21 @@ export function AdminExamBuilder({
         >
           {TRACK_OPTIONS.map((track) => (
             <option key={track} value={track}>
-              ?묒떆 ??? {track}
+              응시 대상: {track}
             </option>
           ))}
         </select>
 
         <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium">?쒗뿕 ?쒓컙 (遺?</p>
+            <p className="text-sm font-medium">시험 시간 (분)</p>
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={noTimeLimit}
                 onChange={(event) => setNoTimeLimit(event.target.checked)}
               />
-              ?쒓컙 ?쒗븳 ?놁쓬
+              시간 제한 없음
             </label>
           </div>
           <Input
@@ -485,7 +486,7 @@ export function AdminExamBuilder({
             max={1440}
             value={durationMinutes}
             onChange={(event) => setDurationMinutes(event.target.value)}
-            placeholder="?? 60"
+            placeholder="예: 60"
             disabled={noTimeLimit}
           />
         </div>
@@ -494,9 +495,9 @@ export function AdminExamBuilder({
           {questions.map((question, index) => (
             <article key={question.key} className="rounded-2xl border border-border/70 p-4">
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">臾명빆 {index + 1}</h3>
+                <h3 className="text-sm font-semibold">문항 {index + 1}</h3>
                 <Button type="button" variant="outline" onClick={() => removeQuestion(question.key)}>
-                  臾명빆 ??젣
+                  문항 삭제
                 </Button>
               </div>
 
@@ -507,27 +508,27 @@ export function AdminExamBuilder({
               >
                 <option value="multiple_choice">객관식</option>
                 <option value="subjective">주관식</option>
-                <option value="coding">肄붾뵫</option>
+                <option value="coding">코딩</option>
               </select>
 
               <Textarea
                 className="mt-2 min-h-48"
-                placeholder="臾명빆 ?댁슜???낅젰??二쇱꽭??"
+                placeholder="문항 내용을 입력해 주세요."
                 value={question.prompt_md}
                 onChange={(event) => updateQuestion(question.key, { prompt_md: event.target.value })}
                 required
               />
               <div className="mt-2 rounded-xl border border-border/70 bg-background/70 p-3">
-                <p className="text-[11px] font-semibold text-muted-foreground">臾명빆 誘몃━蹂닿린</p>
+                <p className="text-[11px] font-semibold text-muted-foreground">문항 미리보기</p>
                 <MarkdownContent className="mt-2" content={question.prompt_md} />
               </div>
 
               <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold">?뺣떟/梨꾩젏 湲곗?</p>
+                  <p className="text-xs font-semibold">정답/채점 기준</p>
                   {question.type !== "multiple_choice" ? (
                     <Button type="button" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => appendRubricHelper(question)}>
-                      梨꾩젏湲곗? ?꾩슦誘?異붽?
+                      채점기준 도우미 추가
                     </Button>
                   ) : null}
                 </div>
@@ -544,7 +545,7 @@ export function AdminExamBuilder({
                         />
                         <span className="w-10 text-muted-foreground">{choiceIndex + 1}번</span>
                         <Input
-                          placeholder={`${choiceIndex + 1}踰??좏깮吏`}
+                          placeholder={`${choiceIndex + 1}번 선택지`}
                           value={choice}
                           onChange={(event) => updateChoice(question.key, choiceIndex, event.target.value)}
                         />
@@ -564,30 +565,26 @@ export function AdminExamBuilder({
                             className="h-7 px-2 text-[11px]"
                             onClick={() => applyCodingTemplate(question.key, templateKey)}
                           >
-                            ?쒗뵆由? {CODING_TEMPLATE_LABEL[templateKey]}
+                            템플릿: {CODING_TEMPLATE_LABEL[templateKey]}
                           </Button>
                         ))}
                       </div>
                     ) : null}
 
-                    <div className="rounded-xl border border-border/70 bg-background/80 p-2">
-                      <p className="text-[11px] font-medium text-muted-foreground">현재 정답/채점 기준</p>
-                      <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-2 text-xs">
-                        {question.answerKeyText?.trim() ? question.answerKeyText : "(아직 입력되지 않았습니다)"}
-                      </pre>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 px-3 text-xs"
-                      onClick={() => openAnswerKeyEditor(question, index)}
-                    >
-                      큰 화면에서 정답/채점 기준 입력
-                    </Button>
+                    <Textarea
+                      className="min-h-28"
+                      placeholder={
+                        question.type === "subjective"
+                          ? "주관식 정답/채점 기준을 입력해 주세요."
+                          : "코딩 정답 코드 + 체크포인트(선택)를 입력해 주세요."
+                      }
+                      value={question.answerKeyText}
+                      onChange={(event) => updateQuestion(question.key, { answerKeyText: event.target.value })}
+                    />
                     <p className="text-xs text-muted-foreground">
                       {question.type === "subjective"
-                        ? "주관식은 정답/채점 기준을 입력하면 LLM이 제출 답안을 비교해 자동채점합니다."
-                        : "코딩은 정답 코드/채점 기준을 입력하면 LLM이 제출 코드를 비교해 자동채점합니다."}
+                        ? "입력한 정답/채점 기준을 바탕으로 LLM이 제출 답안을 자동 평가합니다."
+                        : "코딩은 템플릿 또는 직접 작성한 정답 기준으로 LLM이 기능/로직 기준으로 평가합니다."}
                     </p>
                   </div>
                 )}
@@ -599,20 +596,20 @@ export function AdminExamBuilder({
                   checked={question.required}
                   onChange={(event) => updateQuestion(question.key, { required: event.target.checked })}
                 />
-                ?꾩닔 臾명빆
+                필수 문항
               </label>
             </article>
           ))}
 
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => addQuestion("multiple_choice")}>
-              媛앷???異붽?
+              객관식 추가
             </Button>
             <Button type="button" variant="outline" onClick={() => addQuestion("subjective")}>
-              二쇨???異붽?
+              주관식 추가
             </Button>
             <Button type="button" variant="outline" onClick={() => addQuestion("coding")}>
-              肄붾뵫 異붽?
+              코딩 추가
             </Button>
           </div>
         </div>
@@ -620,67 +617,40 @@ export function AdminExamBuilder({
         <div className="rounded-2xl border border-border/70 bg-surface p-4">
           <p className="text-sm font-semibold">데이터 및 실습 리소스 업로드</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            ?щ윭 ?뚯씪 ?좏깮 媛?? zip 諛??곗씠???뚯씪(csv/xlsx/json ?????낅줈?쒗븷 ???덉뒿?덈떎.
+            여러 파일 선택 가능. zip 및 데이터 파일(csv/xlsx/json 등)을 업로드할 수 있습니다.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            ?뚯씪??理쒕? 500MB源뚯? ?덉슜?⑸땲?? 珥덇낵 ??Google Drive 留곹겕瑜??쒗뿕 ?ㅻ챸/臾명빆??泥⑤???二쇱꽭??
+            파일당 최대 500MB까지 허용됩니다. 초과 시 Google Drive 링크를 시험 설명/문항에 첨부해 주세요.
           </p>
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onResourceFileChange} />
           <div className="mt-3">
             <Button type="button" variant="outline" className="border-2" onClick={() => fileInputRef.current?.click()}>
-              ?뚯씪 ?좏깮
+              파일 선택
             </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            ?좏깮 ?뚯씪: {resourceFiles.length > 0 ? resourceFiles.map((file) => file.name).join(", ") : "(?놁쓬)"}
+            선택 파일: {resourceFiles.length > 0 ? resourceFiles.map((file) => file.name).join(", ") : "(없음)"}
           </p>
           {!hasCodingQuestion && resourceFiles.length > 0 ? (
-            <p className="mt-1 text-xs text-amber-700">?꾩옱 肄붾뵫 臾명빆???놁?留?由ъ냼?ㅻ뒗 ?④퍡 ??λ맗?덈떎.</p>
+            <p className="mt-1 text-xs text-amber-700">현재 코딩 문항이 없지만 리소스는 함께 저장됩니다.</p>
           ) : null}
         </div>
 
-        <Button disabled={loading || uploadingResources}>{loading || uploadingResources ? "?앹꽦 以?.." : "?쒗뿕 ?앹꽦"}</Button>
+        <Button disabled={loading || uploadingResources}>{loading || uploadingResources ? "생성 중..." : "시험 생성"}</Button>
       </form>
-
-      {answerKeyEditor ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-5xl rounded-2xl border border-border/70 bg-card p-5 shadow-xl">
-            <h3 className="text-lg font-semibold">{answerKeyEditor.questionLabel} 정답/채점 기준 입력</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              길이가 긴 주관식/코딩 정답은 큰 입력창에서 작성한 뒤 저장하세요.
-            </p>
-            <Textarea
-              className="mt-3 min-h-[55vh] text-xs leading-6"
-              value={answerKeyEditor.value}
-              onChange={(event) =>
-                setAnswerKeyEditor((prev) => (prev ? { ...prev, value: event.target.value } : prev))
-              }
-              placeholder="정답/채점 기준을 입력하세요."
-            />
-            <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setAnswerKeyEditor(null)}>
-                취소
-              </Button>
-              <Button type="button" onClick={saveAnswerKeyEditor}>
-                저장
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {showCreateConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
           <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-primary/40 bg-white shadow-2xl">
             <div className="bg-gradient-to-r from-primary to-[#d80028] px-5 py-4 text-white">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em]">?뺤씤</p>
-              <h3 className="mt-1 text-lg font-bold">?쒗뿕 ?앹꽦 ?뺤씤</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]">확인</p>
+              <h3 className="mt-1 text-lg font-bold">시험 생성 확인</h3>
             </div>
             <div className="space-y-3 p-5 text-sm text-foreground">
               <p className="rounded-xl border border-primary/20 bg-secondary/50 p-3">
-                <span className="font-semibold">{title.trim() || "(?쒕ぉ ?놁쓬)"}</span>
+                <span className="font-semibold">{title.trim() || "(제목 없음)"}</span>
               </p>
-              <p>?쒗뿕???앹꽦?섏떆寃좎뒿?덇퉴?</p>
+              <p>시험을 생성하시겠습니까?</p>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
               <Button
@@ -689,10 +659,10 @@ export function AdminExamBuilder({
                 onClick={() => setShowCreateConfirm(false)}
                 disabled={loading || uploadingResources}
               >
-                痍⑥냼
+                취소
               </Button>
               <Button type="button" onClick={() => void createExam()} disabled={loading || uploadingResources}>
-                {loading || uploadingResources ? "?앹꽦 以?.." : "?앹꽦"}
+                {loading || uploadingResources ? "생성 중..." : "생성"}
               </Button>
             </div>
           </div>
