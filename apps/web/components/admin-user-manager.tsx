@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,19 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
   const [keyword, setKeyword] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<AdminUser | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!deleteConfirmTarget || deletingUserId !== null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDeleteConfirmTarget(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [deleteConfirmTarget, deletingUserId]);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -64,7 +76,7 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
   }, [keyword, role, selectedTrack]);
 
   const handleDeleteUser = useCallback(
-    async (target: AdminUser) => {
+    (target: AdminUser) => {
       if (target.role === "admin") {
         setError("관리자 계정은 삭제할 수 없습니다.");
         return;
@@ -75,30 +87,34 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
         return;
       }
 
-      const confirmed = window.confirm(`사용자 '${target.username}' 계정을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`);
-      if (!confirmed) return;
-
-      setDeletingUserId(target.id);
-      setError("");
-      try {
-        const response = await fetch(`/api/admin/users/${target.id}`, {
-          method: "DELETE",
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
-          setError(payload.detail ?? payload.message ?? "사용자 삭제에 실패했습니다.");
-          return;
-        }
-        await loadUsers();
-      } catch {
-        setError("사용자 삭제에 실패했습니다.");
-      } finally {
-        setDeletingUserId(null);
-      }
+      setDeleteConfirmTarget(target);
     },
-    [currentAdminId, loadUsers]
+    [currentAdminId]
   );
+
+  const confirmDeleteUser = useCallback(async () => {
+    if (!deleteConfirmTarget) return;
+
+    setDeletingUserId(deleteConfirmTarget.id);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/users/${deleteConfirmTarget.id}`, {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
+        setError(payload.detail ?? payload.message ?? "사용자 삭제에 실패했습니다.");
+        return;
+      }
+      await loadUsers();
+      setDeleteConfirmTarget(null);
+    } catch {
+      setError("사용자 삭제에 실패했습니다.");
+    } finally {
+      setDeletingUserId(null);
+    }
+  }, [deleteConfirmTarget, loadUsers]);
 
   const summary = useMemo(() => {
     const adminCount = users.filter((user) => user.role === "admin").length;
@@ -113,7 +129,7 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">사용자 관리</h1>
         <p className="mt-2 text-sm text-hero-foreground/90">
-          비밀번호를 제외한 사용자 정보를 조회하고, 필요 시 계정을 삭제할 수 있습니다.
+          비밀번호를 제외한 사용자 정보를 조회하고, 필요 시 수강생 계정을 삭제할 수 있습니다.
         </p>
       </section>
 
@@ -204,7 +220,7 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
                         variant="outline"
                         size="sm"
                         disabled={isSelf || isAdmin || deleting}
-                        onClick={() => void handleDeleteUser(user)}
+                        onClick={() => handleDeleteUser(user)}
                       >
                         {isSelf ? "현재 계정" : isAdmin ? "관리자 계정" : deleting ? "삭제 중..." : "삭제"}
                       </Button>
@@ -216,6 +232,36 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
           </tbody>
         </table>
       </section>
+
+      {deleteConfirmTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-primary/40 bg-white shadow-2xl">
+            <div className="bg-gradient-to-r from-primary to-[#d80028] px-5 py-4 text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]">주의</p>
+              <h3 className="mt-1 text-lg font-bold">사용자 삭제 확인</h3>
+            </div>
+            <div className="space-y-3 p-5 text-sm text-foreground">
+              <p className="rounded-xl border border-primary/20 bg-secondary/50 p-3">
+                <span className="font-semibold">{deleteConfirmTarget.username}</span>
+              </p>
+              <p>이 사용자 계정을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border/70 bg-muted/30 px-5 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteConfirmTarget(null)}
+                disabled={deletingUserId !== null}
+              >
+                취소
+              </Button>
+              <Button type="button" variant="destructive" onClick={() => void confirmDeleteUser()} disabled={deletingUserId !== null}>
+                {deletingUserId !== null ? "삭제 중..." : "영구 삭제"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

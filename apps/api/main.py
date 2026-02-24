@@ -1356,13 +1356,35 @@ async def list_problem_folders(session: Annotated[AsyncSession, Depends(get_asyn
     return [_to_problem_folder_response(folder, path_map) for folder in folders]
 
 
+def _normalize_exam_title(raw_title: str | None) -> str:
+    return re.sub(r"\s+", " ", (raw_title or "")).strip()
+
+
+async def _ensure_exam_title_unique(
+    session: AsyncSession,
+    title: str,
+    *,
+    exclude_exam_id: int | None = None,
+) -> None:
+    stmt = select(Exam.id).where(func.lower(Exam.title) == title.lower())
+    if exclude_exam_id is not None:
+        stmt = stmt.where(Exam.id != exclude_exam_id)
+    existing = await session.scalar(stmt.limit(1))
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.",
+        )
+
+
 async def _create_exam_with_questions(
     session: AsyncSession,
     payload: ExamCreate | ExamRepublish,
 ) -> tuple[Exam, list[ExamQuestion]]:
-    title = payload.title.strip()
+    title = _normalize_exam_title(payload.title)
     if not title:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 제목은 필수입니다.")
+    await _ensure_exam_title_unique(session, title)
     if len(payload.questions) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험에는 최소 1개 이상의 문항이 필요합니다.")
 
@@ -1672,9 +1694,10 @@ async def update_admin_exam(
     if exam is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
-    title = payload.title.strip()
+    title = _normalize_exam_title(payload.title)
     if not title:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 제목은 필수입니다.")
+    await _ensure_exam_title_unique(session, title, exclude_exam_id=exam.id)
     folder_id = payload.folder_id
     if folder_id is not None:
         folder = await session.scalar(select(ProblemFolder).where(ProblemFolder.id == folder_id))

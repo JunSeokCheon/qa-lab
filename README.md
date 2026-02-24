@@ -315,6 +315,9 @@ cd ../..
 pnpm.cmd --filter web lint
 pnpm.cmd --filter web build
 
+# API 문법 컴파일 점검 (Docker 실행 기준)
+docker exec infra-api-1 python -m compileall /app
+
 $env:API_BASE_URL="http://127.0.0.1:8000"
 $env:VIRTUAL_USERS="12"
 node scripts/full_system_check.mjs

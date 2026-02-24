@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
@@ -70,19 +71,19 @@ function statusLabel(status: string): string {
 }
 
 function selectedChoiceText(answer: MyExamSubmissionAnswer): string {
-  if (answer.selected_choice_index === null) return "(미응답)";
+  if (answer.selected_choice_index === null) return "(誘몄쓳??";
   const choices = answer.choices ?? [];
   const index = answer.selected_choice_index;
-  const choiceText = choices[index] ?? "(선택지 없음)";
-  return `${index + 1}번 - ${choiceText}`;
+  const choiceText = choices[index] ?? "(?좏깮吏 ?놁쓬)";
+  return `${index + 1}踰?- ${choiceText}`;
 }
 
 function correctChoiceText(answer: MyExamSubmissionAnswer): string {
-  if (answer.correct_choice_index === null) return "(정답 미설정)";
+  if (answer.correct_choice_index === null) return "(?뺣떟 誘몄꽕??";
   const choices = answer.choices ?? [];
   const index = answer.correct_choice_index;
-  const choiceText = choices[index] ?? "(선택지 없음)";
-  return `${index + 1}번 - ${choiceText}`;
+  const choiceText = choices[index] ?? "(?좏깮吏 ?놁쓬)";
+  return `${index + 1}踰?- ${choiceText}`;
 }
 
 export function ExamTaker({
@@ -100,16 +101,19 @@ export function ExamTaker({
   initialRemainingSeconds: number | null;
   initialSubmission: MyExamSubmissionDetail | null;
 }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState<Record<number, AnswerState>>({});
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(submitted ? "이미 제출한 시험입니다." : "");
+  const [success, setSuccess] = useState(submitted ? "?대? ?쒖텧???쒗뿕?낅땲??" : "");
   const [loading, setLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(submitted);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [submissionDetail, setSubmissionDetail] = useState<MyExamSubmissionDetail | null>(initialSubmission);
+  const [answerEditor, setAnswerEditor] = useState<{ questionId: number; draft: string } | null>(null);
+  const [submissionDetail] = useState<MyExamSubmissionDetail | null>(initialSubmission);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(
     typeof initialRemainingSeconds === "number" ? Math.max(0, initialRemainingSeconds) : null
   );
+  const finalSubmitButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const requiredCount = useMemo(() => questions.filter((question) => question.required).length, [questions]);
   const isTimeLimited = durationMinutes !== null && remainingSeconds !== null;
@@ -129,7 +133,15 @@ export function ExamTaker({
     return () => window.clearInterval(timer);
   }, [isSubmitted, isTimeLimited, remainingSeconds]);
 
-  const displayError = isExpired ? "시험 시간이 종료되었습니다. 제출이 제한됩니다." : error;
+  useEffect(() => {
+    if (!showSubmitConfirm) return;
+    window.setTimeout(() => {
+      finalSubmitButtonRef.current?.focus();
+      finalSubmitButtonRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+  }, [showSubmitConfirm]);
+
+  const displayError = isExpired ? "?쒗뿕 ?쒓컙??醫낅즺?섏뿀?듬땲?? ?쒖텧???쒗븳?⑸땲??" : error;
 
   const setTextAnswer = (questionId: number, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], answer_text: value } }));
@@ -139,18 +151,19 @@ export function ExamTaker({
     setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], selected_choice_index: value } }));
   };
 
-  const fetchMySubmissionDetail = async () => {
-    const response = await fetch(`/api/exams/${examId}/my-submission`, { cache: "no-store" });
-    const body = (await response.json().catch(() => ({}))) as MyExamSubmissionDetail & {
-      detail?: string;
-      message?: string;
-    };
-    if (!response.ok || !body.submission_id) {
-      return body.detail ?? body.message ?? "제출 상세를 불러오지 못했습니다.";
-    }
-    setSubmissionDetail(body);
-    return null;
+  const openAnswerEditor = (question: QuestionItem) => {
+    setAnswerEditor({
+      questionId: question.id,
+      draft: answers[question.id]?.answer_text ?? "",
+    });
   };
+
+  const saveAnswerEditor = () => {
+    if (!answerEditor) return;
+    setTextAnswer(answerEditor.questionId, answerEditor.draft);
+    setAnswerEditor(null);
+  };
+
 
   const submitExam = async () => {
     if (isSubmitted || isExpired) return;
@@ -174,17 +187,15 @@ export function ExamTaker({
     });
     const body = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
     if (!response.ok) {
-      setError(body.detail ?? body.message ?? "시험 제출에 실패했습니다.");
+      setError(body.detail ?? body.message ?? "?쒗뿕 ?쒖텧???ㅽ뙣?덉뒿?덈떎.");
       setLoading(false);
       return;
     }
 
-    setSuccess("시험이 제출되었습니다.");
+    setSuccess("?쒗뿕???쒖텧?섏뿀?듬땲??");
     setIsSubmitted(true);
-    const detailError = await fetchMySubmissionDetail();
-    if (detailError) {
-      setError(detailError);
-    }
+    router.replace("/problems");
+    router.refresh();
     setLoading(false);
   };
 
@@ -204,14 +215,14 @@ export function ExamTaker({
       {isSubmitted && submissionDetail ? (
         <article className="space-y-3 rounded-2xl border border-border/70 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold">내 제출 답안</h2>
+            <h2 className="text-base font-semibold">???쒖텧 ?듭븞</h2>
             <p className="text-xs text-muted-foreground">{formatDateTimeKST(submissionDetail.submitted_at)}</p>
           </div>
           <p className="text-xs text-muted-foreground">
             제출 상태: {statusLabel(submissionDetail.status)}
             {submissionDetail.results_published
-              ? ` | 점수 공개됨${submissionDetail.results_published_at ? ` (${formatDateTimeKST(submissionDetail.results_published_at)})` : ""}`
-              : " | 점수 비공개(관리자 공유 대기)"}
+              ? ` | 점수 공개${submissionDetail.results_published_at ? ` (${formatDateTimeKST(submissionDetail.results_published_at)})` : ""}`
+              : " | 점수 비공개 (관리자 공유 대기)"}
           </p>
           <div className="space-y-3">
             {submissionDetail.answers.map((answer) => (
@@ -223,32 +234,32 @@ export function ExamTaker({
                 {answer.question_type === "multiple_choice" ? (
                   <div className="mt-2 space-y-2 text-xs">
                     <p>
-                      <span className="font-medium">내 답안:</span> {selectedChoiceText(answer)}
+                      <span className="font-medium">???듭븞:</span> {selectedChoiceText(answer)}
                     </p>
                     <p>
-                      <span className="font-medium">정답:</span> {correctChoiceText(answer)}
+                      <span className="font-medium">?뺣떟:</span> {correctChoiceText(answer)}
                     </p>
                   </div>
                 ) : (
                   <div className="mt-2 space-y-2 text-xs">
                     <div>
-                      <p className="font-medium">내 제출 답안</p>
+                      <p className="font-medium">???쒖텧 ?듭븞</p>
                       <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-2">
-                        {answer.answer_text?.trim() ? answer.answer_text : "(미응답)"}
+                        {answer.answer_text?.trim() ? answer.answer_text : "(誘몄쓳??"}
                       </pre>
                     </div>
                     <div>
-                      <p className="font-medium">정답 기준</p>
+                      <p className="font-medium">?뺣떟 湲곗?</p>
                       <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-2">
-                        {answer.answer_key_text?.trim() ? answer.answer_key_text : "(정답 기준 없음)"}
+                        {answer.answer_key_text?.trim() ? answer.answer_key_text : "(?뺣떟 湲곗? ?놁쓬)"}
                       </pre>
                     </div>
                     <p>
-                      <span className="font-medium">채점 상태:</span> {statusLabel(answer.grading_status ?? "SUBMITTED")}
+                      <span className="font-medium">梨꾩젏 ?곹깭:</span> {statusLabel(answer.grading_status ?? "SUBMITTED")}
                     </p>
                     {submissionDetail.results_published && answer.grading_score !== null && answer.grading_max_score !== null ? (
                       <p>
-                        <span className="font-medium">점수:</span> {answer.grading_score} / {answer.grading_max_score}
+                        <span className="font-medium">?먯닔:</span> {answer.grading_score} / {answer.grading_max_score}
                       </p>
                     ) : null}
                   </div>
@@ -285,13 +296,25 @@ export function ExamTaker({
                   ))}
                 </div>
               ) : (
-                <Textarea
-                  className="mt-3 min-h-28"
-                  value={answers[question.id]?.answer_text ?? ""}
-                  onChange={(event) => setTextAnswer(question.id, event.target.value)}
-                  placeholder={question.type === "coding" ? "코드 또는 풀이를 입력하세요." : "답안을 입력하세요."}
-                  disabled={loading || isExpired}
-                />
+                <div className="mt-3 space-y-2">
+                  <div className="rounded-xl border border-border/70 bg-background/80 p-2">
+                    <p className="text-[11px] font-medium text-muted-foreground">현재 입력된 답안</p>
+                    <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-2 text-xs">
+                      {answers[question.id]?.answer_text?.trim()
+                        ? answers[question.id]?.answer_text
+                        : "(아직 작성된 답안이 없습니다)"}
+                    </pre>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 px-3 text-xs"
+                    onClick={() => openAnswerEditor(question)}
+                    disabled={loading || isExpired}
+                  >
+                    큰 화면으로 답안 작성
+                  </Button>
+                </div>
               )}
             </article>
           ))}
@@ -299,7 +322,7 @@ export function ExamTaker({
           {displayError ? <p className="text-sm text-destructive">{displayError}</p> : null}
           {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
           <Button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={loading || isExpired}>
-            {loading ? "제출 중..." : "시험 제출"}
+            {loading ? "?쒖텧 以?.." : "?쒗뿕 ?쒖텧"}
           </Button>
         </>
       ) : null}
@@ -307,15 +330,41 @@ export function ExamTaker({
       {showSubmitConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-border/70 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold">시험 제출 확인</h3>
-            <p className="mt-2 text-sm text-muted-foreground">시험지를 제출하시겠습니까?</p>
-            <p className="mt-1 text-xs text-muted-foreground">제출하면 다시 응시할 수 없습니다.</p>
+            <h3 className="text-base font-semibold">?쒗뿕 ?쒖텧 ?뺤씤</h3>
+            <p className="mt-2 text-sm text-muted-foreground">?쒗뿕吏瑜??쒖텧?섏떆寃좎뒿?덇퉴?</p>
+            <p className="mt-1 text-xs text-muted-foreground">?쒖텧?섎㈃ ?ㅼ떆 ?묒떆?????놁뒿?덈떎.</p>
             <div className="mt-4 flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setShowSubmitConfirm(false)} disabled={loading}>
+                痍⑥냼
+              </Button>
+              <Button type="button" onClick={() => void submitExam()} disabled={loading} ref={finalSubmitButtonRef}>
+                理쒖쥌 ?쒖텧
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {answerEditor ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-4xl rounded-2xl border border-border/70 bg-card p-5 shadow-xl">
+            <h3 className="text-lg font-semibold">답안 작성</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              긴 코드/서술형 답안을 큰 입력창에서 작성한 뒤 저장하세요.
+            </p>
+            <Textarea
+              className="mt-3 min-h-[55vh] text-xs leading-6"
+              value={answerEditor.draft}
+              onChange={(event) => setAnswerEditor((prev) => (prev ? { ...prev, draft: event.target.value } : prev))}
+              placeholder="답안을 입력하세요."
+              disabled={loading || isExpired}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setAnswerEditor(null)} disabled={loading || isExpired}>
                 취소
               </Button>
-              <Button type="button" onClick={() => void submitExam()} disabled={loading}>
-                최종 제출
+              <Button type="button" onClick={saveAnswerEditor} disabled={loading || isExpired}>
+                저장
               </Button>
             </div>
           </div>

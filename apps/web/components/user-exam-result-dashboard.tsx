@@ -203,11 +203,8 @@ export function UserExamResultDashboard({ results }: { results: ExamResult[] }) 
                           key={`${selected.submission_id}:${question.question_id}`}
                           className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-surface-muted px-3 py-2"
                         >
-                          <p className="min-w-0 flex-1 text-xs text-foreground">
-                            <span className="font-medium">
-                              {question.question_order}번 ({questionTypeLabel(question.question_type)})
-                            </span>{" "}
-                            <span className="text-muted-foreground">{question.prompt_preview || "문항"}</span>
+                          <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
+                            {question.question_order}번 ({questionTypeLabel(question.question_type)})
                           </p>
                           <span
                             className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${verdictBadgeStyle(question.verdict)}`}

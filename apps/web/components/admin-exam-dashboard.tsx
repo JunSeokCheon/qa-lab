@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -89,8 +89,8 @@ type NonObjectiveAnswerItem = {
 };
 
 function examKindLabel(kind: string): string {
-  if (kind === "quiz") return "퀴즈";
-  if (kind === "assessment") return "성취도 평가";
+  if (kind === "quiz") return "?댁쫰";
+  if (kind === "assessment") return "?깆랬???됯?";
   return kind;
 }
 
@@ -99,6 +99,23 @@ function questionTypeLabel(type: string): string {
   if (type === "subjective") return "주관식";
   if (type === "coding") return "코딩";
   return type;
+}
+
+function extractPromptTitle(prompt: string): string {
+  const lines = prompt
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return "(내용 없음)";
+  return lines[0];
+}
+
+function promptBodyWithoutTitle(prompt: string): string {
+  const normalized = prompt.replace(/\r\n/g, "\n");
+  const firstBreak = normalized.indexOf("\n");
+  if (firstBreak < 0) return "";
+  return normalized.slice(firstBreak + 1).trim();
 }
 
 function manualGradeKey(submissionId: number, questionId: number): string {
@@ -218,16 +235,16 @@ function translateEnglishReasonToKorean(reason: string, isCorrect: boolean): str
 
   const lower = normalized.toLowerCase();
   if (/(quota|billing|status=429|too many requests)/.test(lower)) {
-    return "오답입니다. LLM 사용량 한도로 자동 채점이 제한되어 대체 채점이 적용되었습니다.";
+    return "오답입니다. LLM 사용량 제한으로 대체 채점이 적용되었습니다.";
   }
   if (/timeout|time out|timed out/.test(lower)) {
-    return "오답입니다. 채점 요청 시간이 초과되어 정상 채점이 완료되지 않았습니다.";
+    return "오답입니다. 채점 요청 시간 초과로 자동 채점이 완료되지 않았습니다.";
   }
   if (/syntaxerror/.test(lower)) {
-    return "오답입니다. 코드 문법 오류(SyntaxError)가 있어 실행되지 않았습니다.";
+    return "오답입니다. 코드 문법 오류(SyntaxError)가 있습니다.";
   }
   if (/nameerror/.test(lower)) {
-    return "오답입니다. 정의되지 않은 변수/함수(NameError)가 포함되어 있습니다.";
+    return "오답입니다. 정의되지 않은 변수/함수(NameError)가 있습니다.";
   }
   if (/typeerror/.test(lower)) {
     return "오답입니다. 자료형 처리(TypeError)에 문제가 있습니다.";
@@ -239,7 +256,7 @@ function translateEnglishReasonToKorean(reason: string, isCorrect: boolean): str
     return "오답입니다. 인덱스 범위(IndexError)를 벗어났습니다.";
   }
   if (/keyerror/.test(lower)) {
-    return "오답입니다. 사전에 없는 키(KeyError)를 참조했습니다.";
+    return "오답입니다. 딕셔너리의 없는 키(KeyError)를 참조했습니다.";
   }
   if (/assertionerror|assert failed|failed case/.test(lower)) {
     return "오답입니다. 채점 기준 테스트를 통과하지 못했습니다.";
@@ -251,16 +268,14 @@ function translateEnglishReasonToKorean(reason: string, isCorrect: boolean): str
     .replace(/\bhowever\b/gi, "다만")
     .replace(/\bomitted\b/gi, "누락했습니다")
     .replace(/\brequired\b/gi, "필수로 요구된")
-    .replace(/\bmissing\b/gi, "누락된")
+    .replace(/\bmissing\b/gi, "누락")
     .replace(/\bprint statement\b/gi, "출력 구문")
     .replace(/\bcolumn names\b/gi, "컬럼명")
     .replace(/\bprompt\b/gi, "문항 요구사항")
     .replace(/\banswer key\b/gi, "정답 기준");
 
   if (/[가-힣]/.test(converted)) return converted;
-  return isCorrect
-    ? "정답입니다."
-    : `오답입니다. 원본 채점 로그 요약: ${normalized.slice(0, 180)}`;
+  return isCorrect ? "정답입니다." : `오답입니다. 원본 채점 로그 요약: ${normalized.slice(0, 180)}`;
 }
 
 function summarizeReasonFromLogs(logs: string | null | undefined, isCorrect: boolean): string | null {
@@ -295,11 +310,11 @@ function toKoreanReason(reason: string, isCorrect: boolean, gradingLogs?: string
 
 function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   if (!isGradingFinished(answer)) {
-    return "아직 자동 채점이 시작되지 않았습니다. 관리자 승인 후 채점됩니다.";
+    return "?꾩쭅 ?먮룞 梨꾩젏???쒖옉?섏? ?딆븯?듬땲?? 愿由ъ옄 ?뱀씤 ??梨꾩젏?⑸땲??";
   }
 
   if (feedbackNeedsReview(answer)) {
-    return feedbackReviewReason(answer) ?? "자동 채점 결과가 경계 구간이라 검토가 필요합니다.";
+    return feedbackReviewReason(answer) ?? "?먮룞 梨꾩젏 寃곌낵媛 寃쎄퀎 援ш컙?대씪 寃?좉? ?꾩슂?⑸땲??";
   }
 
   const feedback = answer.grading_feedback_json as GradingFeedback;
@@ -321,17 +336,17 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   if (fallbackUsed && fallbackReasonCode === "quota") {
     const notice =
       feedback && typeof feedback.fallback_notice === "string" ? feedback.fallback_notice.trim() : "";
-    return notice || "LLM 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.";
+    return notice || "LLM ?ъ슜???쒕룄濡??泥?梨꾩젏???곸슜?섏뿀?듬땲?? 寃곗젣/荑쇳꽣 ?뺤씤 ???ъ콈?먰븷 ???덉뒿?덈떎.";
   }
 
   if (isFullyCorrect(answer)) {
-    return "정답입니다. 정답 기준을 충족했습니다.";
+    return "?뺣떟?낅땲?? ?뺣떟 湲곗???異⑹”?덉뒿?덈떎.";
   }
 
   const fromLogs = summarizeReasonFromLogs(answer.grading_logs, false);
   if (fromLogs) return fromLogs;
 
-  return "오답입니다. 정답 기준과 일치하지 않습니다.";
+  return "?ㅻ떟?낅땲?? ?뺣떟 湲곗?怨??쇱튂?섏? ?딆뒿?덈떎.";
 }
 
 function renderAnswerBlock(
@@ -457,7 +472,7 @@ export function AdminExamDashboard({
         | { detail?: string; message?: string };
       if (!response.ok) {
         const messagePayload = payload as { detail?: string; message?: string };
-        setError(messagePayload.detail ?? messagePayload.message ?? "시험 제출 목록을 불러오지 못했습니다.");
+        setError(messagePayload.detail ?? messagePayload.message ?? "?쒗뿕 ?쒖텧 紐⑸줉??遺덈윭?ㅼ? 紐삵뻽?듬땲??");
         setSubmissions([]);
         return null;
       }
@@ -482,7 +497,7 @@ export function AdminExamDashboard({
       });
       return rows;
     } catch {
-      setError("시험 제출 목록을 불러오지 못했습니다.");
+      setError("?쒗뿕 ?쒖텧 紐⑸줉??遺덈윭?ㅼ? 紐삵뻽?듬땲??");
       setSubmissions([]);
       return null;
     } finally {
@@ -553,7 +568,7 @@ export function AdminExamDashboard({
     () =>
       allQuestionOptions.map((item) => ({
         value: String(item.questionId),
-        label: `${item.questionOrder}번 문항 (${questionTypeLabel(item.questionType)})`,
+        label: `${item.questionOrder}踰?臾명빆 (${questionTypeLabel(item.questionType)})`,
       })),
     [allQuestionOptions]
   );
@@ -654,13 +669,10 @@ export function AdminExamDashboard({
     return [...byQuestion.values()].sort((a, b) => a.order - b.order);
   }, [submissions]);
 
-  const exportQuestionHeaders = useMemo(
-    () => exportQuestions.map((question) => `${question.order}번`),
-    [exportQuestions]
-  );
+  const exportQuestionHeaders = useMemo(() => exportQuestions.map((question) => `${question.order}번`), [exportQuestions]);
 
   const exportHeaders = useMemo(() => {
-    return ["수강생", ...exportQuestionHeaders, "합계", "정답률(%)"];
+    return ["학생명", ...exportQuestionHeaders, "총점", "정답률(%)"];
   }, [exportQuestionHeaders]);
 
   const studentScoreRows = useMemo(() => {
@@ -705,35 +717,35 @@ export function AdminExamDashboard({
   const exportRows = useMemo(() => {
     const rows: ExportRow[] = studentScoreRows.map((student) => {
       const row: ExportRow = {
-        수강생: student.userName,
+        학생명: student.userName,
       };
       exportQuestionHeaders.forEach((header, index) => {
         row[header] = student.values[index];
       });
-      row["합계"] = student.total;
+      row["총점"] = student.total;
       row["정답률(%)"] = formatPercent(student.rate);
       return row;
     });
 
-    const sumRow: ExportRow = { 수강생: "합계" };
+    const sumRow: ExportRow = { 학생명: "합계" };
     exportQuestionHeaders.forEach((header, index) => {
       sumRow[header] = questionSums[index];
     });
-    sumRow["합계"] = studentScoreRows.reduce((sum, student) => sum + student.total, 0);
+    sumRow["총점"] = studentScoreRows.reduce((sum, student) => sum + student.total, 0);
     sumRow["정답률(%)"] = "";
 
-    const rateRow: ExportRow = { 수강생: "정답률(%)" };
+    const rateRow: ExportRow = { 학생명: "정답률(%)" };
     exportQuestionHeaders.forEach((header, index) => {
       rateRow[header] = formatPercent(questionRates[index]);
     });
-    rateRow["합계"] = formatPercent(overallAverageScore);
+    rateRow["총점"] = formatPercent(overallAverageScore);
     rateRow["정답률(%)"] = formatPercent(overallAverageScore);
 
-    const averageRow: ExportRow = { 수강생: "전체 평균 점수(100점)" };
+    const averageRow: ExportRow = { 학생명: "전체 평균 점수(100점)" };
     exportQuestionHeaders.forEach((header) => {
       averageRow[header] = "";
     });
-    averageRow["합계"] = formatPercent(overallAverageScore);
+    averageRow["총점"] = formatPercent(overallAverageScore);
     averageRow["정답률(%)"] = formatPercent(overallAverageScore);
 
     rows.push(sumRow, rateRow, averageRow);
@@ -795,14 +807,14 @@ export function AdminExamDashboard({
       );
       const payload = (await response.json().catch(() => ({}))) as ManualGradeResponse;
       if (!response.ok) {
-        setActionError(payload.detail ?? payload.message ?? "수동 채점 반영에 실패했습니다.");
+        setActionError(payload.detail ?? payload.message ?? "?섎룞 梨꾩젏 諛섏쁺???ㅽ뙣?덉뒿?덈떎.");
         return;
       }
 
-      setActionMessage(payload.message ?? "수동 채점을 반영했습니다.");
+      setActionMessage(payload.message ?? "?섎룞 梨꾩젏??諛섏쁺?덉뒿?덈떎.");
       await loadSubmissions(examId);
     } catch {
-      setActionError("수동 채점 반영 요청에 실패했습니다.");
+      setActionError("?섎룞 梨꾩젏 諛섏쁺 ?붿껌???ㅽ뙣?덉뒿?덈떎.");
       setActionMessage("");
     } finally {
       setManualRunningKeys((prev) => {
@@ -853,19 +865,19 @@ export function AdminExamDashboard({
       });
       const payload = (await response.json().catch(() => ({}))) as AppealRegradeResponse;
       if (!response.ok) {
-        setActionError(payload.detail ?? payload.message ?? "재채점 요청에 실패했습니다.");
+        setActionError(payload.detail ?? payload.message ?? "?ъ콈???붿껌???ㅽ뙣?덉뒿?덈떎.");
         return;
       }
 
-      setActionMessage("재채점을 진행 중입니다. 잠시만 기다려 주세요.");
+      setActionMessage("?ъ콈?먯쓣 吏꾪뻾 以묒엯?덈떎. ?좎떆留?湲곕떎??二쇱꽭??");
       const completed = await waitForAppealRegradeResult(examId, submissionId, questionId);
       setActionMessage(
         completed
-          ? "해당 문항 재채점이 완료되어 결과를 반영했습니다."
-          : (payload.message ?? "이의제기 재채점 요청을 등록했습니다. 잠시 후 다시 확인해 주세요.")
+          ? "?대떦 臾명빆 ?ъ콈?먯씠 ?꾨즺?섏뼱 寃곌낵瑜?諛섏쁺?덉뒿?덈떎."
+          : (payload.message ?? "?댁쓽?쒓린 ?ъ콈???붿껌???깅줉?덉뒿?덈떎. ?좎떆 ???ㅼ떆 ?뺤씤??二쇱꽭??")
       );
     } catch {
-      setActionError("재채점 요청에 실패했습니다.");
+      setActionError("?ъ콈???붿껌???ㅽ뙣?덉뒿?덈떎.");
       setActionMessage("");
     } finally {
       setAppealRunningKeys((prev) => {
@@ -892,7 +904,7 @@ export function AdminExamDashboard({
 
       {exams.length === 0 ? (
         <section className="qa-card">
-          <p className="text-sm text-muted-foreground">등록된 시험이 없습니다.</p>
+          <p className="text-sm text-muted-foreground">?깅줉???쒗뿕???놁뒿?덈떎.</p>
         </section>
       ) : (
         <section className="qa-card space-y-3">
@@ -921,7 +933,7 @@ export function AdminExamDashboard({
               value={questionFilter}
               onChange={(event) => setQuestionFilter(event.target.value)}
             >
-              <option value="all">전체 문항</option>
+              <option value="all">?꾩껜 臾명빆</option>
               {questionOptions.map((question) => (
                 <option key={question.value} value={question.value}>
                   {question.label}
@@ -934,7 +946,7 @@ export function AdminExamDashboard({
               value={studentFilter}
               onChange={(event) => setStudentFilter(event.target.value)}
             >
-              <option value="all">전체 학생</option>
+              <option value="all">?꾩껜 ?숈깮</option>
               {filteredStudentOptions.map((userName) => (
                 <option key={userName} value={userName}>
                   {userName}
@@ -959,10 +971,10 @@ export function AdminExamDashboard({
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={onDownloadCsv} disabled={loading || exportRows.length === 0}>
-              CSV 다운로드
+              CSV ?ㅼ슫濡쒕뱶
             </Button>
             <Button type="button" variant="outline" onClick={onDownloadExcel} disabled={loading || exportRows.length === 0}>
-              엑셀(.xls) 다운로드
+              ?묒?(.xls) ?ㅼ슫濡쒕뱶
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -972,7 +984,7 @@ export function AdminExamDashboard({
               : ""}
           </p>
           <p className="text-xs text-muted-foreground">
-            다운로드 파일은 수강생 X 문항 1/0 매트릭스와 하단 합계/정답률/전체 평균 점수를 제공합니다.
+            다운로드 파일은 학생 X 문항 1/0 매트릭스와 하단 합계/정답률/전체 평균 점수를 제공합니다.
           </p>
           {loading ? <p className="text-sm text-muted-foreground">불러오는 중...</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -1014,20 +1026,22 @@ export function AdminExamDashboard({
       </section>
 
       <section className="qa-card space-y-3">
-        <h2 className="text-lg font-semibold">객관식 문항 통계</h2>
+        <h2 className="text-lg font-semibold">媛앷???臾명빆 ?듦퀎</h2>
         {questionFilter !== "all" && selectedQuestionOption?.questionType !== "multiple_choice" ? (
-          <p className="text-sm text-muted-foreground">선택한 문항은 객관식이 아니어서 객관식 통계를 표시할 수 없습니다.</p>
+          <p className="text-sm text-muted-foreground">?좏깮??臾명빆? 媛앷??앹씠 ?꾨땲?댁꽌 媛앷????듦퀎瑜??쒖떆?????놁뒿?덈떎.</p>
         ) : filteredQuestionStats.length === 0 ? (
-          <p className="text-sm text-muted-foreground">객관식 응답 데이터가 없습니다.</p>
+          <p className="text-sm text-muted-foreground">媛앷????묐떟 ?곗씠?곌? ?놁뒿?덈떎.</p>
         ) : (
           <div className="space-y-3">
             {filteredQuestionStats.map((stat) => (
               <article key={stat.questionId} className="rounded-xl border border-border/70 bg-surface p-3">
-                <div className="text-sm font-semibold">
-                  <span>{stat.questionOrder}. </span>
-                  <MarkdownContent content={stat.prompt} />
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">총 응답 수: {stat.totalResponses}</p>
+                <p className="text-sm font-semibold">
+                  {stat.questionOrder}. {extractPromptTitle(stat.prompt)}
+                </p>
+                {promptBodyWithoutTitle(stat.prompt) ? (
+                  <MarkdownContent className="mt-1" content={promptBodyWithoutTitle(stat.prompt)} />
+                ) : null}
+                <p className="mt-1 text-xs text-muted-foreground">珥??묐떟 ?? {stat.totalResponses}</p>
                 <div className="mt-2 space-y-3">
                   {stat.choices.map((choice, index) => {
                     const count = stat.counts[index];
@@ -1036,25 +1050,25 @@ export function AdminExamDashboard({
                       <div key={`${stat.questionId}-${index}`} className="rounded-lg bg-surface-muted p-2 text-xs">
                         <div className="flex items-center justify-between gap-2">
                           <p>
-                            {index + 1}번 {choice}
-                            {stat.correctChoiceIndex === index ? " (정답)" : ""}
+                            {index + 1}踰?{choice}
+                            {stat.correctChoiceIndex === index ? " (?뺣떟)" : ""}
                           </p>
                           <p className="text-muted-foreground">
-                            {count}명 ({ratio.toFixed(1)}%)
+                            {count}紐?({ratio.toFixed(1)}%)
                           </p>
                         </div>
                         <div className="mt-1 h-2 rounded-full bg-background/70">
                           <div className="h-2 rounded-full bg-primary" style={{ width: `${ratio}%` }} />
                         </div>
                         <p className="mt-1 text-muted-foreground">
-                          응답자: {stat.respondents[index].length ? stat.respondents[index].join(", ") : "-"}
+                          ?묐떟?? {stat.respondents[index].length ? stat.respondents[index].join(", ") : "-"}
                         </p>
                       </div>
                     );
                   })}
                   {stat.unansweredUsers.length > 0 ? (
                     <p className="rounded-lg bg-surface-muted p-2 text-xs text-muted-foreground">
-                      미응답: {stat.unansweredUsers.join(", ")}
+                      誘몄쓳?? {stat.unansweredUsers.join(", ")}
                     </p>
                   ) : null}
                 </div>
@@ -1065,9 +1079,9 @@ export function AdminExamDashboard({
       </section>
 
       <section className="qa-card space-y-3">
-        <h2 className="text-lg font-semibold">학생별 제출 상세</h2>
+        <h2 className="text-lg font-semibold">?숈깮蹂??쒖텧 ?곸꽭</h2>
         {filteredSubmissions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">조건에 맞는 제출이 없습니다.</p>
+          <p className="text-sm text-muted-foreground">議곌굔??留욌뒗 ?쒖텧???놁뒿?덈떎.</p>
         ) : (
           <div className="space-y-2">
             {filteredSubmissions.map((submission) => (
@@ -1092,8 +1106,12 @@ export function AdminExamDashboard({
                         <div key={key} className="rounded-lg bg-surface-muted p-2 text-xs">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1 font-medium">
-                              <span>{answer.question_order}. </span>
-                              <MarkdownContent content={answer.prompt_md} />
+                              <p>
+                                {answer.question_order}. {extractPromptTitle(answer.prompt_md)}
+                              </p>
+                              {promptBodyWithoutTitle(answer.prompt_md) ? (
+                                <MarkdownContent className="mt-1" content={promptBodyWithoutTitle(answer.prompt_md)} />
+                              ) : null}
                             </div>
                             <span
                               className={`mt-0.5 inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${verdict.className}`}
@@ -1124,25 +1142,25 @@ export function AdminExamDashboard({
                           ) : null}
                           {answer.graded_at ? (
                             <p className="mt-1 text-muted-foreground">
-                              채점 시각: {formatDateTimeKST(answer.graded_at)}
+                              梨꾩젏 ?쒓컖: {formatDateTimeKST(answer.graded_at)}
                             </p>
                           ) : null}
                           {answer.question_type !== "multiple_choice" ? (
                             <div className="mt-2 rounded-md border border-border/70 bg-background/70 p-2">
                               <p className="font-medium">
-                                {answer.question_type === "coding" ? "코딩 채점 상세" : "주관식 채점 상세"}
+                                {answer.question_type === "coding" ? "肄붾뵫 梨꾩젏 ?곸꽭" : "二쇨???梨꾩젏 ?곸꽭"}
                               </p>
                               <div className="mt-2 space-y-2">
                                 {renderAnswerBlock(
-                                  "학생이 제출한 답안",
+                                  "?숈깮???쒖텧???듭븞",
                                   answer.answer_text,
-                                  "(미제출)",
+                                  "(誘몄젣異?",
                                   answer.question_type === "coding" ? "text-[11px]" : "text-xs"
                                 )}
                                 {renderAnswerBlock(
-                                  "실제 정답/채점 기준",
+                                  "?ㅼ젣 ?뺣떟/梨꾩젏 湲곗?",
                                   answer.answer_key_text,
-                                  "(미입력: 수동 채점 필요)",
+                                  "(誘몄엯?? ?섎룞 梨꾩젏 ?꾩슂)",
                                   answer.question_type === "coding" ? "text-[11px]" : "text-xs"
                                 )}
                               </div>
@@ -1150,11 +1168,11 @@ export function AdminExamDashboard({
                               <p className="mt-2 text-muted-foreground">
                                 {answer.grading_status === "GRADED" || answer.grading_status === "FAILED"
                                   ? feedbackNeedsReview(answer)
-                                    ? "검토 필요 사유"
+                                    ? "寃???꾩슂 ?ъ쑀"
                                     : isFullyCorrect(answer)
-                                      ? "정답 이유"
-                                      : "오답 이유"
-                                  : "판정 사유"}
+                                      ? "?뺣떟 ?댁쑀"
+                                      : "?ㅻ떟 ?댁쑀"
+                                  : "?먯젙 ?ъ쑀"}
                               </p>
                               <p className="mt-1 whitespace-pre-wrap rounded bg-surface-muted p-2 text-[11px]">
                                 {summarizeNonObjectiveReason(answer)}
@@ -1165,7 +1183,7 @@ export function AdminExamDashboard({
 
                           {isManualTarget ? (
                             <div className="mt-2 rounded-md border border-border/70 bg-background/70 p-2">
-                              <p className="font-medium">수동 채점</p>
+                              <p className="font-medium">?섎룞 梨꾩젏</p>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <Button
                                   type="button"
@@ -1176,7 +1194,7 @@ export function AdminExamDashboard({
                                   }
                                   disabled={isManualRunning}
                                 >
-                                  {isManualRunning ? "처리 중..." : "정답 처리"}
+                                  {isManualRunning ? "泥섎━ 以?.." : "?뺣떟 泥섎━"}
                                 </Button>
                                 <Button
                                   type="button"
@@ -1187,12 +1205,12 @@ export function AdminExamDashboard({
                                   }
                                   disabled={isManualRunning}
                                 >
-                                  {isManualRunning ? "처리 중..." : "오답 처리"}
+                                  {isManualRunning ? "泥섎━ 以?.." : "?ㅻ떟 泥섎━"}
                                 </Button>
                               </div>
                               <Textarea
                                 className="mt-2 min-h-16"
-                                placeholder="수동 채점 메모(선택)"
+                                placeholder="?섎룞 梨꾩젏 硫붾え(?좏깮)"
                                 value={manualNoteByKey[key] ?? ""}
                                 onChange={(event) =>
                                   setManualNoteByKey((prev) => ({
@@ -1207,7 +1225,7 @@ export function AdminExamDashboard({
                                 <p className="text-[11px] font-semibold">이의제기 재채점</p>
                                 <Textarea
                                   className="mt-1 min-h-14"
-                                  placeholder="재채점 요청 사유(선택)"
+                                  placeholder="?ъ콈???붿껌 ?ъ쑀(?좏깮)"
                                   value={appealReasonByKey[key] ?? ""}
                                   onChange={(event) =>
                                     setAppealReasonByKey((prev) => ({
@@ -1231,10 +1249,10 @@ export function AdminExamDashboard({
                                     }
                                     disabled={isManualRunning || isAppealRunning}
                                   >
-                                    {isAppealRunning ? "재채점 등록 중..." : "이의제기 재채점 요청"}
+                                    {isAppealRunning ? "?ъ콈???깅줉 以?.." : "?댁쓽?쒓린 ?ъ콈???붿껌"}
                                   </Button>
                                   <p className="text-[11px] text-muted-foreground">
-                                    해당 문항만 즉시 재채점하며, 이의제기는 gpt-5-mini로 처리합니다.
+                                    해당 문항만 즉시 재채점하며, 이의제기는 다른 모델을 사용해서 처리합니다.
                                   </p>
                                 </div>
                               </div>
@@ -1252,3 +1270,4 @@ export function AdminExamDashboard({
     </main>
   );
 }
+
