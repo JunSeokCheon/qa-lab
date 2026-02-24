@@ -190,6 +190,7 @@ class ExamCreate(BaseModel):
     exam_kind: str = "quiz"
     target_track_name: str
     status: str = "published"
+    starts_at: datetime | None = None
     duration_minutes: int | None = Field(default=60, ge=1, le=1440)
     questions: list[ExamQuestionCreate]
 
@@ -201,6 +202,7 @@ class ExamUpdate(BaseModel):
     exam_kind: str = "quiz"
     target_track_name: str
     status: str = "published"
+    starts_at: datetime | None = None
     duration_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
@@ -211,6 +213,7 @@ class ExamRepublish(BaseModel):
     exam_kind: str = "quiz"
     target_track_name: str
     status: str = "published"
+    starts_at: datetime | None = None
     duration_minutes: int | None = Field(default=60, ge=1, le=1440)
     questions: list[ExamQuestionCreate]
     copy_resources: bool = True
@@ -242,6 +245,7 @@ class ExamSummary(BaseModel):
     exam_kind: str
     target_track_name: str | None = None
     status: str
+    starts_at: datetime | None = None
     duration_minutes: int | None = None
     results_published: bool = False
     results_published_at: datetime | None = None

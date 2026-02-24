@@ -136,7 +136,15 @@ async function main() {
         answers: [
           {
             question_id: questionId,
-            answer_text: "Read csv then return rows from dataframe",
+            answer_text: [
+              "def load_head(path):",
+              "    import csv",
+              "    rows = []",
+              "    with open(path, newline='') as f:",
+              "        for row in csv.reader(f):",
+              "            rows.append(row)",
+              "    return rows[:3]",
+            ].join("\n"),
           },
         ],
       },

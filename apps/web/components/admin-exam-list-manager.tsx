@@ -8,7 +8,7 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { formatDateTimeKST } from "@/lib/datetime";
+import { datetimeLocalToUtcIso, formatDateTimeKST, toDatetimeLocalValue } from "@/lib/datetime";
 
 type Folder = { id: number; path: string };
 type ExamSummary = {
@@ -20,6 +20,7 @@ type ExamSummary = {
   exam_kind: string;
   target_track_name: string | null;
   status: string;
+  starts_at: string | null;
   duration_minutes: number | null;
   results_published: boolean;
   results_published_at: string | null;
@@ -46,6 +47,7 @@ type ExamDetail = {
   exam_kind: string;
   target_track_name: string | null;
   status: string;
+  starts_at: string | null;
   duration_minutes: number | null;
   results_published: boolean;
   results_published_at: string | null;
@@ -141,6 +143,7 @@ export function AdminExamListManager({
   const [folderId, setFolderId] = useState("");
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
   const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
+  const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [status, setStatus] = useState<"draft" | "published">("published");
@@ -201,6 +204,7 @@ export function AdminExamListManager({
     if (!selectedExamId) {
       setQuestions([]);
       setResourceRows([]);
+      setStartsAtLocal("");
       return;
     }
     setDetailLoading(true);
@@ -237,6 +241,7 @@ export function AdminExamListManager({
       setFolderId(detailPayload.folder_id ? String(detailPayload.folder_id) : "");
       setExamKind((detailPayload.exam_kind as "quiz" | "assessment") ?? "quiz");
       setTargetTrackName(detailPayload.target_track_name ?? TRACK_OPTIONS[0]);
+      setStartsAtLocal(toDatetimeLocalValue(detailPayload.starts_at ?? null));
       setDurationMinutes(String(detailPayload.duration_minutes ?? 60));
       setNoTimeLimit(detailPayload.duration_minutes === null);
       setStatus((detailPayload.status as "draft" | "published") ?? "published");
@@ -309,6 +314,12 @@ export function AdminExamListManager({
     setError("");
     setMessage("");
     setSavingMeta(true);
+    const parsedStartsAt = startsAtLocal.trim() ? datetimeLocalToUtcIso(startsAtLocal) : null;
+    if (startsAtLocal.trim() && !parsedStartsAt) {
+      setError("Exam start datetime format is invalid.");
+      setSavingMeta(false);
+      return;
+    }
     let parsedDuration: number | null = null;
     if (!noTimeLimit) {
       parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
@@ -327,6 +338,7 @@ export function AdminExamListManager({
         folder_id: folderId ? Number(folderId) : null,
         exam_kind: examKind,
         target_track_name: targetTrackName,
+        starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
         status,
       }),
@@ -339,6 +351,7 @@ export function AdminExamListManager({
       folder_path?: string | null;
       exam_kind?: string;
       target_track_name?: string | null;
+      starts_at?: string | null;
       duration_minutes?: number | null;
       results_published?: boolean;
       results_published_at?: string | null;
@@ -365,6 +378,7 @@ export function AdminExamListManager({
               folder_path: payload.folder_path ?? row.folder_path,
               exam_kind: payload.exam_kind ?? row.exam_kind,
               target_track_name: payload.target_track_name ?? row.target_track_name,
+              starts_at: payload.starts_at ?? row.starts_at,
               duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : row.duration_minutes,
               results_published: payload.results_published ?? row.results_published,
               results_published_at: payload.results_published_at ?? row.results_published_at,
@@ -395,6 +409,11 @@ export function AdminExamListManager({
     }
     if (!targetTrackName) {
       setRepublishError("응시 대상 반을 선택해 주세요.");
+      return;
+    }
+    const parsedStartsAt = startsAtLocal.trim() ? datetimeLocalToUtcIso(startsAtLocal) : null;
+    if (startsAtLocal.trim() && !parsedStartsAt) {
+      setRepublishError("Exam start datetime format is invalid.");
       return;
     }
     let parsedDuration: number | null = null;
@@ -452,6 +471,7 @@ export function AdminExamListManager({
         folder_id: folderId ? Number(folderId) : null,
         exam_kind: examKind,
         target_track_name: targetTrackName,
+        starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
         status: "published",
         questions: normalizedQuestions,
@@ -467,6 +487,7 @@ export function AdminExamListManager({
       folder_path?: string | null;
       exam_kind?: string;
       target_track_name?: string | null;
+      starts_at?: string | null;
       duration_minutes?: number | null;
       results_published?: boolean;
       results_published_at?: string | null;
@@ -489,6 +510,7 @@ export function AdminExamListManager({
       folder_path: payload.folder_path ?? null,
       exam_kind: payload.exam_kind ?? examKind,
       target_track_name: payload.target_track_name ?? targetTrackName,
+      starts_at: payload.starts_at ?? parsedStartsAt,
       duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : parsedDuration,
       results_published: payload.results_published ?? false,
       results_published_at: payload.results_published_at ?? null,
@@ -616,6 +638,7 @@ export function AdminExamListManager({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {examKindLabel(exam.exam_kind)} | {exam.question_count}문항 | {exam.target_track_name ?? "미지정"} |{" "}
+                  {exam.starts_at ? `Start ${formatDateTimeKST(exam.starts_at)} | ` : ""}
                   {exam.duration_minutes === null ? "시간 제한 없음" : `${exam.duration_minutes}분`} |{" "}
                   {exam.results_published ? "결과 공유 중" : "결과 미공유"}
                 </p>
@@ -685,6 +708,16 @@ export function AdminExamListManager({
                       </option>
                     ))}
                   </select>
+
+                  <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+                  <p className="text-sm font-medium">시험 시작 일시 (로컬)</p>
+                  <Input
+                    type="datetime-local"
+                    value={startsAtLocal}
+                    onChange={(event) => setStartsAtLocal(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">비워두면 즉시 응시 가능합니다.</p>
+                </div>
 
                   <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
                     <div className="flex items-center justify-between gap-3">

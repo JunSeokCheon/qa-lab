@@ -8,6 +8,7 @@ import { MarkdownContent } from "@/components/markdown-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { datetimeLocalToUtcIso } from "@/lib/datetime";
 
 type Folder = { id: number; path: string };
 
@@ -186,6 +187,7 @@ export function AdminExamBuilder({
   const [folderId, setFolderId] = useState(initialFolders[0] ? String(initialFolders[0].id) : "");
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
   const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
+  const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [questions, setQuestions] = useState<DraftQuestion[]>([newQuestion(1, "multiple_choice")]);
@@ -335,6 +337,12 @@ export function AdminExamBuilder({
       setLoading(false);
       return;
     }
+    const parsedStartsAt = startsAtLocal.trim() ? datetimeLocalToUtcIso(startsAtLocal) : null;
+    if (startsAtLocal.trim() && !parsedStartsAt) {
+      setError("Exam start datetime format is invalid.");
+      setLoading(false);
+      return;
+    }
     let parsedDuration: number | null = null;
     if (!noTimeLimit) {
       parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
@@ -388,6 +396,7 @@ export function AdminExamBuilder({
         folder_id: folderId ? Number(folderId) : null,
         exam_kind: examKind,
         target_track_name: targetTrackName,
+        starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
         status: "published",
         questions: normalizedQuestions,
@@ -411,6 +420,7 @@ export function AdminExamBuilder({
     setTitle("");
     setDescription("");
     setTargetTrackName(TRACK_OPTIONS[0]);
+    setStartsAtLocal("");
     setDurationMinutes("60");
     setNoTimeLimit(false);
     setQuestions([newQuestion(Date.now(), "multiple_choice")]);
@@ -506,6 +516,16 @@ export function AdminExamBuilder({
             </option>
           ))}
         </select>
+
+        <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+          <p className="text-sm font-medium">시험 시작 일시 (로컬)</p>
+          <Input
+            type="datetime-local"
+            value={startsAtLocal}
+            onChange={(event) => setStartsAtLocal(event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">비워두면 즉시 응시 가능합니다.</p>
+        </div>
 
         <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
           <div className="flex items-center justify-between gap-3">

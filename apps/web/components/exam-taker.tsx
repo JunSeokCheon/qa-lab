@@ -277,9 +277,15 @@ export function ExamTaker({
           {questions.map((question) => (
             <article key={question.id} className="rounded-2xl border border-border/70 bg-surface p-4">
               <div className="text-sm font-semibold">
-                <span>{question.order_index}. </span>
+                <div className="mb-1 flex items-center gap-2">
+                  <span>{question.order_index}.</span>
+                  {question.required ? (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                      필수
+                    </span>
+                  ) : null}
+                </div>
                 <MarkdownContent content={question.prompt_md} />
-                {question.required ? <span className="ml-1">*</span> : null}
               </div>
 
               {question.type === "multiple_choice" ? (

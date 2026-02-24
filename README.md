@@ -51,6 +51,11 @@ pnpm.cmd --dir apps/web build
 
 ### 4) 변경사항 빠른 검증 명령
 ```bash
+# API 마이그레이션(시험 시작 시각 starts_at 포함)
+cd apps/api
+. .venv/Scripts/Activate.ps1
+alembic upgrade head
+
 # web 정적 검사/빌드
 pnpm --dir apps/web lint
 pnpm --dir apps/web build
@@ -194,6 +199,8 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 
 ## 시험 시간/제출 UX
 - 시험 생성/수정 시 `duration_minutes`(1~1440분)를 설정할 수 있습니다.
+- 시험 생성/수정/재출판 시 `starts_at`(시험 시작 일시, timezone 포함 datetime)을 설정할 수 있습니다.
+- 수강생은 `starts_at` 이전에는 해당 시험이 `/problems` 목록에 보이지 않으며, 상세/리소스/제출 접근도 차단됩니다.
 - 관리자 시험 생성/수정 화면에서 `시간 제한 없음` 체크 시 `duration_minutes=null`로 저장됩니다.
 - 시간 제한이 없는 시험은 사용자 시험 화면에서 시험 시간 배지가 표시되지 않습니다.
 - 관리자 시험 생성 시 `시험 생성` 버튼을 누르면 확인 모달(`시험을 생성하시겠습니까?`)이 먼저 표시됩니다.
@@ -205,9 +212,11 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 시험 설명/문항 본문은 개행과 코드 블록(```` fenced code ````) 렌더링을 지원합니다.
 - 제출 시각/채점 시각 표시는 `Asia/Seoul`(KST) 기준으로 통일됩니다.
 - API:
-  - `GET /exams/{exam_id}` (타이머 필드 포함: `duration_minutes`, `remaining_seconds`)
+  - `GET /exams` (요약 필드에 `starts_at` 포함)
+  - `GET /exams/{exam_id}` (타이머 필드 포함: `duration_minutes`, `remaining_seconds`, `starts_at`)
   - `POST /exams/{exam_id}/submit`
   - `GET /exams/{exam_id}/my-submission`
+  - `POST /admin/exams`, `PUT /admin/exams/{exam_id}`, `POST /admin/exams/{exam_id}/republish` (`starts_at` 입력 지원)
 
 ## 시험 결과 공유(관리자)
 - 관리자는 `/admin/exams`에서 시험별 `유저 공유` 버튼으로 결과 공개를 토글할 수 있습니다.
@@ -332,6 +341,10 @@ alembic upgrade head
 cd ../..
 pnpm.cmd --filter web lint
 pnpm.cmd --filter web build
+
+# 웹 E2E 회귀 (텍스트 깨짐/핵심 버튼 플로우)
+# 기본: Next dev 3100, API 127.0.0.1:8000
+pnpm.cmd --dir apps/web test:e2e
 
 # API 문법 컴파일 점검 (Docker 실행 기준)
 docker exec infra-api-1 python -m compileall /app

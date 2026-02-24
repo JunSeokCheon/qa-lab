@@ -168,6 +168,7 @@ class Exam(Base):
     exam_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="quiz")
     target_track_name: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
+    starts_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     results_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     results_published_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)

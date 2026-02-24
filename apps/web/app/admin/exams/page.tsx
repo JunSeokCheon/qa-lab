@@ -14,6 +14,7 @@ type ExamSummary = {
   exam_kind: string;
   target_track_name: string | null;
   status: string;
+  starts_at: string | null;
   duration_minutes: number | null;
   results_published: boolean;
   results_published_at: string | null;

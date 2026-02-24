@@ -304,6 +304,34 @@ def _sanitize_exam_duration_minutes(duration_minutes: int | None) -> int | None:
     return int(duration_minutes)
 
 
+def _coerce_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _sanitize_exam_starts_at(starts_at: datetime | None) -> datetime | None:
+    if starts_at is None:
+        return None
+    if starts_at.tzinfo is None or starts_at.utcoffset() is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="시험 시작 일시는 타임존을 포함해 주세요. 예: 2026-03-01T09:00:00+09:00",
+        )
+    return starts_at.astimezone(timezone.utc)
+
+
+def _is_exam_started_for_user(exam: Exam, user: User) -> bool:
+    if user.role == "admin":
+        return True
+    starts_at = _coerce_utc_datetime(exam.starts_at)
+    if starts_at is None:
+        return True
+    return datetime.now(timezone.utc) >= starts_at
+
+
 def _can_user_access_exam(exam: Exam, user: User) -> bool:
     if user.role == "admin":
         return True
@@ -469,6 +497,7 @@ def _to_exam_summary(
         exam_kind=exam.exam_kind,
         target_track_name=exam.target_track_name,
         status=exam.status,
+        starts_at=_coerce_utc_datetime(exam.starts_at),
         duration_minutes=exam.duration_minutes,
         results_published=bool(exam.results_published),
         results_published_at=exam.results_published_at,
@@ -1401,6 +1430,7 @@ async def _create_exam_with_questions(
         exam_kind=_normalize_exam_kind(payload.exam_kind),
         target_track_name=_sanitize_exam_target_track_name(payload.target_track_name),
         status=_sanitize_exam_status(payload.status),
+        starts_at=_sanitize_exam_starts_at(payload.starts_at),
         duration_minutes=_sanitize_exam_duration_minutes(payload.duration_minutes),
     )
     session.add(exam)
@@ -1573,6 +1603,7 @@ async def create_exam(
             "question_count": len(questions),
             "exam_kind": exam.exam_kind,
             "target_track_name": exam.target_track_name,
+            "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "duration_minutes": exam.duration_minutes,
         },
     )
@@ -1665,6 +1696,7 @@ async def republish_admin_exam(
             "question_count": len(new_questions),
             "copied_resources": copied_resources,
             "target_track_name": new_exam.target_track_name,
+            "starts_at": new_exam.starts_at.isoformat() if new_exam.starts_at else None,
             "duration_minutes": new_exam.duration_minutes,
         },
     )
@@ -1710,6 +1742,7 @@ async def update_admin_exam(
     exam.exam_kind = _normalize_exam_kind(payload.exam_kind)
     exam.target_track_name = _sanitize_exam_target_track_name(payload.target_track_name)
     exam.status = _sanitize_exam_status(payload.status)
+    exam.starts_at = _sanitize_exam_starts_at(payload.starts_at)
     exam.duration_minutes = _sanitize_exam_duration_minutes(payload.duration_minutes)
 
     await _write_admin_audit_log(
@@ -1725,6 +1758,7 @@ async def update_admin_exam(
             "target_track_name": exam.target_track_name,
             "status": exam.status,
             "folder_id": exam.folder_id,
+            "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "duration_minutes": exam.duration_minutes,
         },
     )
@@ -2064,6 +2098,8 @@ async def list_exam_resources(
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
     if exam is None or not _can_user_access_exam(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+    if not _is_exam_started_for_user(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     resources = (
         await session.execute(select(ExamResource).where(ExamResource.exam_id == exam_id).order_by(ExamResource.id.desc()))
@@ -2080,6 +2116,8 @@ async def download_exam_resource(
 ) -> FileResponse:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
     if exam is None or not _can_user_access_exam(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+    if not _is_exam_started_for_user(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     resource = await session.scalar(
@@ -2107,6 +2145,8 @@ async def list_exams(
     query = select(Exam).where(Exam.status == "published")
     if user.role != "admin":
         query = query.where(Exam.target_track_name == user.track_name)
+        now_utc = datetime.now(timezone.utc)
+        query = query.where((Exam.starts_at.is_(None)) | (Exam.starts_at <= now_utc))
     exams = (await session.execute(query.order_by(Exam.id.asc()))).scalars().all()
     if not exams:
         return []
@@ -2140,6 +2180,8 @@ async def get_exam(
 ) -> ExamDetail:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
     if exam is None or not _can_user_access_exam(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+    if not _is_exam_started_for_user(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     questions = (
@@ -2202,6 +2244,8 @@ async def submit_exam(
 ) -> ExamSubmitResponse:
     exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
     if exam is None or not _can_user_access_exam(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+    if not _is_exam_started_for_user(exam, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
 
     existing = await session.scalar(
