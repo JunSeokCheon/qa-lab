@@ -35,6 +35,7 @@ type ExamQuestionDetail = {
   prompt_md: string;
   required: boolean;
   choices: string[] | null;
+  image_resource_id: number | null;
   correct_choice_index: number | null;
   answer_key_text: string | null;
 };
@@ -62,6 +63,8 @@ type DraftQuestion = {
   choices: string[];
   correctChoiceIndex: number;
   answerKeyText: string;
+  imageResourceId: number | null;
+  imageFile: File | null;
 };
 
 type ExamResource = {
@@ -97,6 +100,8 @@ function toDraftQuestion(question: ExamQuestionDetail): DraftQuestion {
     choices: choices.slice(0, 4),
     correctChoiceIndex: question.correct_choice_index ?? 0,
     answerKeyText: question.answer_key_text ?? "",
+    imageResourceId: question.image_resource_id ?? null,
+    imageFile: null,
   };
 }
 
@@ -109,6 +114,8 @@ function newDraftQuestion(type: QuestionType): DraftQuestion {
     choices: ["", "", "", ""],
     correctChoiceIndex: 0,
     answerKeyText: "",
+    imageResourceId: null,
+    imageFile: null,
   };
 }
 
@@ -155,6 +162,7 @@ export function AdminExamListManager({
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const pageTopRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const questionImageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const [republishResourceFiles, setRepublishResourceFiles] = useState<File[]>([]);
   const republishFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -307,6 +315,59 @@ export function AdminExamListManager({
     return { uploaded, failed };
   };
 
+  const uploadAndAssignQuestionImages = async (
+    examId: number,
+    createdQuestions: Array<{ id: number; order_index: number }>,
+    draftQuestions: DraftQuestion[]
+  ) => {
+    const questionIdByOrder = new Map<number, number>();
+    for (const question of createdQuestions) {
+      questionIdByOrder.set(question.order_index, question.id);
+    }
+
+    let assigned = 0;
+    const failed: string[] = [];
+    for (let index = 0; index < draftQuestions.length; index += 1) {
+      const imageFile = draftQuestions[index]?.imageFile;
+      if (!imageFile) continue;
+
+      const questionId = questionIdByOrder.get(index + 1);
+      if (!questionId) {
+        failed.push(imageFile.name);
+        continue;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("file", imageFile, imageFile.name);
+        const uploadResponse = await fetch(`/api/admin/exams/${examId}/resources`, {
+          method: "POST",
+          body: formData,
+        });
+        const uploadPayload = (await uploadResponse.json().catch(() => ({}))) as { id?: number };
+        if (!uploadResponse.ok || typeof uploadPayload.id !== "number") {
+          failed.push(imageFile.name);
+          continue;
+        }
+
+        const assignResponse = await fetch(`/api/admin/exams/${examId}/questions/${questionId}/image`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_resource_id: uploadPayload.id }),
+        });
+        if (!assignResponse.ok) {
+          failed.push(imageFile.name);
+          continue;
+        }
+        assigned += 1;
+      } catch {
+        failed.push(imageFile.name);
+      }
+    }
+
+    return { assigned, failed };
+  };
+
   const onSaveMeta = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedExam) return;
@@ -357,6 +418,10 @@ export function AdminExamListManager({
       results_published_at?: string | null;
       status?: string;
       question_count?: number;
+      questions?: Array<{
+        id: number;
+        order_index: number;
+      }>;
       detail?: string;
       message?: string;
     };
@@ -448,6 +513,7 @@ export function AdminExamListManager({
           choices: trimmedChoices,
           correct_choice_index: question.correctChoiceIndex,
           answer_key_text: null,
+          image_resource_id: question.imageResourceId,
         });
       } else {
         normalizedQuestions.push({
@@ -457,6 +523,7 @@ export function AdminExamListManager({
           choices: null,
           correct_choice_index: null,
           answer_key_text: question.answerKeyText.trim() || null,
+          image_resource_id: question.imageResourceId,
         });
       }
     }
@@ -493,6 +560,10 @@ export function AdminExamListManager({
       results_published_at?: string | null;
       status?: string;
       question_count?: number;
+      questions?: Array<{
+        id: number;
+        order_index: number;
+      }>;
       detail?: string;
       message?: string;
     };
@@ -518,21 +589,26 @@ export function AdminExamListManager({
       question_count: payload.question_count ?? questions.length,
     };
 
+    const createdQuestions = Array.isArray(payload.questions) ? payload.questions : [];
     const resourceUpload = await uploadResourceFilesToExam(newSummary.id, republishResourceFiles);
-    const uploadSummary =
-      resourceUpload.uploaded > 0 ? `, 추가 리소스 ${resourceUpload.uploaded}개 업로드` : ", 추가 리소스 업로드 없음";
+    const questionImageUpload = await uploadAndAssignQuestionImages(newSummary.id, createdQuestions, questions);
 
     setExams((prev) => [newSummary, ...prev]);
     setSelectedExamId(newSummary.id);
     setStatus("published");
     setRepublishResourceFiles([]);
     if (republishFileInputRef.current) republishFileInputRef.current.value = "";
-    if (resourceUpload.failed.length > 0) {
-      setRepublishError(`새 시험은 생성됐지만 일부 리소스 업로드에 실패했습니다: ${resourceUpload.failed.join(", ")}`);
+    const failedUploads = [...resourceUpload.failed, ...questionImageUpload.failed];
+    if (failedUploads.length > 0) {
+      setRepublishError(`새 시험은 생성됐지만 일부 리소스 업로드/문항 이미지 연결에 실패했습니다: ${failedUploads.join(", ")}`);
       setRepublishing(false);
       return;
     }
 
+    const uploadSummary =
+      resourceUpload.uploaded > 0 || questionImageUpload.assigned > 0
+        ? `, 추가 리소스 ${resourceUpload.uploaded}개 업로드 / 문항 이미지 ${questionImageUpload.assigned}개 연결`
+        : ", 추가 리소스/문항 이미지 업로드 없음";
     setMessage(`수정본으로 새 시험을 생성했습니다. (ID: ${newSummary.id}${uploadSummary}) 관리자 허브로 이동합니다.`);
     setRepublishing(false);
     router.push("/");
@@ -786,6 +862,9 @@ export function AdminExamListManager({
                     <p className="mt-2 text-xs text-muted-foreground">
                       선택 파일: <span className="font-medium">{uploadFile?.name ?? "(없음)"}</span>
                     </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      문항 이미지는 아래 문항 카드에서 개별 파일로 연결할 수 있습니다.
+                    </p>
                   </div>
 
                   {resourceRows.length === 0 ? (
@@ -849,7 +928,74 @@ export function AdminExamListManager({
                         />
                         <div className="mt-2 rounded-xl border border-border/70 bg-background/70 p-3">
                           <p className="text-[11px] font-semibold text-muted-foreground">문항 미리보기</p>
-                          <MarkdownContent className="mt-2" content={question.prompt_md} />
+                          <MarkdownContent
+                            className="mt-2"
+                            content={question.prompt_md}
+                          />
+                        </div>
+
+                        <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
+                          <p className="text-xs font-semibold">문항 이미지</p>
+                          {selectedExamId && question.imageResourceId ? (
+                            <div className="mt-2 overflow-hidden rounded-xl border border-border/70 bg-background">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`/api/exams/${selectedExamId}/resources/${question.imageResourceId}/download?inline=1`}
+                                alt={`문항 ${index + 1} 이미지`}
+                                loading="lazy"
+                                className="h-auto max-h-72 w-full object-contain"
+                              />
+                            </div>
+                          ) : null}
+                          <input
+                            ref={(element) => {
+                              questionImageInputRefs.current[question.key] = element;
+                            }}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(event) =>
+                              updateQuestion(question.key, {
+                                imageFile: event.target.files?.[0] ?? null,
+                                imageResourceId: event.target.files?.[0] ? null : question.imageResourceId,
+                              })
+                            }
+                          />
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-3 text-xs"
+                              onClick={() => questionImageInputRefs.current[question.key]?.click()}
+                            >
+                              이미지 파일 선택
+                            </Button>
+                            <span className="rounded-md border border-border/70 bg-background px-2 py-1 text-xs text-muted-foreground">
+                              {question.imageFile?.name ?? "선택된 파일 없음"}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {question.imageResourceId !== null ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-3 text-xs"
+                                onClick={() => updateQuestion(question.key, { imageResourceId: null, imageFile: null })}
+                              >
+                                기존 이미지 해제
+                              </Button>
+                            ) : null}
+                            {question.imageFile ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-3 text-xs"
+                                onClick={() => updateQuestion(question.key, { imageFile: null })}
+                              >
+                                선택 파일 취소
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
 
                         <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">

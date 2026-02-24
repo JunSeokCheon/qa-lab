@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -13,6 +13,12 @@ import { datetimeLocalToUtcIso } from "@/lib/datetime";
 type Folder = { id: number; path: string };
 
 type QuestionType = "multiple_choice" | "subjective" | "coding";
+type DraftQuestionImage = {
+  id: number;
+  file: File;
+  previewUrl: string;
+};
+
 type DraftQuestion = {
   key: number;
   type: QuestionType;
@@ -21,6 +27,7 @@ type DraftQuestion = {
   choices: string[];
   correctChoiceIndex: number;
   answerKeyText: string;
+  imageFiles: DraftQuestionImage[];
 };
 
 const TRACK_OPTIONS = ["데이터 분석 11기", "QAQC 4기"] as const;
@@ -113,6 +120,7 @@ function newQuestion(key: number, type: QuestionType): DraftQuestion {
     choices: ["", "", "", ""],
     correctChoiceIndex: 0,
     answerKeyText: "",
+    imageFiles: [],
   };
 }
 
@@ -194,6 +202,20 @@ export function AdminExamBuilder({
   const [resourceFiles, setResourceFiles] = useState<File[]>([]);
   const [answerKeyModalQuestionKey, setAnswerKeyModalQuestionKey] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const questionImageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const pageTopRef = useRef<HTMLDivElement | null>(null);
+  const questionsRef = useRef<DraftQuestion[]>(questions);
+
+  const scrollToPageTop = () => {
+    window.requestAnimationFrame(() => {
+      pageTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const setCreateError = (nextError: string) => {
+    setError(nextError);
+    scrollToPageTop();
+  };
 
   useEffect(() => {
     if (folders.length > 0) return;
@@ -230,6 +252,18 @@ export function AdminExamBuilder({
     setAnswerKeyModalQuestionKey(null);
   }, [questions, answerKeyModalQuestionKey]);
 
+  useEffect(() => {
+    questionsRef.current = questions;
+  }, [questions]);
+
+  useEffect(() => {
+    return () => {
+      for (const question of questionsRef.current) {
+        releaseQuestionImages(question.imageFiles);
+      }
+    };
+  }, []);
+
   const updateQuestion = (key: number, patch: Partial<DraftQuestion>) => {
     setQuestions((prev) => prev.map((question) => (question.key === key ? { ...question, ...patch } : question)));
   };
@@ -241,6 +275,42 @@ export function AdminExamBuilder({
         const nextChoices = [...question.choices];
         nextChoices[choiceIndex] = value;
         return { ...question, choices: nextChoices };
+      })
+    );
+  };
+
+  const releaseQuestionImages = (images: DraftQuestionImage[]) => {
+    for (const image of images) {
+      URL.revokeObjectURL(image.previewUrl);
+    }
+  };
+
+  const appendQuestionImages = (questionKey: number, files: File[]) => {
+    if (files.length === 0) return;
+    const imageItems: DraftQuestionImage[] = files.map((file, index) => ({
+      id: Date.now() + index + Math.floor(Math.random() * 1000),
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setQuestions((prev) =>
+      prev.map((question) =>
+        question.key === questionKey ? { ...question, imageFiles: [...question.imageFiles, ...imageItems] } : question
+      )
+    );
+  };
+
+  const removeQuestionImage = (questionKey: number, imageId: number) => {
+    setQuestions((prev) =>
+      prev.map((question) => {
+        if (question.key !== questionKey) return question;
+        const imageToRemove = question.imageFiles.find((image) => image.id === imageId);
+        if (imageToRemove) {
+          URL.revokeObjectURL(imageToRemove.previewUrl);
+        }
+        return {
+          ...question,
+          imageFiles: question.imageFiles.filter((image) => image.id !== imageId),
+        };
       })
     );
   };
@@ -270,7 +340,15 @@ export function AdminExamBuilder({
   };
 
   const removeQuestion = (key: number) => {
-    setQuestions((prev) => (prev.length > 1 ? prev.filter((question) => question.key !== key) : prev));
+    setQuestions((prev) => {
+      if (prev.length <= 1) return prev;
+      const target = prev.find((question) => question.key === key);
+      if (target) {
+        releaseQuestionImages(target.imageFiles);
+      }
+      delete questionImageInputRefs.current[key];
+      return prev.filter((question) => question.key !== key);
+    });
   };
 
   const openAnswerKeyModal = (questionKey: number) => {
@@ -309,9 +387,78 @@ export function AdminExamBuilder({
     }
   };
 
+  const uploadAndAssignQuestionImages = async (
+    examId: number,
+    createdQuestions: Array<{ id: number; order_index: number }>,
+    draftQuestions: DraftQuestion[]
+  ) => {
+    const questionIdByOrder = new Map<number, number>();
+    for (const question of createdQuestions) {
+      questionIdByOrder.set(question.order_index, question.id);
+    }
+
+    let assigned = 0;
+    const failed: string[] = [];
+    for (let index = 0; index < draftQuestions.length; index += 1) {
+      const imageFiles = draftQuestions[index]?.imageFiles ?? [];
+      if (imageFiles.length === 0) continue;
+
+      const questionId = questionIdByOrder.get(index + 1);
+      if (!questionId) {
+        failed.push(...imageFiles.map((image) => image.file.name));
+        continue;
+      }
+
+      const uploadedImageIds: number[] = [];
+      const uploadedFileNames: string[] = [];
+      try {
+        for (const image of imageFiles) {
+          const formData = new FormData();
+          formData.append("file", image.file, image.file.name);
+          const uploadResponse = await fetch(`/api/admin/exams/${examId}/resources`, {
+            method: "POST",
+            body: formData,
+          });
+          const uploadPayload = (await uploadResponse.json().catch(() => ({}))) as { id?: number };
+          if (!uploadResponse.ok || typeof uploadPayload.id !== "number") {
+            failed.push(image.file.name);
+            continue;
+          }
+          uploadedImageIds.push(uploadPayload.id);
+          uploadedFileNames.push(image.file.name);
+        }
+
+        if (uploadedImageIds.length === 0) {
+          continue;
+        }
+
+        const assignResponse = await fetch(`/api/admin/exams/${examId}/questions/${questionId}/images`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_resource_ids: uploadedImageIds }),
+        });
+        if (!assignResponse.ok) {
+          failed.push(...uploadedFileNames);
+          continue;
+        }
+        assigned += uploadedImageIds.length;
+      } catch {
+        failed.push(...imageFiles.map((image) => image.file.name));
+      }
+    }
+
+    return { assigned, failed };
+  };
+
   const onResourceFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextFiles = event.target.files ? Array.from(event.target.files) : [];
     setResourceFiles(nextFiles);
+  };
+
+  const onQuestionImageFileChange = (questionKey: number, event: ChangeEvent<HTMLInputElement>) => {
+    const nextFiles = event.target.files ? Array.from(event.target.files) : [];
+    appendQuestionImages(questionKey, nextFiles);
+    event.target.value = "";
   };
 
   const createExam = async () => {
@@ -322,24 +469,24 @@ export function AdminExamBuilder({
     setLoading(true);
 
     if (!title.trim()) {
-      setError("시험 제목을 입력해 주세요.");
+      setCreateError("시험 제목을 입력해 주세요.");
       setLoading(false);
       return;
     }
     const normalizedTitle = title.trim().toLowerCase();
     if (existingExamTitles.includes(normalizedTitle)) {
-      setError("같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.");
+      setCreateError("같은 시험명은 사용할 수 없습니다. 시험명을 다르게 입력해 주세요.");
       setLoading(false);
       return;
     }
     if (!targetTrackName) {
-      setError("응시 대상 반을 선택해 주세요.");
+      setCreateError("응시 대상 반을 선택해 주세요.");
       setLoading(false);
       return;
     }
     const parsedStartsAt = startsAtLocal.trim() ? datetimeLocalToUtcIso(startsAtLocal) : null;
     if (startsAtLocal.trim() && !parsedStartsAt) {
-      setError("Exam start datetime format is invalid.");
+      setCreateError("Exam start datetime format is invalid.");
       setLoading(false);
       return;
     }
@@ -347,7 +494,7 @@ export function AdminExamBuilder({
     if (!noTimeLimit) {
       parsedDuration = Number.parseInt(durationMinutes.trim(), 10);
       if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
-        setError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
+        setCreateError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
         setLoading(false);
         return;
       }
@@ -356,14 +503,14 @@ export function AdminExamBuilder({
     const normalizedQuestions = [];
     for (const question of questions) {
       if (!question.prompt_md.trim()) {
-        setError("모든 문항 내용을 입력해 주세요.");
+        setCreateError("모든 문항 내용을 입력해 주세요.");
         setLoading(false);
         return;
       }
       if (question.type === "multiple_choice") {
         const trimmedChoices = question.choices.map((choice) => choice.trim());
         if (trimmedChoices.some((choice) => choice.length === 0)) {
-          setError("객관식은 선택지 4개를 모두 입력해 주세요.");
+          setCreateError("객관식은 선택지 4개를 모두 입력해 주세요.");
           setLoading(false);
           return;
         }
@@ -374,6 +521,7 @@ export function AdminExamBuilder({
           choices: trimmedChoices,
           correct_choice_index: question.correctChoiceIndex,
           answer_key_text: null,
+          image_resource_id: null,
         });
       } else {
         normalizedQuestions.push({
@@ -383,59 +531,88 @@ export function AdminExamBuilder({
           choices: null,
           correct_choice_index: null,
           answer_key_text: question.answerKeyText.trim() || null,
+          image_resource_id: null,
         });
       }
     }
 
-    const response = await fetch("/api/admin/exams", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: title.trim(),
-        description: description.trim() ? description.trim() : null,
-        folder_id: folderId ? Number(folderId) : null,
-        exam_kind: examKind,
-        target_track_name: targetTrackName,
-        starts_at: parsedStartsAt,
-        duration_minutes: parsedDuration,
-        status: "published",
-        questions: normalizedQuestions,
-      }),
-    });
-    const payload = (await response.json().catch(() => ({}))) as { id?: number; detail?: string; message?: string };
-    if (!response.ok || !payload.id) {
-      setError(payload.detail ?? payload.message ?? "시험 생성에 실패했습니다.");
+    try {
+      const response = await fetch("/api/admin/exams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() ? description.trim() : null,
+          folder_id: folderId ? Number(folderId) : null,
+          exam_kind: examKind,
+          target_track_name: targetTrackName,
+          starts_at: parsedStartsAt,
+          duration_minutes: parsedDuration,
+          status: "published",
+          questions: normalizedQuestions,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        id?: number;
+        questions?: Array<{
+          id: number;
+          order_index: number;
+        }>;
+        detail?: string;
+        message?: string;
+      };
+      if (!response.ok || !payload.id) {
+        setCreateError(payload.detail ?? payload.message ?? "시험 생성에 실패했습니다.");
+        setLoading(false);
+        return;
+      }
+
+      const createdQuestions = Array.isArray(payload.questions) ? payload.questions : [];
+      const uploadResult = await uploadResourceFilesToExam(payload.id, resourceFiles);
+      const questionImageUpload = await uploadAndAssignQuestionImages(payload.id, createdQuestions, questions);
+      const failedUploads = [...uploadResult.failed, ...questionImageUpload.failed];
+      if (failedUploads.length > 0) {
+        setCreateError(`시험은 생성되었지만 리소스 업로드/문항 이미지 연결에 실패한 파일이 있습니다: ${failedUploads.join(", ")}`);
+      }
+
+      const uploadMessage =
+        uploadResult.uploaded > 0 || questionImageUpload.assigned > 0
+          ? `, 리소스 ${uploadResult.uploaded}개 업로드 / 문항 이미지 ${questionImageUpload.assigned}개 연결`
+          : "";
+      setMessage(`시험을 생성했습니다. (ID: ${payload.id}${uploadMessage})`);
+      setExistingExamTitles((prev) => [...prev, normalizedTitle]);
+      for (const question of questionsRef.current) {
+        releaseQuestionImages(question.imageFiles);
+      }
+      setTitle("");
+      setDescription("");
+      setTargetTrackName(TRACK_OPTIONS[0]);
+      setStartsAtLocal("");
+      setDurationMinutes("60");
+      setNoTimeLimit(false);
+      setQuestions([newQuestion(Date.now(), "multiple_choice")]);
+      questionImageInputRefs.current = {};
+      setResourceFiles([]);
+      setAnswerKeyModalQuestionKey(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      if (failedUploads.length > 0) {
+        setLoading(false);
+        return;
+      }
       setLoading(false);
-      return;
+      router.push("/");
+      router.refresh();
+    } catch {
+      setCreateError("시험 생성 중 네트워크 오류가 발생했습니다.");
+      setLoading(false);
     }
-
-    const uploadResult = await uploadResourceFilesToExam(payload.id, resourceFiles);
-    if (uploadResult.failed.length > 0) {
-      setError(`시험은 생성되었지만 리소스 업로드에 실패한 파일이 있습니다: ${uploadResult.failed.join(", ")}`);
-    }
-
-    const uploadMessage = uploadResult.uploaded > 0 ? `, 리소스 ${uploadResult.uploaded}개 업로드 완료` : "";
-    setMessage(`시험을 생성했습니다. (ID: ${payload.id}${uploadMessage})`);
-    setExistingExamTitles((prev) => [...prev, normalizedTitle]);
-    setTitle("");
-    setDescription("");
-    setTargetTrackName(TRACK_OPTIONS[0]);
-    setStartsAtLocal("");
-    setDurationMinutes("60");
-    setNoTimeLimit(false);
-    setQuestions([newQuestion(Date.now(), "multiple_choice")]);
-    setResourceFiles([]);
-    setAnswerKeyModalQuestionKey(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    setLoading(false);
-    router.push("/");
-    router.refresh();
   };
 
   return (
     <main className="qa-shell space-y-6">
+      <div ref={pageTopRef} />
       <section className="qa-card bg-hero text-hero-foreground">
         <BackButton fallbackHref="/" tone="hero" />
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
@@ -579,7 +756,81 @@ export function AdminExamBuilder({
               />
               <div className="mt-2 rounded-xl border border-border/70 bg-background/70 p-3">
                 <p className="text-[11px] font-semibold text-muted-foreground">문항 미리보기</p>
+                {question.imageFiles.length > 0 ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {question.imageFiles.map((image, imageIndex) => (
+                      <div
+                        key={`${question.key}-${image.id}-preview`}
+                        className="overflow-hidden rounded-xl border border-border/70 bg-surface-muted/30"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={image.previewUrl}
+                          alt={`Question ${index + 1} image preview ${imageIndex + 1}`}
+                          loading="lazy"
+                          className="h-auto max-h-64 w-full object-contain bg-background"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <MarkdownContent className="mt-2" content={question.prompt_md} />
+              </div>
+
+              <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
+                <p className="text-xs font-semibold">문항 이미지</p>
+                <input
+                  ref={(element) => {
+                    questionImageInputRefs.current[question.key] = element;
+                  }}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => onQuestionImageFileChange(question.key, event)}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => questionImageInputRefs.current[question.key]?.click()}
+                  >
+                    이미지 파일 선택
+                  </Button>
+                  <span className="rounded-md border border-border/70 bg-background px-2 py-1 text-xs text-muted-foreground">
+                    {question.imageFiles.length > 0 ? `${question.imageFiles.length}개 선택됨` : "선택된 파일 없음"}
+                  </span>
+                </div>
+                {question.imageFiles.length > 0 ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {question.imageFiles.map((image, imageIndex) => (
+                      <div
+                        key={`${question.key}-${image.id}`}
+                        className="group relative overflow-hidden rounded-xl border border-border/70 bg-background"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={image.previewUrl}
+                          alt={`Question ${index + 1} image ${imageIndex + 1}`}
+                          loading="lazy"
+                          className="h-40 w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-[11px] font-semibold text-white opacity-0 transition-opacity hover:bg-black/85 group-hover:opacity-100"
+                          onClick={() => removeQuestionImage(question.key, image.id)}
+                          aria-label={`Remove image ${imageIndex + 1}`}
+                        >
+                          x
+                        </button>
+                        <p className="truncate border-t border-border/70 px-2 py-1 text-[11px] text-muted-foreground">
+                          {image.file.name}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="mt-3 rounded-xl border border-border/70 bg-surface-muted p-3">
@@ -694,6 +945,7 @@ export function AdminExamBuilder({
           <p className="mt-2 text-xs text-muted-foreground">
             선택 파일: {resourceFiles.length > 0 ? resourceFiles.map((file) => file.name).join(", ") : "(없음)"}
           </p>
+          <p className="mt-2 text-xs text-muted-foreground">문항 이미지는 각 문항 카드의 이미지 입력에서 개별 선택해 주세요.</p>
           {!hasCodingQuestion && resourceFiles.length > 0 ? (
             <p className="mt-1 text-xs text-amber-700">현재 코딩 문항이 없지만 리소스는 함께 저장됩니다.</p>
           ) : null}
@@ -766,3 +1018,4 @@ export function AdminExamBuilder({
     </main>
   );
 }
+

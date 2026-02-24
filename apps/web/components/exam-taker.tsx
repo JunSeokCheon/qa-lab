@@ -16,6 +16,8 @@ type QuestionItem = {
   prompt_md: string;
   required: boolean;
   choices: string[] | null;
+  image_resource_id: number | null;
+  image_resource_ids?: number[];
 };
 
 type AnswerState = {
@@ -29,6 +31,8 @@ export type MyExamSubmissionAnswer = {
   question_type: string;
   prompt_md: string;
   choices: string[] | null;
+  image_resource_id: number | null;
+  image_resource_ids?: number[];
   correct_choice_index: number | null;
   answer_key_text: string | null;
   answer_text: string | null;
@@ -85,6 +89,26 @@ function correctChoiceText(answer: MyExamSubmissionAnswer): string {
   const index = answer.correct_choice_index;
   const choiceText = choices[index] ?? "(선택지 없음)";
   return `${index + 1}번 - ${choiceText}`;
+}
+
+function questionImageUrl(examId: number, imageResourceId: number | null | undefined): string | null {
+  if (typeof imageResourceId !== "number") return null;
+  return `/api/exams/${examId}/resources/${imageResourceId}/download?inline=1`;
+}
+
+function questionImageUrls(
+  examId: number,
+  imageResourceIds: number[] | undefined,
+  imageResourceId: number | null | undefined
+): string[] {
+  const normalizedIds = Array.isArray(imageResourceIds) ? imageResourceIds : [];
+  const urls = normalizedIds
+    .filter((resourceId) => Number.isInteger(resourceId))
+    .map((resourceId) => questionImageUrl(examId, resourceId))
+    .filter((url): url is string => typeof url === "string");
+  if (urls.length > 0) return urls;
+  const fallback = questionImageUrl(examId, imageResourceId);
+  return fallback ? [fallback] : [];
 }
 
 export function ExamTaker({
@@ -231,6 +255,20 @@ export function ExamTaker({
               <article key={answer.question_id} className="rounded-xl border border-border/70 bg-background p-3 text-sm">
                 <div className="font-semibold">
                   <span>{answer.question_order}. </span>
+                  {questionImageUrls(examId, answer.image_resource_ids, answer.image_resource_id).map((imageUrl, imageIndex) => (
+                    <div
+                      key={`${answer.question_id}-${imageUrl}-${imageIndex}`}
+                      className="mb-2 overflow-hidden rounded-xl border border-border/70 bg-surface-muted/30"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={imageUrl}
+                        alt={`문항 ${answer.question_order} 이미지 ${imageIndex + 1}`}
+                        loading="lazy"
+                        className="h-auto max-h-[30rem] w-full object-contain bg-background"
+                      />
+                    </div>
+                  ))}
                   <MarkdownContent content={answer.prompt_md} />
                 </div>
                 {answer.question_type === "multiple_choice" ? (
@@ -285,6 +323,22 @@ export function ExamTaker({
                     </span>
                   ) : null}
                 </div>
+                {questionImageUrls(examId, question.image_resource_ids, question.image_resource_id).map(
+                  (imageUrl, imageIndex) => (
+                    <div
+                      key={`${question.id}-${imageUrl}-${imageIndex}`}
+                      className="mb-2 overflow-hidden rounded-xl border border-border/70 bg-surface-muted/30"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={imageUrl}
+                        alt={`문항 ${question.order_index} 이미지 ${imageIndex + 1}`}
+                        loading="lazy"
+                        className="h-auto max-h-[30rem] w-full object-contain bg-background"
+                      />
+                    </div>
+                  )
+                )}
                 <MarkdownContent content={question.prompt_md} />
               </div>
 

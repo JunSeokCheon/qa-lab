@@ -14,6 +14,8 @@ type ExamQuestion = {
   prompt_md: string;
   required: boolean;
   choices: string[] | null;
+  image_resource_id: number | null;
+  image_resource_ids?: number[];
 };
 
 type ExamDetail = {
@@ -106,7 +108,9 @@ export default async function ProblemPage({ params }: Params) {
         <BackButton />
         <p className="qa-kicker mt-3">시험 응시</p>
         <h1 className="mt-2 text-3xl font-bold">{exam.title}</h1>
-        {exam.description ? <MarkdownContent className="mt-2" content={exam.description} /> : null}
+        {exam.description ? (
+          <MarkdownContent className="mt-2" content={exam.description} />
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">
             {examKindLabel(exam.exam_kind)}

@@ -77,6 +77,8 @@ from app.schemas import (
     ExamRepublish,
     ExamUpdate,
     ExamDetail,
+    ExamQuestionImageUpdate,
+    ExamQuestionImagesUpdate,
     ExamQuestionSummary,
     ExamResourceSummary,
     ExamResourcePruneResponse,
@@ -142,6 +144,7 @@ _TRACK_OPTIONS = {
     "데이터 분석 11기",
     "QAQC 4기",
 }
+_EXAM_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 _APPEAL_REGRADING_MODEL = "gpt-5-mini"
 _EXAM_SKILL_KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -407,7 +410,25 @@ def _to_problem_folder_response(folder: ProblemFolder, path_map: dict[int, str])
     )
 
 
+def _extract_exam_question_image_resource_ids(question: ExamQuestion) -> list[int]:
+    seen: set[int] = set()
+    normalized_ids: list[int] = []
+    for raw_id in list(question.image_resource_ids_json or []):
+        if not isinstance(raw_id, int) or raw_id <= 0:
+            continue
+        if raw_id in seen:
+            continue
+        seen.add(raw_id)
+        normalized_ids.append(raw_id)
+    if normalized_ids:
+        return normalized_ids
+    if question.image_resource_id is not None:
+        return [question.image_resource_id]
+    return []
+
+
 def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
+    image_resource_ids = _extract_exam_question_image_resource_ids(question)
     return ExamQuestionSummary(
         id=question.id,
         order_index=question.order_index,
@@ -415,6 +436,8 @@ def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
         prompt_md=question.prompt_md,
         required=question.required,
         choices=list(question.choices_json or []) if question.choices_json is not None else None,
+        image_resource_id=image_resource_ids[0] if image_resource_ids else None,
+        image_resource_ids=image_resource_ids,
     )
 
 
@@ -434,6 +457,62 @@ def _to_exam_resource_summary(resource: ExamResource) -> ExamResourceSummary:
         size_bytes=resource.size_bytes,
         created_at=resource.created_at,
     )
+
+
+def _is_exam_resource_image(resource: ExamResource) -> bool:
+    content_type = (resource.content_type or "").strip().lower()
+    if content_type.startswith("image/"):
+        return True
+    return Path(resource.file_name or "").suffix.lower() in _EXAM_IMAGE_EXTENSIONS
+
+
+async def _resolve_exam_question_image_resource_id(
+    session: AsyncSession,
+    *,
+    exam_id: int,
+    image_resource_id: int | None,
+) -> int | None:
+    resolved_ids = await _resolve_exam_question_image_resource_ids(
+        session,
+        exam_id=exam_id,
+        image_resource_ids=[image_resource_id] if image_resource_id is not None else [],
+    )
+    return resolved_ids[0] if resolved_ids else None
+
+
+async def _resolve_exam_question_image_resource_ids(
+    session: AsyncSession,
+    *,
+    exam_id: int,
+    image_resource_ids: list[int] | None,
+) -> list[int]:
+    normalized_ids: list[int] = []
+    seen: set[int] = set()
+    for raw_id in list(image_resource_ids or []):
+        if not isinstance(raw_id, int) or raw_id <= 0:
+            continue
+        if raw_id in seen:
+            continue
+        seen.add(raw_id)
+        normalized_ids.append(raw_id)
+
+    if not normalized_ids:
+        return []
+
+    resources = (
+        await session.execute(
+            select(ExamResource).where(ExamResource.exam_id == exam_id, ExamResource.id.in_(normalized_ids))
+        )
+    ).scalars().all()
+    resource_by_id = {resource.id: resource for resource in resources}
+    missing_ids = [resource_id for resource_id in normalized_ids if resource_id not in resource_by_id]
+    if missing_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="이미지 리소스를 찾을 수 없습니다.")
+
+    invalid_ids = [resource_id for resource_id in normalized_ids if not _is_exam_resource_image(resource_by_id[resource_id])]
+    if invalid_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="문항 이미지는 이미지 파일만 지정할 수 있습니다.")
+    return normalized_ids
 
 
 def _resolve_exam_resource_path(exam_id: int, stored_name: str) -> Path:
@@ -1438,6 +1517,13 @@ async def _create_exam_with_questions(
 
     questions: list[ExamQuestion] = []
     for index, question_payload in enumerate(payload.questions, start=1):
+        if isinstance(payload, ExamCreate) and (
+            question_payload.image_resource_id is not None or bool(question_payload.image_resource_ids)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="문항 이미지는 시험 생성 후 리소스를 업로드해 연결해 주세요.",
+            )
         question_type = _normalize_exam_question_type(question_payload.type)
         prompt_md = question_payload.prompt_md.strip()
         if not prompt_md:
@@ -1446,6 +1532,8 @@ async def _create_exam_with_questions(
         question = ExamQuestion(
             exam_id=exam.id,
             order_index=index,
+            image_resource_id=None,
+            image_resource_ids_json=None,
             type=question_type,
             prompt_md=prompt_md,
             required=bool(question_payload.required),
@@ -1465,11 +1553,11 @@ async def _copy_exam_resources(
     *,
     source_exam_id: int,
     target_exam_id: int,
-) -> int:
+) -> dict[int, int]:
     resources = (
         await session.execute(select(ExamResource).where(ExamResource.exam_id == source_exam_id).order_by(ExamResource.id.asc()))
     ).scalars().all()
-    copied = 0
+    copied_resource_id_map: dict[int, int] = {}
     for resource in resources:
         source_path = _resolve_exam_resource_path(source_exam_id, resource.stored_name)
         if not source_path.exists() or not source_path.is_file():
@@ -1480,17 +1568,17 @@ async def _copy_exam_resources(
         target_path = _resolve_exam_resource_path(target_exam_id, stored_name)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_bytes(payload)
-        session.add(
-            ExamResource(
-                exam_id=target_exam_id,
-                file_name=resource.file_name,
-                stored_name=stored_name,
-                content_type=resource.content_type,
-                size_bytes=len(payload),
-            )
+        copied_resource = ExamResource(
+            exam_id=target_exam_id,
+            file_name=resource.file_name,
+            stored_name=stored_name,
+            content_type=resource.content_type,
+            size_bytes=len(payload),
         )
-        copied += 1
-    return copied
+        session.add(copied_resource)
+        await session.flush()
+        copied_resource_id_map[resource.id] = copied_resource.id
+    return copied_resource_id_map
 
 
 async def _prepare_exam_submission_enqueue(
@@ -1662,6 +1750,95 @@ async def get_admin_exam_detail(
     )
 
 
+@app.put("/admin/exams/{exam_id}/questions/{question_id}/image", response_model=AdminExamQuestionSummary)
+async def update_admin_exam_question_image(
+    exam_id: int,
+    question_id: int,
+    payload: ExamQuestionImageUpdate,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminExamQuestionSummary:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    question = await session.scalar(
+        select(ExamQuestion).where(ExamQuestion.id == question_id, ExamQuestion.exam_id == exam_id)
+    )
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="문항을 찾을 수 없습니다.")
+
+    resolved_image_resource_id = await _resolve_exam_question_image_resource_id(
+        session,
+        exam_id=exam_id,
+        image_resource_id=payload.image_resource_id,
+    )
+    question.image_resource_id = resolved_image_resource_id
+    question.image_resource_ids_json = [resolved_image_resource_id] if resolved_image_resource_id is not None else None
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.question.image.update",
+        resource_type="exam_question",
+        resource_id=str(question.id),
+        metadata={
+            "exam_id": exam.id,
+            "question_id": question.id,
+            "image_resource_id": resolved_image_resource_id,
+        },
+    )
+    await session.commit()
+    await session.refresh(question)
+    return _to_admin_exam_question_summary(question)
+
+
+@app.put("/admin/exams/{exam_id}/questions/{question_id}/images", response_model=AdminExamQuestionSummary)
+async def update_admin_exam_question_images(
+    exam_id: int,
+    question_id: int,
+    payload: ExamQuestionImagesUpdate,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminExamQuestionSummary:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    question = await session.scalar(
+        select(ExamQuestion).where(ExamQuestion.id == question_id, ExamQuestion.exam_id == exam_id)
+    )
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="문항을 찾을 수 없습니다.")
+
+    resolved_image_resource_ids = await _resolve_exam_question_image_resource_ids(
+        session,
+        exam_id=exam_id,
+        image_resource_ids=payload.image_resource_ids,
+    )
+    question.image_resource_ids_json = resolved_image_resource_ids or None
+    question.image_resource_id = resolved_image_resource_ids[0] if resolved_image_resource_ids else None
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam.question.images.update",
+        resource_type="exam_question",
+        resource_id=str(question.id),
+        metadata={
+            "exam_id": exam.id,
+            "question_id": question.id,
+            "image_resource_ids": resolved_image_resource_ids,
+            "image_count": len(resolved_image_resource_ids),
+        },
+    )
+    await session.commit()
+    await session.refresh(question)
+    return _to_admin_exam_question_summary(question)
+
+
 @app.post("/admin/exams/{exam_id}/republish", response_model=AdminExamDetail, status_code=status.HTTP_201_CREATED)
 async def republish_admin_exam(
     exam_id: int,
@@ -1675,13 +1852,29 @@ async def republish_admin_exam(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="원본 시험을 찾을 수 없습니다.")
 
     new_exam, new_questions = await _create_exam_with_questions(session, payload)
-    copied_resources = 0
+    source_question_image_ids_list = [
+        [int(resource_id) for resource_id in list(question.image_resource_ids or []) if isinstance(resource_id, int)]
+        if question.image_resource_ids
+        else ([question.image_resource_id] if question.image_resource_id is not None else [])
+        for question in payload.questions
+    ]
+    copied_resource_id_map: dict[int, int] = {}
     if payload.copy_resources:
-        copied_resources = await _copy_exam_resources(
+        copied_resource_id_map = await _copy_exam_resources(
             session,
             source_exam_id=source_exam.id,
             target_exam_id=new_exam.id,
         )
+        for order_index, new_question in enumerate(new_questions):
+            source_image_ids = (
+                source_question_image_ids_list[order_index]
+                if order_index < len(source_question_image_ids_list)
+                else []
+            )
+            mapped_image_ids = [copied_resource_id_map[source_id] for source_id in source_image_ids if source_id in copied_resource_id_map]
+            new_question.image_resource_ids_json = mapped_image_ids or None
+            new_question.image_resource_id = mapped_image_ids[0] if mapped_image_ids else None
+    copied_resources = len(copied_resource_id_map)
 
     await _write_admin_audit_log(
         session=session,
@@ -1941,6 +2134,8 @@ async def list_admin_exam_submissions(
                     question_type=question.type,
                     prompt_md=question.prompt_md,
                     choices=list(question.choices_json or []) if question.choices_json is not None else None,
+                    image_resource_id=question.image_resource_id,
+                    image_resource_ids=_extract_exam_question_image_resource_ids(question),
                     correct_choice_index=question.correct_choice_index,
                     answer_key_text=question.answer_key_text,
                     answer_text=answer.answer_text,
@@ -2393,6 +2588,8 @@ async def get_my_exam_submission_detail(
             question_type=question.type,
             prompt_md=question.prompt_md,
             choices=list(question.choices_json or []) if question.choices_json is not None else None,
+            image_resource_id=question.image_resource_id,
+            image_resource_ids=_extract_exam_question_image_resource_ids(question),
             correct_choice_index=question.correct_choice_index,
             answer_key_text=question.answer_key_text,
             answer_text=answer.answer_text,

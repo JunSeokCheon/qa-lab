@@ -74,7 +74,7 @@ export function MarkdownContent({
   const segments = useMemo(() => parseMarkdownSegments(normalized), [normalized]);
 
   if (!normalized.trim()) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>(내용 없음)</p>;
+    return <p className={cn("text-sm text-muted-foreground", className)}>(No content)</p>;
   }
 
   return (
@@ -86,12 +86,7 @@ export function MarkdownContent({
               <div className="border-b border-border/70 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
                 {segment.language ?? "code"}
               </div>
-              <pre
-                className={cn(
-                  "max-h-72 overflow-auto px-3 py-2 font-mono text-xs leading-5 whitespace-pre",
-                  codeClassName
-                )}
-              >
+              <pre className={cn("max-h-72 overflow-auto px-3 py-2 font-mono text-xs leading-5 whitespace-pre", codeClassName)}>
                 <code>{segment.content}</code>
               </pre>
             </div>
@@ -107,4 +102,3 @@ export function MarkdownContent({
     </div>
   );
 }
-

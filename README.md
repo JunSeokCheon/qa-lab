@@ -210,6 +210,13 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 제출 후 재응시는 차단되며 `/problems` 시험 목록으로 자동 이동합니다.
 - 제출된 시험은 목록에서 즉시 `제출 완료`/`응답 보기` 상태로 표시되고, `응답 보기`로 문항별 답안/정답 기준을 확인할 수 있습니다.
 - 시험 설명/문항 본문은 개행과 코드 블록(```` fenced code ````) 렌더링을 지원합니다.
+- 문항별 이미지 업로드를 지원합니다.
+  - 관리자 시험 생성 화면에서 각 문항 카드별로 이미지 파일을 여러 개 업로드할 수 있습니다.
+  - 이미지 선택 후 문항 미리보기에서 텍스트와 이미지가 함께 표시됩니다.
+  - 선택된 이미지 썸네일에 마우스를 올리면 우측 상단 `x` 버튼으로 개별 취소할 수 있습니다.
+  - 시험 생성 실패 사유(유효성/서버 오류)는 화면 최상단 에러 박스에 표시되고 자동 스크롤됩니다.
+  - 관리자 시험 재출판 화면에서 각 문항 카드의 `문항 이미지` 파일 입력으로 이미지 연결
+  - 사용자 시험 화면(`/problems/{examId}`)에서 문항 이미지 + 텍스트가 함께 렌더링
 - 제출 시각/채점 시각 표시는 `Asia/Seoul`(KST) 기준으로 통일됩니다.
 - API:
   - `GET /exams` (요약 필드에 `starts_at` 포함)
@@ -217,6 +224,8 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
   - `POST /exams/{exam_id}/submit`
   - `GET /exams/{exam_id}/my-submission`
   - `POST /admin/exams`, `PUT /admin/exams/{exam_id}`, `POST /admin/exams/{exam_id}/republish` (`starts_at` 입력 지원)
+  - `PUT /admin/exams/{exam_id}/questions/{question_id}/image` (문항 대표 이미지 1개 연결/해제, 하위호환)
+  - `PUT /admin/exams/{exam_id}/questions/{question_id}/images` (문항 이미지 다중 연결/교체)
 
 ## 시험 결과 공유(관리자)
 - 관리자는 `/admin/exams`에서 시험별 `유저 공유` 버튼으로 결과 공개를 토글할 수 있습니다.
@@ -396,3 +405,4 @@ node scripts/nondev_tutor_exam_simulation.mjs
 5. 파일에서 문제별 `1/0`, 하단 `합계/정답률`, `전체 평균 점수(100점)`을 확인합니다.
 6. 사용자/관리자 화면 공통 텍스트와 헤더 컬러 통일 상태를 확인합니다.
 7. 비밀번호 재설정 화면에서 하단 `/login` 복귀 문구 제거 여부를 확인합니다.
+8. 관리자 시험 생성/재출판에서 문항 카드의 `문항 이미지`에 파일을 지정하고 사용자 `/problems/{examId}` 화면에서 이미지+텍스트가 함께 렌더링되는지 확인합니다.

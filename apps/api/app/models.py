@@ -194,6 +194,10 @@ class ExamQuestion(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
+    image_resource_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exam_resources.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    image_resource_ids_json: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     type: Mapped[str] = mapped_column(String(30), nullable=False)
     prompt_md: Mapped[str] = mapped_column(Text, nullable=False)
@@ -204,6 +208,7 @@ class ExamQuestion(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     exam: Mapped["Exam"] = relationship(back_populates="questions")
+    image_resource: Mapped["ExamResource | None"] = relationship(foreign_keys=[image_resource_id])
     answers: Mapped[list["ExamAnswer"]] = relationship(back_populates="question")
 
 

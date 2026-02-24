@@ -181,6 +181,8 @@ class ExamQuestionCreate(BaseModel):
     choices: list[str] | None = None
     correct_choice_index: int | None = None
     answer_key_text: str | None = None
+    image_resource_id: int | None = None
+    image_resource_ids: list[int] | None = None
 
 
 class ExamCreate(BaseModel):
@@ -226,6 +228,8 @@ class ExamQuestionSummary(BaseModel):
     prompt_md: str
     required: bool
     choices: list[str] | None = None
+    image_resource_id: int | None = None
+    image_resource_ids: list[int] = Field(default_factory=list)
 
 
 class ExamResourceSummary(BaseModel):
@@ -234,6 +238,14 @@ class ExamResourceSummary(BaseModel):
     content_type: str | None = None
     size_bytes: int
     created_at: datetime
+
+
+class ExamQuestionImageUpdate(BaseModel):
+    image_resource_id: int | None = None
+
+
+class ExamQuestionImagesUpdate(BaseModel):
+    image_resource_ids: list[int] = Field(default_factory=list)
 
 
 class ExamSummary(BaseModel):
@@ -294,6 +306,8 @@ class MeExamSubmissionAnswer(BaseModel):
     question_type: str
     prompt_md: str
     choices: list[str] | None = None
+    image_resource_id: int | None = None
+    image_resource_ids: list[int] = Field(default_factory=list)
     correct_choice_index: int | None = None
     answer_key_text: str | None = None
     answer_text: str | None = None
@@ -383,6 +397,8 @@ class AdminExamSubmissionAnswer(BaseModel):
     question_type: str
     prompt_md: str
     choices: list[str] | None = None
+    image_resource_id: int | None = None
+    image_resource_ids: list[int] = Field(default_factory=list)
     correct_choice_index: int | None = None
     answer_key_text: str | None = None
     answer_text: str | None = None

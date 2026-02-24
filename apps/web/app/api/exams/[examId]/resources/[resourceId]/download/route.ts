@@ -9,8 +9,9 @@ type Params = {
     | Promise<{ examId: string; resourceId: string }>;
 };
 
-export async function GET(_: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   const { examId, resourceId } = await Promise.resolve(params);
+  const inline = new URL(request.url).searchParams.get("inline") === "1";
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
@@ -35,8 +36,16 @@ export async function GET(_: Request, { params }: Params) {
   const contentLength = response.headers.get("content-length");
 
   if (contentType) headers.set("content-type", contentType);
-  if (contentDisposition) headers.set("content-disposition", contentDisposition);
   if (contentLength) headers.set("content-length", contentLength);
+  if (inline) {
+    if (contentDisposition) {
+      headers.set("content-disposition", contentDisposition.replace(/^attachment/i, "inline"));
+    } else {
+      headers.set("content-disposition", "inline");
+    }
+  } else if (contentDisposition) {
+    headers.set("content-disposition", contentDisposition);
+  }
 
   return new Response(response.body, {
     status: response.status,
