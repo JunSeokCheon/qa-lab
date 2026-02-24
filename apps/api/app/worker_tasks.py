@@ -283,10 +283,7 @@ def _resolve_review_decision(
                 "주관식 핵심 키워드 일치도가 경계 구간이라 검토가 필요합니다.",
             )
     elif question_type == "coding":
-        has_code_shape = ("def " in normalized_answer and "def " in _normalize_eval_text(answer_key_text)) or (
-            "import " in normalized_answer and "import " in _normalize_eval_text(answer_key_text)
-        )
-        if (0.30 <= key_coverage <= 0.80 and 0.25 <= answer_focus <= 0.75) or not has_code_shape:
+        if 0.30 <= key_coverage <= 0.80 and 0.25 <= answer_focus <= 0.75:
             return (
                 True,
                 "coding_borderline",
