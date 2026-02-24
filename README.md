@@ -39,6 +39,12 @@ pnpm install
 pnpm dev
 ```
 
+PowerShell 실행 정책으로 `pnpm.ps1`이 차단되면 아래처럼 실행합니다.
+```bash
+pnpm.cmd --dir apps/web lint
+pnpm.cmd --dir apps/web build
+```
+
 ### 3) 접속
 - Web: `http://localhost:3000`
 - API Docs: `http://127.0.0.1:8000/docs`

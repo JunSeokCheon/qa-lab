@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
 import { MarkdownContent } from "@/components/markdown-content";
@@ -171,6 +172,7 @@ export function AdminExamBuilder({
 }: {
   initialFolders: Folder[];
 }) {
+  const router = useRouter();
   const [existingExamTitles, setExistingExamTitles] = useState<string[]>([]);
   const [folders, setFolders] = useState(initialFolders);
   const [error, setError] = useState("");
@@ -418,6 +420,8 @@ export function AdminExamBuilder({
       fileInputRef.current.value = "";
     }
     setLoading(false);
+    router.push("/");
+    router.refresh();
   };
 
   return (
