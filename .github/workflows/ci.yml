@@ -116,6 +116,27 @@ jobs:
       - name: Build web
         run: pnpm --filter web build
 
+      - name: Install Playwright Chromium
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Required gate - auth token resilience e2e
+        env:
+          PLAYWRIGHT_PORT: "3100"
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3100
+          FASTAPI_INTERNAL_URL: http://127.0.0.1:8000
+          E2E_API_BASE_URL: http://127.0.0.1:8000
+        run: pnpm --filter web test:e2e -- tests/e2e/auth-token-resilience.spec.ts
+
+      - name: Upload e2e artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          if-no-files-found: ignore
+
       - name: Print debug logs on failure
         if: failure()
         run: |

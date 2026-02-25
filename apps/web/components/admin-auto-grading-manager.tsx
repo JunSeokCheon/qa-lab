@@ -400,10 +400,10 @@ export function AdminAutoGradingManager({
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">자동 채점 관리</h1>
         <p className="mt-2 text-sm text-hero-foreground/90">
-          객관식은 즉시 정답 비교로 채점되고, 주관식/코딩은 정답 기준 LLM 채점으로 처리됩니다.
+          객관식은 즉시 정답 비교로 채점되고, 주관식/코딩은 정답 기준 인공지능 채점으로 처리됩니다.
         </p>
         <p className="mt-1 text-xs text-hero-foreground/80">
-          주관식/코딩 LLM 자동채점을 시작하려면 아래 자동 채점 시작! 버튼으로 승인해 주세요.
+          주관식/코딩 인공지능 자동채점을 시작하려면 아래 자동 채점 시작! 버튼으로 승인해 주세요.
         </p>
       </section>
 
@@ -519,12 +519,12 @@ export function AdminAutoGradingManager({
             <table className="min-w-full text-sm">
               <thead className="bg-surface-muted text-left">
                 <tr>
-                  <th className="px-3 py-2">제출 ID</th>
+                  <th className="px-3 py-2">제출 번호</th>
                   <th className="px-3 py-2">시험</th>
                   <th className="px-3 py-2">응시자</th>
                   <th className="px-3 py-2">상태</th>
                   <th className="px-3 py-2">결과 공유</th>
-                  <th className="px-3 py-2">LLM 채점</th>
+                  <th className="px-3 py-2">인공지능 채점</th>
                   <th className="px-3 py-2">제출 시각</th>
                   <th className="px-3 py-2">액션</th>
                 </tr>

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -31,6 +31,9 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 ACCESS_TOKEN_REMEMBER_EXPIRE_DAYS = int(os.getenv("ACCESS_TOKEN_REMEMBER_EXPIRE_DAYS", "30"))
+ACCESS_TOKEN_EXPIRE_GRACE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_GRACE_MINUTES", "0"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+REFRESH_TOKEN_REMEMBER_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_REMEMBER_EXPIRE_DAYS", "30"))
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))
 GRADER_IMAGE = os.getenv("GRADER_IMAGE", "qa-lab-grader-python")
 GRADER_TIMEOUT_SECONDS = int(os.getenv("GRADER_TIMEOUT_SECONDS", "30"))
@@ -54,6 +57,12 @@ def access_token_ttl(*, remember_me: bool = False) -> timedelta:
     if remember_me:
         return timedelta(days=ACCESS_TOKEN_REMEMBER_EXPIRE_DAYS)
     return timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+
+def refresh_token_ttl(*, remember_me: bool = False) -> timedelta:
+    if remember_me:
+        return timedelta(days=REFRESH_TOKEN_REMEMBER_EXPIRE_DAYS)
+    return timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
 
 def password_reset_token_ttl() -> timedelta:

@@ -1,7 +1,7 @@
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
+import { clearAuthCookies, fetchFastApiWithAuthRetry, resolveSecureCookie, setAuthCookies } from "@/lib/server-auth";
 
 type Params = {
   params:
@@ -12,28 +12,28 @@ type Params = {
 export async function GET(request: Request, { params }: Params) {
   const { examId, resourceId } = await Promise.resolve(params);
   const inline = new URL(request.url).searchParams.get("inline") === "1";
-  const cookieStore = await cookies();
-  const token = cookieStore.get("access_token")?.value;
-  if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
-  }
 
-  const response = await fetch(`${FASTAPI_BASE_URL}/exams/${examId}/resources/${resourceId}/download`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    cache: "no-store",
-  });
+  const { upstream, refreshedTokens } = await fetchFastApiWithAuthRetry(
+    `${FASTAPI_BASE_URL}/exams/${examId}/resources/${resourceId}/download`,
+    {},
+    { unauthenticatedMessage: "인증이 필요합니다." },
+  );
 
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    return NextResponse.json(payload, { status: response.status });
+  if (!upstream.ok) {
+    const payload = await upstream.json().catch(() => ({}));
+    const response = NextResponse.json(payload, { status: upstream.status });
+    if (refreshedTokens) {
+      setAuthCookies(response, refreshedTokens, resolveSecureCookie(request));
+    } else if (upstream.status === 401) {
+      clearAuthCookies(response);
+    }
+    return response;
   }
 
   const headers = new Headers();
-  const contentType = response.headers.get("content-type");
-  const contentDisposition = response.headers.get("content-disposition");
-  const contentLength = response.headers.get("content-length");
+  const contentType = upstream.headers.get("content-type");
+  const contentDisposition = upstream.headers.get("content-disposition");
+  const contentLength = upstream.headers.get("content-length");
 
   if (contentType) headers.set("content-type", contentType);
   if (contentLength) headers.set("content-length", contentLength);
@@ -47,8 +47,15 @@ export async function GET(request: Request, { params }: Params) {
     headers.set("content-disposition", contentDisposition);
   }
 
-  return new Response(response.body, {
-    status: response.status,
+  const response = new NextResponse(upstream.body, {
+    status: upstream.status,
     headers,
   });
+
+  if (refreshedTokens) {
+    setAuthCookies(response, refreshedTokens, resolveSecureCookie(request));
+  }
+
+  return response;
 }
+

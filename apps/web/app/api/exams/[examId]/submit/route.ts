@@ -1,7 +1,7 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
+import { clearAuthCookies, fetchFastApiWithAuthRetry, resolveSecureCookie, setAuthCookies } from "@/lib/server-auth";
 
 type Params = {
   params: { examId: string } | Promise<{ examId: string }>;
@@ -9,26 +9,32 @@ type Params = {
 
 export async function POST(request: Request, { params }: Params) {
   const { examId } = await Promise.resolve(params);
-  const cookieStore = await cookies();
-  const token = cookieStore.get("access_token")?.value;
-  if (!token) {
-    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
-  }
 
   const body = await request.json().catch(() => null);
   if (!body) {
     return NextResponse.json({ message: "요청 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
-  const response = await fetch(`${FASTAPI_BASE_URL}/exams/${examId}/submit`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const { upstream, refreshedTokens } = await fetchFastApiWithAuthRetry(
+    `${FASTAPI_BASE_URL}/exams/${examId}/submit`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  const payload = await response.json().catch(() => ({}));
-  return NextResponse.json(payload, { status: response.status });
+    { unauthenticatedMessage: "인증이 필요합니다." },
+  );
+
+  const payload = await upstream.json().catch(() => ({}));
+  const response = NextResponse.json(payload, { status: upstream.status });
+
+  if (refreshedTokens) {
+    setAuthCookies(response, refreshedTokens, resolveSecureCookie(request));
+  } else if (upstream.status === 401) {
+    clearAuthCookies(response);
+  }
+
+  return response;
 }

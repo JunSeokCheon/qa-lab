@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+﻿import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
@@ -12,7 +12,7 @@ export async function GET(_: Request, { params }: Params) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}`, {
@@ -30,12 +30,12 @@ export async function PUT(request: Request, { params }: Params) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const body = await request.json().catch(() => null);
   if (!body) {
-    return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ message: "요청 본문 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}`, {
@@ -56,7 +56,7 @@ export async function DELETE(_: Request, { params }: Params) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}`, {
@@ -73,3 +73,4 @@ export async function DELETE(_: Request, { params }: Params) {
   const payload = await response.json().catch(() => ({}));
   return NextResponse.json(payload, { status: response.status });
 }
+

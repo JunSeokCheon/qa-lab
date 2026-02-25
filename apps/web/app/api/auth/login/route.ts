@@ -1,6 +1,7 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
+import { resolveSecureCookie, setAuthCookies } from "@/lib/server-auth";
 
 export async function POST(request: Request) {
   const rawBody = await request.json().catch(() => ({}));
@@ -17,28 +18,24 @@ export async function POST(request: Request) {
   });
 
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.access_token) {
+  if (!response.ok || !payload?.access_token || !payload?.refresh_token) {
     return NextResponse.json(
       { message: payload?.detail ?? "로그인에 실패했습니다." },
       { status: response.status || 401 },
     );
   }
 
-  const requestUrl = new URL(request.url);
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  const secureCookie =
-    process.env.AUTH_COOKIE_SECURE === "1" ||
-    forwardedProto === "https" ||
-    requestUrl.protocol === "https:";
-
   const nextResponse = NextResponse.json({ ok: true });
-  nextResponse.cookies.set("access_token", payload.access_token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: secureCookie,
-    path: "/",
-    ...(rememberMe ? { maxAge: 60 * 60 * 24 * 30 } : {}),
-  });
+  setAuthCookies(
+    nextResponse,
+    {
+      access_token: payload.access_token,
+      refresh_token: payload.refresh_token,
+      token_type: payload.token_type ?? "bearer",
+      remember_me: rememberMe,
+    },
+    resolveSecureCookie(request),
+  );
 
   return nextResponse;
 }

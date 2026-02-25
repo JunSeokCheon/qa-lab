@@ -1,4 +1,4 @@
-﻿# QA 서비스 시스템 아키텍처
+# SpartaExam Studio 시스템 아키텍처
 
 ## 서비스 개요
 이 서비스는 관리자(튜터)가 시험을 만들고, 수강생이 응시한 뒤, 채점 결과를 공유하는 구조입니다.
@@ -61,3 +61,4 @@ flowchart LR
 - 웹: `apps/web`
 - API: `apps/api`
 - 배포/운영 스크립트: `infra`, `scripts`, `.github/workflows`
+

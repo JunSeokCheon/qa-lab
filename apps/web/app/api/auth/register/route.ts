@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
 
 function extractErrorMessage(payload: unknown): string {
   if (!payload || typeof payload !== "object") {
-    return "Registration failed";
+    return "회원가입에 실패했습니다.";
   }
 
   const data = payload as { message?: unknown; detail?: unknown };
@@ -21,13 +21,13 @@ function extractErrorMessage(payload: unknown): string {
     }
   }
 
-  return "Registration failed";
+  return "회원가입에 실패했습니다.";
 }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body) {
-    return NextResponse.json({ message: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ message: "요청 본문 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/auth/register`, {
@@ -44,3 +44,4 @@ export async function POST(request: Request) {
 
   return NextResponse.json(payload, { status: response.status });
 }
+

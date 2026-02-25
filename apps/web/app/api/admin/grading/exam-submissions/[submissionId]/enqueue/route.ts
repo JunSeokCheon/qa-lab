@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+﻿import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
@@ -12,7 +12,7 @@ export async function POST(request: Request, { params }: Params) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const body = await request.json().catch(() => ({}));
@@ -28,3 +28,4 @@ export async function POST(request: Request, { params }: Params) {
   const payload = await response.json().catch(() => ({}));
   return NextResponse.json(payload, { status: response.status });
 }
+

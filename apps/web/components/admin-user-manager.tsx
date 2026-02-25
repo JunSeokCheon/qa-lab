@@ -185,7 +185,7 @@ export function AdminUserManager({ initialUsers, initialTracks, currentAdminId }
         <table className="w-full min-w-[860px] text-sm">
           <thead>
             <tr className="border-b border-border/70 text-left text-muted-foreground">
-              <th className="px-2 py-2">ID</th>
+              <th className="px-2 py-2">번호</th>
               <th className="px-2 py-2">아이디</th>
               <th className="px-2 py-2">이름</th>
               <th className="px-2 py-2">트랙</th>

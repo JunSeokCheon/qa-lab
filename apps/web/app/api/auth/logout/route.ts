@@ -1,7 +1,8 @@
-﻿import { cookies } from "next/headers";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
+import { clearAuthCookies } from "@/lib/server-auth";
 
 export async function POST() {
   const cookieStore = await cookies();
@@ -18,6 +19,6 @@ export async function POST() {
   }
 
   const response = NextResponse.json({ ok: true });
-  response.cookies.delete("access_token");
+  clearAuthCookies(response);
   return response;
 }

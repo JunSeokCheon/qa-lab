@@ -21,7 +21,13 @@ class RegisterRequest(BaseModel):
 
 class AuthTokenResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
+    remember_me: bool = False
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 
 class MeResponse(BaseModel):

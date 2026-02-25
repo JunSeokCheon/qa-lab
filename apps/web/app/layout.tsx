@@ -13,8 +13,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "팀스파르타 내배캠 QA LAB",
-  description: "스파르타 QA 시스템",
+  title: "팀스파르타 내배캠 SpartaExam Studio",
+  description: "SpartaExam Studio",
 };
 
 export default function RootLayout({

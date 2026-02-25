@@ -1,4 +1,4 @@
-# QA Lab Monorepo
+# SpartaExam Studio Monorepo
 
 Next.js(App Router) + FastAPI + Docker Compose 기반의 시험/채점 서비스입니다.
 
@@ -59,6 +59,9 @@ pnpm --dir apps/web dev
 # 1) /admin/problems 또는 /admin/exams에서 정답 체크박스를 2개 이상 지정
 # 2) /problems/{examId}에서 복수 선택 제출
 # 3) /dashboard 통계/정오 판정 반영 확인
+
+# 인증 안정성 회귀 게이트(토큰 만료/무효 + refresh 복구)
+pnpm --dir apps/web test:e2e -- tests/e2e/auth-token-resilience.spec.ts
 ```
 
 ## Docker (로컬)
@@ -146,3 +149,4 @@ bash scripts/backup_prod.sh --env-file infra/.env.prod --output-dir backups
 start docs/system-architecture.md
 start docs/user-admin-guide.md
 ```
+

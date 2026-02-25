@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import hashlib
 import re
@@ -30,6 +30,7 @@ from app.config import (
     EXAM_RESOURCE_ROOT,
     access_token_ttl,
     password_reset_token_ttl,
+    refresh_token_ttl,
 )
 from app.db import check_db_connection, get_async_session
 from app.deps import get_current_user, require_admin
@@ -104,12 +105,13 @@ from app.schemas import (
     ProgressTrendItem,
     ProgressTrendPoint,
     RegisterRequest,
+    RefreshTokenRequest,
     SkillCreate,
     SkillResponse,
     SkillUpdate,
     WatchdogRequeueResponse,
 )
-from app.security import create_access_token, hash_password, verify_password
+from app.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.worker_tasks import requeue_stale_running_submissions
 
 app = FastAPI()
@@ -260,7 +262,7 @@ def _normalize_exam_question_type(raw_type: str) -> str:
     if normalized is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="지원하지 않는 문항 유형입니다. multiple_choice, subjective, coding 중에서 선택하세요.",
+            detail="지원하지 않는 문항 유형입니다. 객관식, 주관식, 코딩 중에서 선택해 주세요.",
         )
     return normalized
 
@@ -274,14 +276,14 @@ def _normalize_exam_kind(raw_kind: str) -> str:
         return cleaned
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail="시험 유형은 quiz(퀴즈) 또는 assessment(성취도 평가)만 가능합니다.",
+        detail="시험 유형은 퀴즈 또는 성취도 평가만 가능합니다.",
     )
 
 
 def _sanitize_exam_status(raw_status: str) -> str:
     status_value = raw_status.strip().lower()
     if status_value not in {"draft", "published"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 상태는 draft 또는 published만 가능합니다.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 상태는 임시저장 또는 게시됨만 가능합니다.")
     return status_value
 
 
@@ -932,31 +934,81 @@ async def login(
     username = payload.username.strip()
     if not username:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="아이디를 입력해 주세요.")
+    normalized_username = username.lower()
     client_host = request.client.host if request.client else "unknown"
-    client_key = f"{client_host}:{username.lower()}"
+    client_key = f"{client_host}:{normalized_username}"
     if _is_login_rate_limited(client_key):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
         )
 
-    result = await session.execute(select(User).where(User.username == username))
+    result = await session.execute(select(User).where(func.lower(User.username) == normalized_username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
 
     _reset_login_attempts(client_key)
-    token = create_access_token(
+    access_token = create_access_token(
         subject=user.username,
         role=user.role,
         expires_delta=access_token_ttl(remember_me=payload.remember_me),
     )
-    return AuthTokenResponse(access_token=token, token_type="bearer")
+    refresh_token = create_refresh_token(
+        subject=user.username,
+        role=user.role,
+        expires_delta=refresh_token_ttl(remember_me=payload.remember_me),
+        remember_me=payload.remember_me,
+    )
+    return AuthTokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        remember_me=payload.remember_me,
+    )
 
 
 @app.post("/auth/logout")
 def logout() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/auth/refresh", response_model=AuthTokenResponse)
+async def refresh_auth_token(
+    payload: RefreshTokenRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AuthTokenResponse:
+    try:
+        decoded = decode_refresh_token(payload.refresh_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 리프레시 토큰입니다.") from exc
+
+    subject = decoded.get("sub")
+    if not isinstance(subject, str) or not subject.strip():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="리프레시 토큰 정보가 올바르지 않습니다.")
+
+    user = await session.scalar(select(User).where(User.username == subject))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
+
+    remember_me = decoded.get("remember_me") is True
+    access_token = create_access_token(
+        subject=user.username,
+        role=user.role,
+        expires_delta=access_token_ttl(remember_me=remember_me),
+    )
+    rotated_refresh_token = create_refresh_token(
+        subject=user.username,
+        role=user.role,
+        expires_delta=refresh_token_ttl(remember_me=remember_me),
+        remember_me=remember_me,
+    )
+    return AuthTokenResponse(
+        access_token=access_token,
+        refresh_token=rotated_refresh_token,
+        token_type="bearer",
+        remember_me=remember_me,
+    )
 
 
 @app.post("/auth/register", response_model=MeResponse, status_code=status.HTTP_201_CREATED)
@@ -965,37 +1017,42 @@ async def register(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> MeResponse:
     username = payload.username.strip()
+    normalized_username = username.lower()
     if len(username) < 3:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username must be at least 3 characters")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="아이디는 3자 이상이어야 합니다.")
     if len(username) > 50:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username must be 50 characters or fewer")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="아이디는 50자 이하여야 합니다.")
 
-    existing = await session.scalar(select(User).where(User.username == username))
+    existing = await session.scalar(select(User).where(func.lower(User.username) == normalized_username))
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already in use")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디입니다.")
     display_name = payload.name.strip()
     if len(display_name) < 2:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name must be at least 2 characters")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이름은 2자 이상이어야 합니다.")
     if len(display_name) > 100:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name must be 100 characters or fewer")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이름은 100자 이하여야 합니다.")
     track_name = payload.track_name.strip()
     if track_name not in _TRACK_OPTIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Track must be one of: 데이터 분석 11기, QAQC 4기",
+            detail="트랙은 데이터 분석 11기, QAQC 4기 중 하나여야 합니다.",
         )
     if len(payload.password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="비밀번호는 8자 이상이어야 합니다.")
 
     user = User(
-        username=username,
+        username=normalized_username,
         display_name=display_name,
         track_name=track_name,
         password_hash=hash_password(payload.password),
         role="user",
     )
     session.add(user)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디입니다.") from exc
     await session.refresh(user)
     return MeResponse(
         id=user.id,
@@ -1013,7 +1070,7 @@ async def forgot_password(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> PasswordForgotResponse:
     username = payload.username.strip()
-    user = await session.scalar(select(User).where(User.username == username))
+    user = await session.scalar(select(User).where(func.lower(User.username) == username.lower()))
     if user is None:
         return PasswordForgotResponse(message="입력한 계정이 존재하면 재설정 안내가 전송됩니다.")
 
@@ -1239,7 +1296,7 @@ async def list_admin_users(
 ) -> list[AdminUserSummary]:
     normalized_role = role_filter.strip().lower()
     if normalized_role not in {"all", "admin", "user"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="role은 all, admin, user 중 하나여야 합니다.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="권한 필터는 전체, 관리자, 수강생 중 하나여야 합니다.")
 
     query = select(User)
     trimmed_track = track_name.strip() if isinstance(track_name, str) else ""
@@ -1451,19 +1508,19 @@ async def create_problem_folder(
 ) -> ProblemFolderResponse:
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Folder name is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="폴더 이름은 필수입니다.")
 
     parent_id = payload.parent_id
     if parent_id is not None:
         parent = await session.scalar(select(ProblemFolder).where(ProblemFolder.id == parent_id))
         if parent is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent folder not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="상위 폴더를 찾을 수 없습니다.")
 
     explicit_slug = payload.slug.strip() if payload.slug else ""
     if explicit_slug:
         slug = _slugify(explicit_slug)
         if await session.scalar(select(ProblemFolder).where(ProblemFolder.slug == slug)) is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Folder slug already in use")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 폴더 식별자입니다.")
     else:
         base_slug = _slugify(name)
         slug = base_slug
@@ -1720,7 +1777,7 @@ def _resolve_submission_status_from_answers(
     if has_pending_auto:
         if submission.status in {"RUNNING", "QUEUED"}:
             return submission.status
-        # LLM auto-grading answers are queued only after admin approval.
+        # 인공지능 자동 채점 문항은 관리자 승인 후에만 큐에 등록합니다.
         return "SUBMITTED"
     if has_failed:
         return "FAILED"
@@ -2600,7 +2657,7 @@ async def submit_exam(
             if question.required and not (answer_text and answer_text.strip()):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{question.order_index}번 문항 답변이 필요합니다.")
             if question.type in {"coding", "subjective"}:
-                # Non-objective questions are graded later by LLM auto-grader (or manual grading fallback).
+                # 객관식이 아닌 문항은 이후 인공지능 자동 채점(또는 수동 채점 대체)으로 처리합니다.
                 grading_status = None
 
         session.add(
@@ -2915,7 +2972,7 @@ async def list_admin_grading_exam_submissions(
     if normalized_status not in allowed_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="status는 all, submitted, queued, running, graded, failed 중 하나여야 합니다.",
+            detail="상태 필터는 전체, 제출 완료, 채점 대기, 채점 중, 채점 완료, 실패 중 하나여야 합니다.",
         )
 
     query = (
@@ -3355,7 +3412,7 @@ async def update_skill(
     result = await session.execute(select(Skill).where(Skill.id == skill_id))
     skill = result.scalar_one_or_none()
     if skill is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="스킬을 찾을 수 없습니다.")
 
     if payload.name is not None:
         skill.name = payload.name

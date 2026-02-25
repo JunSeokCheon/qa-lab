@@ -8,7 +8,7 @@ export async function GET() {
   const token = cookieStore.get("access_token")?.value;
 
   if (!token) {
-    return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/admin/health`, {
@@ -21,3 +21,4 @@ export async function GET() {
   const payload = await response.json().catch(() => ({}));
   return NextResponse.json(payload, { status: response.status });
 }
+

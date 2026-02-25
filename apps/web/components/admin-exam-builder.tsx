@@ -653,7 +653,7 @@ export function AdminExamBuilder({
         <p className="qa-kicker mt-4 text-hero-foreground/80">관리자</p>
         <h1 className="mt-2 text-3xl font-bold">시험지 관리</h1>
         <p className="mt-3 text-sm text-hero-foreground/90">
-          문항별 정답/채점기준을 입력하면 자동 채점(객관식 기준 채점 + 주관식/코딩 LLM 채점)에 활용됩니다.
+          문항별 정답/채점기준을 입력하면 자동 채점(객관식 기준 채점 + 주관식/코딩 인공지능 채점)에 활용됩니다.
         </p>
         <p className="mt-2 text-xs text-hero-foreground/90">
           코드 블록 작성: 문항/설명에 <code>```python</code>으로 시작하고 <code>```</code>으로 닫으면 미리보기와 응시 화면에 코드 블록으로 표시됩니다.

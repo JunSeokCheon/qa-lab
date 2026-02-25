@@ -55,13 +55,13 @@ export default async function AdminAuditLogsPage() {
         <table className="w-full min-w-[1200px] text-sm">
           <thead>
             <tr className="border-b border-border/70 text-left text-muted-foreground">
-              <th className="px-2 py-2">ID</th>
+              <th className="px-2 py-2">번호</th>
               <th className="px-2 py-2">시각</th>
               <th className="px-2 py-2">관리자</th>
               <th className="px-2 py-2">행동</th>
               <th className="px-2 py-2">대상</th>
               <th className="px-2 py-2">요청</th>
-              <th className="px-2 py-2">IP</th>
+              <th className="px-2 py-2">접속 주소</th>
               <th className="px-2 py-2">메타데이터</th>
             </tr>
           </thead>

@@ -272,7 +272,7 @@ def _resolve_review_decision(
     if fallback_used:
         reason = "대체 채점 결과라 최종 확정 전 검토가 필요합니다."
         if fallback_reason_code == "quota":
-            reason = "LLM 쿼터 한도로 대체 채점되어 최종 확정 전 검토가 필요합니다."
+            reason = "인공지능 채점 쿼터 한도로 대체 채점되어 최종 확정 전 검토가 필요합니다."
         return (True, "fallback_used", reason)
 
     if question_type == "subjective":
@@ -351,14 +351,14 @@ def _classify_llm_error(raw_error: str) -> tuple[str, str]:
         or "exceeded your current quota" in lowered
         or "quota" in lowered
     ):
-        return ("quota", "LLM 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.")
+        return ("quota", "인공지능 채점 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.")
     if "status=401" in lowered or "status=403" in lowered or "invalid_api_key" in lowered or "authentication" in lowered:
-        return ("auth", "LLM 인증 문제로 대체 채점이 적용되었습니다. API 키/권한 설정을 확인해 주세요.")
+        return ("auth", "인공지능 채점 인증 문제로 대체 채점이 적용되었습니다. 접근 키/권한 설정을 확인해 주세요.")
     if "rate limit" in lowered or "too many requests" in lowered:
-        return ("rate", "LLM 요청 제한으로 대체 채점이 적용되었습니다. 잠시 후 재채점해 주세요.")
+        return ("rate", "인공지능 채점 요청 제한으로 대체 채점이 적용되었습니다. 잠시 후 재채점해 주세요.")
     if "timeout" in lowered or "timed out" in lowered or "connection" in lowered or "temporarily unavailable" in lowered:
-        return ("network", "LLM 연결 문제로 대체 채점이 적용되었습니다. 네트워크 상태를 확인해 주세요.")
-    return ("unknown", "LLM 오류로 대체 채점이 적용되었습니다. 필요 시 수동 채점 또는 재채점을 진행해 주세요.")
+        return ("network", "인공지능 채점 연결 문제로 대체 채점이 적용되었습니다. 네트워크 상태를 확인해 주세요.")
+    return ("unknown", "인공지능 채점 오류로 대체 채점이 적용되었습니다. 필요 시 수동 채점 또는 재채점을 진행해 주세요.")
 
 
 def _grade_exam_answer_with_fallback(
@@ -988,7 +988,7 @@ async def _grade_exam_submission_async(exam_submission_id: int) -> None:
                             "missing_points": [],
                             "deductions": [],
                             "rationale": {
-                                "summary": "LLM/Fallback 채점에 실패했습니다.",
+                                "summary": "인공지능/대체 채점에 실패했습니다.",
                                 "matched_points": [],
                                 "missing_points": [],
                                 "deductions": [],

@@ -70,8 +70,8 @@ export default async function HomePage() {
     <div className="min-h-screen">
       <main className="qa-shell space-y-6">
         <section className="qa-card bg-hero text-hero-foreground">
-          <p className="qa-kicker text-hero-foreground/80">팀스파르타 내배캠 QA LAB</p>
-          <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">스파르타 QA 시스템</h1>
+          <p className="qa-kicker text-hero-foreground/80">팀스파르타 내배캠 SpartaExam Studio</p>
+          <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">SpartaExam Studio</h1>
         </section>
 
         {me ? (
@@ -140,7 +140,7 @@ export default async function HomePage() {
         ) : (
           <>
             <section className="qa-card">
-              <p className="qa-kicker">TEAM SPARTA | 내일배움캠프</p>
+              <p className="qa-kicker">팀스파르타 | 내일배움캠프</p>
               <h2 className="mt-2 text-2xl font-bold">수업 운영에 맞춘 시험/채점 대시보드</h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 로그인 후 수강생은 시험 응시, 튜터는 시험 생성부터 자동 채점 승인, 학생별 제출 상세 확인까지 바로 시작할 수 있습니다.
@@ -157,7 +157,7 @@ export default async function HomePage() {
 
             <section className="qa-card">
               <p className="qa-kicker">서비스 핵심</p>
-              <h2 className="mt-2 text-2xl font-bold">내배캠 QA LAB에서 할 수 있는 일</h2>
+              <h2 className="mt-2 text-2xl font-bold">SpartaExam Studio에서 할 수 있는 일</h2>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 {unauthHighlights.map((item) => (
                   <article key={item.title} className="rounded-2xl border border-border/70 bg-surface p-4">

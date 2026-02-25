@@ -9,13 +9,14 @@ type BackButtonProps = {
   fallbackHref?: string;
   className?: string;
   tone?: "default" | "hero";
+  useFallbackOnly?: boolean;
 };
 
-export function BackButton({ fallbackHref = "/", className, tone = "default" }: BackButtonProps) {
+export function BackButton({ fallbackHref = "/", className, tone = "default", useFallbackOnly = false }: BackButtonProps) {
   const router = useRouter();
 
   const onGoBack = () => {
-    if (window.history.length > 1) {
+    if (!useFallbackOnly && window.history.length > 1) {
       router.back();
       return;
     }

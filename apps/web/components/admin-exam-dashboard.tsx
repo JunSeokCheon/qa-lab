@@ -262,7 +262,7 @@ function translateEnglishReasonToKorean(reason: string, isCorrect: boolean): str
 
   const lower = normalized.toLowerCase();
   if (/(quota|billing|status=429|too many requests)/.test(lower)) {
-    return "오답입니다. LLM 사용량 한도로 자동 채점이 제한되어 대체 채점이 적용되었습니다.";
+    return "오답입니다. 인공지능 채점 사용량 한도로 자동 채점이 제한되어 대체 채점이 적용되었습니다.";
   }
   if (/timeout|time out|timed out/.test(lower)) {
     return "오답입니다. 채점 요청 시간이 초과되어 정상 채점이 완료되지 않았습니다.";
@@ -365,7 +365,7 @@ function summarizeNonObjectiveReason(answer: ExamSubmissionAnswer): string {
   if (fallbackUsed && fallbackReasonCode === "quota") {
     const notice =
       feedback && typeof feedback.fallback_notice === "string" ? feedback.fallback_notice.trim() : "";
-    return notice || "LLM 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.";
+    return notice || "인공지능 채점 사용량 한도로 대체 채점이 적용되었습니다. 결제/쿼터 확인 후 재채점할 수 있습니다.";
   }
 
   if (isFullyCorrect(answer)) {

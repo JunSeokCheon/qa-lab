@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
@@ -113,10 +113,11 @@ export default function SignupPage() {
     }
 
     setLoading(true);
+    const normalizedUsername = username.trim().toLowerCase();
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: username.trim(), name: name.trim(), track_name: trackName, password }),
+      body: JSON.stringify({ username: normalizedUsername, name: name.trim(), track_name: trackName, password }),
     });
 
     if (!response.ok) {
@@ -129,7 +130,7 @@ export default function SignupPage() {
     await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: username.trim(), password }),
+      body: JSON.stringify({ username: normalizedUsername, password }),
     });
 
     router.push("/");

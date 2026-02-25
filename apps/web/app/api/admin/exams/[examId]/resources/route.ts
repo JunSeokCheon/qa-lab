@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+﻿import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { FASTAPI_BASE_URL } from "@/lib/auth";
@@ -12,7 +12,7 @@ export async function GET(_: Request, { params }: Params) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const response = await fetch(`${FASTAPI_BASE_URL}/admin/exams/${examId}/resources`, {
@@ -30,17 +30,17 @@ export async function POST(request: Request, { params }: Params) {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   if (!token) {
-    return NextResponse.json({ message: "Authentication is required" }, { status: 401 });
+    return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
   }
 
   const form = await request.formData().catch(() => null);
   if (!form) {
-    return NextResponse.json({ message: "Invalid multipart body" }, { status: 400 });
+    return NextResponse.json({ message: "멀티파트 요청 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
   const file = form.get("file");
   if (!file || typeof file === "string" || typeof (file as Blob).arrayBuffer !== "function") {
-    return NextResponse.json({ message: "File is required" }, { status: 400 });
+    return NextResponse.json({ message: "파일이 필요합니다." }, { status: 400 });
   }
 
   const forwardForm = new FormData();
@@ -58,3 +58,4 @@ export async function POST(request: Request, { params }: Params) {
   const payload = await response.json().catch(() => ({}));
   return NextResponse.json(payload, { status: response.status });
 }
+

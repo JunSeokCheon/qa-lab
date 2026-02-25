@@ -78,6 +78,13 @@ function statusLabel(status: string): string {
   return status;
 }
 
+function questionTypeLabel(type: string): string {
+  if (type === "multiple_choice") return "객관식";
+  if (type === "subjective") return "주관식";
+  if (type === "coding") return "코딩";
+  return type;
+}
+
 function normalizeChoiceIndexes(rawIndexes: number[] | undefined | null): number[] {
   if (!Array.isArray(rawIndexes)) return [];
   const unique = Array.from(new Set(rawIndexes.filter((value) => Number.isInteger(value))));
@@ -183,6 +190,33 @@ export function ExamTaker({
   }, [isSubmitted, isTimeLimited, remainingSeconds]);
 
   useEffect(() => {
+    if (isSubmitted) return;
+
+    const refreshSession = () =>
+      fetch("/api/auth/refresh", {
+        method: "POST",
+        cache: "no-store",
+      }).catch(() => null);
+
+    const interval = window.setInterval(() => {
+      void refreshSession();
+    }, 5 * 60 * 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshSession();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void refreshSession();
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isSubmitted]);
+
+  useEffect(() => {
     if (!showSubmitConfirm && !answerEditorQuestion) return;
 
     const previousOverflow = document.body.style.overflow;
@@ -243,6 +277,11 @@ export function ExamTaker({
       })),
     };
 
+    await fetch("/api/auth/refresh", {
+      method: "POST",
+      cache: "no-store",
+    }).catch(() => null);
+
     const response = await fetch(`/api/exams/${examId}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -292,7 +331,12 @@ export function ExamTaker({
             {submissionDetail.answers.map((answer) => (
               <article key={answer.question_id} className="rounded-xl border border-border/70 bg-background p-3 text-sm">
                 <div className="font-semibold">
-                  <span>{answer.question_order}. </span>
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span>{answer.question_order}.</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                      {questionTypeLabel(answer.question_type)}
+                    </span>
+                  </div>
                   {questionImageUrls(examId, answer.image_resource_ids, answer.image_resource_id).map((imageUrl, imageIndex) => (
                     <div
                       key={`${answer.question_id}-${imageUrl}-${imageIndex}`}
@@ -357,6 +401,9 @@ export function ExamTaker({
               <div className="text-sm font-semibold">
                 <div className="mb-1 flex items-center gap-2">
                   <span>{question.order_index}.</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                    {questionTypeLabel(question.type)}
+                  </span>
                   {question.required ? (
                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
                       필수
