@@ -193,6 +193,24 @@ PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
 - 관리자 사용자 관리: `/admin/users`
 - 관리자 감사 로그: `/admin/audit-logs`
 
+## 관리자 제출 확인 명령(배포 점검)
+```bash
+API_BASE_URL="http://127.0.0.1:8000"
+
+# 1) 로그인 토큰 발급
+TOKEN=$(curl -sS -X POST "${API_BASE_URL}/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin1234"}' | jq -r '.access_token')
+
+# 2) 시험별 제출 목록 확인 (관리자 대시보드 데이터 소스)
+curl -sS "${API_BASE_URL}/admin/exams/{examId}/submissions" \
+  -H "Authorization: Bearer ${TOKEN}" | jq
+
+# 3) 자동채점 관리 목록 확인
+curl -sS "${API_BASE_URL}/admin/grading/exam-submissions?coding_only=false&limit=200" \
+  -H "Authorization: Bearer ${TOKEN}" | jq
+```
+
 ## 관리자 사용자 삭제 정책
 - 관리자 계정은 관리자 사용자 관리 페이지에서 삭제할 수 없습니다.
 - 삭제 가능한 대상은 수강생(`role=user`) 계정만입니다.

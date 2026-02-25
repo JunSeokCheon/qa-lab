@@ -2893,8 +2893,6 @@ async def list_admin_grading_exam_submissions(
     payload: list[AdminGradingSubmissionSummary] = []
     for submission, exam, actor in rows:
         stat = auto_grade_stats[int(submission.id)]
-        if stat["total"] == 0:
-            continue
         if coding_only and coding_question_counts[int(submission.id)] == 0:
             continue
         if needs_review_only and stat["review_pending"] == 0:
