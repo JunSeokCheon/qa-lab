@@ -25,7 +25,7 @@ type DraftQuestion = {
   prompt_md: string;
   required: boolean;
   choices: string[];
-  correctChoiceIndex: number;
+  correctChoiceIndexes: number[];
   answerKeyText: string;
   imageFiles: DraftQuestionImage[];
 };
@@ -118,10 +118,22 @@ function newQuestion(key: number, type: QuestionType): DraftQuestion {
     prompt_md: "",
     required: true,
     choices: ["", "", "", ""],
-    correctChoiceIndex: 0,
+    correctChoiceIndexes: [0],
     answerKeyText: "",
     imageFiles: [],
   };
+}
+
+function normalizeChoiceIndexes(rawIndexes: number[] | undefined | null): number[] {
+  if (!Array.isArray(rawIndexes)) return [];
+  const deduped = Array.from(new Set(rawIndexes.filter((value) => Number.isInteger(value))));
+  return deduped.sort((a, b) => a - b);
+}
+
+function formatChoiceIndexesLabel(rawIndexes: number[] | undefined | null): string {
+  const indexes = normalizeChoiceIndexes(rawIndexes);
+  if (indexes.length === 0) return "선택 없음";
+  return indexes.map((index) => `${index + 1}번`).join(", ");
 }
 
 function buildRubricHelperText(question: DraftQuestion): string {
@@ -275,6 +287,19 @@ export function AdminExamBuilder({
         const nextChoices = [...question.choices];
         nextChoices[choiceIndex] = value;
         return { ...question, choices: nextChoices };
+      })
+    );
+  };
+
+  const toggleCorrectChoice = (key: number, choiceIndex: number) => {
+    setQuestions((prev) =>
+      prev.map((question) => {
+        if (question.key !== key) return question;
+        const current = normalizeChoiceIndexes(question.correctChoiceIndexes);
+        const next = current.includes(choiceIndex)
+          ? current.filter((value) => value !== choiceIndex)
+          : normalizeChoiceIndexes([...current, choiceIndex]);
+        return { ...question, correctChoiceIndexes: next };
       })
     );
   };
@@ -514,12 +539,21 @@ export function AdminExamBuilder({
           setLoading(false);
           return;
         }
+        const correctChoiceIndexes = normalizeChoiceIndexes(question.correctChoiceIndexes).filter(
+          (index) => index >= 0 && index < trimmedChoices.length
+        );
+        if (correctChoiceIndexes.length === 0) {
+          setCreateError("객관식은 정답을 1개 이상 선택해 주세요.");
+          setLoading(false);
+          return;
+        }
         normalizedQuestions.push({
           type: "multiple_choice",
           prompt_md: question.prompt_md.trim(),
           required: question.required,
           choices: trimmedChoices,
-          correct_choice_index: question.correctChoiceIndex,
+          correct_choice_index: correctChoiceIndexes[0] ?? null,
+          correct_choice_indexes: correctChoiceIndexes,
           answer_key_text: null,
           image_resource_id: null,
         });
@@ -530,6 +564,7 @@ export function AdminExamBuilder({
           required: question.required,
           choices: null,
           correct_choice_index: null,
+          correct_choice_indexes: null,
           answer_key_text: question.answerKeyText.trim() || null,
           image_resource_id: null,
         });
@@ -632,7 +667,7 @@ export function AdminExamBuilder({
         <details open className="space-y-2">
           <summary className="cursor-pointer text-sm font-semibold">튜터용 문제-정답 작성 가이드</summary>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            <li>객관식: 정답 라디오 버튼만 정확히 선택하면 됩니다.</li>
+            <li>객관식: 정답 체크박스를 1개 이상 선택하면 됩니다(복수 정답 가능).</li>
             <li>주관식: 정답 키워드와 필수 포함 내용(예: 용어, 근거)을 짧게 적어주세요.</li>
             <li>코딩: 정답 코드 예시 + 체크포인트(선택)을 적어주세요.</li>
             <li>코드 블록: <code>```언어명</code>으로 시작하고 마지막 줄에 <code>```</code>을 입력하세요.</li>
@@ -740,7 +775,20 @@ export function AdminExamBuilder({
               <select
                 className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
                 value={question.type}
-                onChange={(event) => updateQuestion(question.key, { type: event.target.value as QuestionType })}
+                onChange={(event) => {
+                  const nextType = event.target.value as QuestionType;
+                  if (nextType === "multiple_choice") {
+                    updateQuestion(question.key, {
+                      type: nextType,
+                      correctChoiceIndexes:
+                        normalizeChoiceIndexes(question.correctChoiceIndexes).length > 0
+                          ? normalizeChoiceIndexes(question.correctChoiceIndexes)
+                          : [0],
+                    });
+                    return;
+                  }
+                  updateQuestion(question.key, { type: nextType });
+                }}
               >
                 <option value="multiple_choice">객관식</option>
                 <option value="subjective">주관식</option>
@@ -848,10 +896,10 @@ export function AdminExamBuilder({
                     {question.choices.map((choice, choiceIndex) => (
                       <label key={`${question.key}-${choiceIndex}`} className="flex items-center gap-2 text-sm">
                         <input
-                          type="radio"
-                          name={`correct-choice-${question.key}`}
-                          checked={question.correctChoiceIndex === choiceIndex}
-                          onChange={() => updateQuestion(question.key, { correctChoiceIndex: choiceIndex })}
+                          type="checkbox"
+                          name={`correct-choice-${question.key}-${choiceIndex}`}
+                          checked={normalizeChoiceIndexes(question.correctChoiceIndexes).includes(choiceIndex)}
+                          onChange={() => toggleCorrectChoice(question.key, choiceIndex)}
                         />
                         <span className="w-10 text-muted-foreground">{choiceIndex + 1}번</span>
                         <Input
@@ -861,7 +909,7 @@ export function AdminExamBuilder({
                         />
                       </label>
                     ))}
-                    <p className="text-xs text-muted-foreground">현재 정답: {question.correctChoiceIndex + 1}번</p>
+                    <p className="text-xs text-muted-foreground">현재 정답: {formatChoiceIndexesLabel(question.correctChoiceIndexes)}</p>
                   </div>
                 ) : (
                   <div className="mt-2 space-y-2">

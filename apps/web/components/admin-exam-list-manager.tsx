@@ -37,6 +37,7 @@ type ExamQuestionDetail = {
   choices: string[] | null;
   image_resource_id: number | null;
   correct_choice_index: number | null;
+  correct_choice_indexes: number[];
   answer_key_text: string | null;
 };
 
@@ -61,7 +62,7 @@ type DraftQuestion = {
   prompt_md: string;
   required: boolean;
   choices: string[];
-  correctChoiceIndex: number;
+  correctChoiceIndexes: number[];
   answerKeyText: string;
   imageResourceId: number | null;
   imageFile: File | null;
@@ -89,16 +90,35 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function normalizeChoiceIndexes(rawIndexes: number[] | undefined | null): number[] {
+  if (!Array.isArray(rawIndexes)) return [];
+  const deduped = Array.from(new Set(rawIndexes.filter((value) => Number.isInteger(value))));
+  return deduped.sort((a, b) => a - b);
+}
+
+function formatChoiceIndexesLabel(rawIndexes: number[] | undefined | null): string {
+  const indexes = normalizeChoiceIndexes(rawIndexes);
+  if (indexes.length === 0) return "선택 없음";
+  return indexes.map((index) => `${index + 1}번`).join(", ");
+}
+
 function toDraftQuestion(question: ExamQuestionDetail): DraftQuestion {
   const choices = question.type === "multiple_choice" ? [...(question.choices ?? [])] : ["", "", "", ""];
   while (choices.length < 4) choices.push("");
+  const rawCorrectChoiceIndexes = Array.isArray(question.correct_choice_indexes) ? question.correct_choice_indexes : [];
+  const correctChoiceIndexes =
+    rawCorrectChoiceIndexes.length > 0
+      ? normalizeChoiceIndexes(rawCorrectChoiceIndexes)
+      : question.correct_choice_index === null
+        ? [0]
+        : [question.correct_choice_index];
   return {
     key: question.id,
     type: question.type,
     prompt_md: question.prompt_md,
     required: question.required,
     choices: choices.slice(0, 4),
-    correctChoiceIndex: question.correct_choice_index ?? 0,
+    correctChoiceIndexes,
     answerKeyText: question.answer_key_text ?? "",
     imageResourceId: question.image_resource_id ?? null,
     imageFile: null,
@@ -112,7 +132,7 @@ function newDraftQuestion(type: QuestionType): DraftQuestion {
     prompt_md: "",
     required: true,
     choices: ["", "", "", ""],
-    correctChoiceIndex: 0,
+    correctChoiceIndexes: [0],
     answerKeyText: "",
     imageResourceId: null,
     imageFile: null,
@@ -275,6 +295,19 @@ export function AdminExamListManager({
         const nextChoices = [...question.choices];
         nextChoices[index] = value;
         return { ...question, choices: nextChoices };
+      })
+    );
+  };
+
+  const toggleCorrectChoice = (key: number, choiceIndex: number) => {
+    setQuestions((prev) =>
+      prev.map((question) => {
+        if (question.key !== key) return question;
+        const current = normalizeChoiceIndexes(question.correctChoiceIndexes);
+        const next = current.includes(choiceIndex)
+          ? current.filter((value) => value !== choiceIndex)
+          : normalizeChoiceIndexes([...current, choiceIndex]);
+        return { ...question, correctChoiceIndexes: next };
       })
     );
   };
@@ -506,12 +539,20 @@ export function AdminExamListManager({
           setRepublishError("객관식 선택지 4개를 모두 입력해 주세요.");
           return;
         }
+        const correctChoiceIndexes = normalizeChoiceIndexes(question.correctChoiceIndexes).filter(
+          (index) => index >= 0 && index < trimmedChoices.length
+        );
+        if (correctChoiceIndexes.length === 0) {
+          setRepublishError("객관식은 정답을 1개 이상 선택해 주세요.");
+          return;
+        }
         normalizedQuestions.push({
           type: "multiple_choice",
           prompt_md: question.prompt_md.trim(),
           required: question.required,
           choices: trimmedChoices,
-          correct_choice_index: question.correctChoiceIndex,
+          correct_choice_index: correctChoiceIndexes[0] ?? null,
+          correct_choice_indexes: correctChoiceIndexes,
           answer_key_text: null,
           image_resource_id: question.imageResourceId,
         });
@@ -522,6 +563,7 @@ export function AdminExamListManager({
           required: question.required,
           choices: null,
           correct_choice_index: null,
+          correct_choice_indexes: null,
           answer_key_text: question.answerKeyText.trim() || null,
           image_resource_id: question.imageResourceId,
         });
@@ -913,7 +955,20 @@ export function AdminExamListManager({
                         <select
                           className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
                           value={question.type}
-                          onChange={(event) => updateQuestion(question.key, { type: event.target.value as QuestionType })}
+                          onChange={(event) => {
+                            const nextType = event.target.value as QuestionType;
+                            if (nextType === "multiple_choice") {
+                              updateQuestion(question.key, {
+                                type: nextType,
+                                correctChoiceIndexes:
+                                  normalizeChoiceIndexes(question.correctChoiceIndexes).length > 0
+                                    ? normalizeChoiceIndexes(question.correctChoiceIndexes)
+                                    : [0],
+                              });
+                              return;
+                            }
+                            updateQuestion(question.key, { type: nextType });
+                          }}
                         >
                           <option value="multiple_choice">객관식</option>
                           <option value="subjective">주관식</option>
@@ -1005,10 +1060,10 @@ export function AdminExamListManager({
                               {question.choices.map((choice, choiceIndex) => (
                                 <label key={`${question.key}-${choiceIndex}`} className="flex items-center gap-2 text-sm">
                                   <input
-                                    type="radio"
-                                    name={`correct-choice-${question.key}`}
-                                    checked={question.correctChoiceIndex === choiceIndex}
-                                    onChange={() => updateQuestion(question.key, { correctChoiceIndex: choiceIndex })}
+                                    type="checkbox"
+                                    name={`correct-choice-${question.key}-${choiceIndex}`}
+                                    checked={normalizeChoiceIndexes(question.correctChoiceIndexes).includes(choiceIndex)}
+                                    onChange={() => toggleCorrectChoice(question.key, choiceIndex)}
                                   />
                                   <span className="w-10 text-muted-foreground">{choiceIndex + 1}번</span>
                                   <Input
@@ -1019,7 +1074,7 @@ export function AdminExamListManager({
                                 </label>
                               ))}
                               <p className="text-xs text-muted-foreground">
-                                현재 정답: {question.correctChoiceIndex + 1}번 (라디오 버튼으로 변경)
+                                현재 정답: {formatChoiceIndexesLabel(question.correctChoiceIndexes)}
                               </p>
                             </div>
                           ) : (

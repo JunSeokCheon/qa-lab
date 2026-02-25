@@ -60,6 +60,12 @@ alembic upgrade head
 pnpm --dir apps/web lint
 pnpm --dir apps/web build
 
+# 시험 목록(/problems) 카테고리 탭 로컬 확인
+pnpm --dir apps/web dev
+# 브라우저에서 http://localhost:3000/problems 접속 후 "전체" 탭 동작 확인
+# 관리자 /admin/problems 또는 /admin/exams에서 객관식 정답 체크박스를 2개 이상 선택해 저장
+# 사용자 /problems/{examId}에서 체크박스(복수 선택) 응시 + 제출 후 결과/관리자 대시보드 반영 확인
+
 # 로컬 도커 최신 반영(web/api/worker)
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull web api worker
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --no-deps web api worker
@@ -265,7 +271,7 @@ curl -sS "${API_BASE_URL}/admin/grading/exam-submissions?coding_only=false&limit
   - `전체 평균 점수(100점)`: 전체 응시자 평균 점수
 
 ## 자동채점(주관식/코딩) 규칙
-- 객관식은 입력한 정답 번호(`correct_choice_index`)로 즉시 채점됩니다.
+- 객관식은 정답 인덱스 목록(`correct_choice_indexes`)과 제출 인덱스 목록(`selected_choice_indexes`)이 완전히 일치할 때 정답으로 채점됩니다.
 - 주관식/코딩은 문항의 `정답/채점 기준(answer_key_text)`을 기준으로 LLM이 0~100점 자동채점합니다.
 - 주관식/코딩 자동채점은 제출 즉시 시작되지 않으며, 관리자 `/admin/grading`에서 `자동 채점 시작!` 승인 후 순차 실행됩니다.
 - `answer_key_text`가 비어 있으면 자동채점 대상에서 제외되고 수동 채점이 필요합니다.
@@ -293,10 +299,10 @@ curl -sS "${API_BASE_URL}/admin/grading/exam-submissions?coding_only=false&limit
 ## 자동채점 정답 키 입력
 - 관리자 시험 생성/재출판 화면에서 주관식 문항에 정답 키 텍스트를 입력할 수 있습니다.
 - 문항 카드의 `정답/채점 기준` 버튼으로 큰 모달 입력창을 열어 문항별 정답을 길게 입력할 수 있습니다.
-- 객관식은 해당 섹션의 라디오 버튼으로 정답 번호를 지정합니다.
+- 객관식은 해당 섹션의 체크박스로 정답 번호를 1개 이상 지정합니다(복수 정답 지원).
 - 문항 유형을 `subjective` 또는 `coding`으로 바꾸면 텍스트 기반 정답/채점 기준 입력 칸이 표시됩니다.
 - 주관식/코딩은 LLM이 정답 키 대비 의미/로직 일치도를 평가해 0~100점으로 채점합니다.
-- 객관식은 기존처럼 정답 번호(`correct_choice_index`)로 채점됩니다.
+- 객관식은 정답 번호 목록(`correct_choice_indexes`) 기준으로 채점됩니다.
 - 비개발자 튜터 UX:
   - 코딩 정답 템플릿(입출력 예시 기반) 버튼 제공
   - `채점기준 도우미` 버튼으로 문항별 채점 기준 초안 자동 생성
@@ -417,7 +423,7 @@ node scripts/nondev_tutor_exam_simulation.mjs
 
 ## 수동 QA 점검 흐름
 1. `http://localhost:3000` 접속 후 `admin`, `user` 계정으로 각각 로그인합니다.
-2. 관리자 `시험지 관리`/`시험 목록 관리`에서 문항 카드의 `정답/채점 기준` 영역(객관식 정답 라디오, 주관식 정답 키 입력)을 확인합니다.
+2. 관리자 `시험지 관리`/`시험 목록 관리`에서 문항 카드의 `정답/채점 기준` 영역(객관식 정답 체크박스, 주관식 정답 키 입력)을 확인합니다.
 3. 관리자 `대시보드`에서 시험 선택 후 `학생별 제출 상세`의 문항별 정답/오답 표시와 `수동 채점` 동작(점수 저장, 정답/오답 빠른 처리)을 확인합니다.
 4. 관리자 `대시보드`에서 `CSV 다운로드`, `엑셀(.xls) 다운로드`를 실행합니다.
 5. 파일에서 문제별 `1/0`, 하단 `합계/정답률`, `전체 평균 점수(100점)`을 확인합니다.

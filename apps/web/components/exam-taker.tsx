@@ -15,6 +15,7 @@ type QuestionItem = {
   type: string;
   prompt_md: string;
   required: boolean;
+  multiple_select?: boolean;
   choices: string[] | null;
   image_resource_id: number | null;
   image_resource_ids?: number[];
@@ -22,7 +23,7 @@ type QuestionItem = {
 
 type AnswerState = {
   answer_text?: string;
-  selected_choice_index?: number;
+  selected_choice_indexes?: number[];
 };
 
 export type MyExamSubmissionAnswer = {
@@ -34,9 +35,11 @@ export type MyExamSubmissionAnswer = {
   image_resource_id: number | null;
   image_resource_ids?: number[];
   correct_choice_index: number | null;
+  correct_choice_indexes: number[];
   answer_key_text: string | null;
   answer_text: string | null;
   selected_choice_index: number | null;
+  selected_choice_indexes: number[];
   grading_status: string | null;
   grading_score: number | null;
   grading_max_score: number | null;
@@ -75,20 +78,40 @@ function statusLabel(status: string): string {
   return status;
 }
 
+function normalizeChoiceIndexes(rawIndexes: number[] | undefined | null): number[] {
+  if (!Array.isArray(rawIndexes)) return [];
+  const unique = Array.from(new Set(rawIndexes.filter((value) => Number.isInteger(value))));
+  return unique.sort((a, b) => a - b);
+}
+
 function selectedChoiceText(answer: MyExamSubmissionAnswer): string {
-  if (answer.selected_choice_index === null) return "(미응답)";
+  const selectedIndexes = normalizeChoiceIndexes(
+    answer.selected_choice_indexes.length > 0
+      ? answer.selected_choice_indexes
+      : answer.selected_choice_index === null
+        ? []
+        : [answer.selected_choice_index]
+  );
+  if (selectedIndexes.length === 0) return "(미응답)";
   const choices = answer.choices ?? [];
-  const index = answer.selected_choice_index;
-  const choiceText = choices[index] ?? "(선택지 없음)";
-  return `${index + 1}번 - ${choiceText}`;
+  return selectedIndexes
+    .map((index) => `${index + 1}번 - ${choices[index] ?? "(선택지 없음)"}`)
+    .join(", ");
 }
 
 function correctChoiceText(answer: MyExamSubmissionAnswer): string {
-  if (answer.correct_choice_index === null) return "(정답 미설정)";
+  const correctIndexes = normalizeChoiceIndexes(
+    answer.correct_choice_indexes.length > 0
+      ? answer.correct_choice_indexes
+      : answer.correct_choice_index === null
+        ? []
+        : [answer.correct_choice_index]
+  );
+  if (correctIndexes.length === 0) return "(정답 미설정)";
   const choices = answer.choices ?? [];
-  const index = answer.correct_choice_index;
-  const choiceText = choices[index] ?? "(선택지 없음)";
-  return `${index + 1}번 - ${choiceText}`;
+  return correctIndexes
+    .map((index) => `${index + 1}번 - ${choices[index] ?? "(선택지 없음)"}`)
+    .join(", ");
 }
 
 function questionImageUrl(examId: number, imageResourceId: number | null | undefined): string | null {
@@ -182,8 +205,22 @@ export function ExamTaker({
     setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], answer_text: value } }));
   };
 
-  const setChoiceAnswer = (questionId: number, value: number) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], selected_choice_index: value } }));
+  const toggleChoiceAnswer = (questionId: number, value: number, multipleSelect: boolean) => {
+    setAnswers((prev) => {
+      const currentIndexes = normalizeChoiceIndexes(prev[questionId]?.selected_choice_indexes);
+      const nextIndexes = multipleSelect
+        ? currentIndexes.includes(value)
+          ? currentIndexes.filter((index) => index !== value)
+          : normalizeChoiceIndexes([...currentIndexes, value])
+        : [value];
+      return {
+        ...prev,
+        [questionId]: {
+          ...prev[questionId],
+          selected_choice_indexes: nextIndexes,
+        },
+      };
+    });
   };
 
   const openAnswerEditor = (questionId: number) => {
@@ -199,9 +236,10 @@ export function ExamTaker({
 
     const payload = {
       answers: questions.map((question) => ({
+        selected_choice_indexes: normalizeChoiceIndexes(answers[question.id]?.selected_choice_indexes),
         question_id: question.id,
         answer_text: answers[question.id]?.answer_text?.trim() || undefined,
-        selected_choice_index: answers[question.id]?.selected_choice_index,
+        selected_choice_index: normalizeChoiceIndexes(answers[question.id]?.selected_choice_indexes)[0],
       })),
     };
 
@@ -312,8 +350,10 @@ export function ExamTaker({
 
       {!isSubmitted ? (
         <>
-          {questions.map((question) => (
-            <article key={question.id} className="rounded-2xl border border-border/70 bg-surface p-4">
+          {questions.map((question) => {
+            const selectedChoiceIndexes = normalizeChoiceIndexes(answers[question.id]?.selected_choice_indexes);
+            return (
+              <article key={question.id} className="rounded-2xl border border-border/70 bg-surface p-4">
               <div className="text-sm font-semibold">
                 <div className="mb-1 flex items-center gap-2">
                   <span>{question.order_index}.</span>
@@ -344,13 +384,16 @@ export function ExamTaker({
 
               {question.type === "multiple_choice" ? (
                 <div className="mt-3 space-y-2">
+                  {question.multiple_select ? (
+                    <p className="text-xs text-muted-foreground">복수 정답 문항입니다. 정답이라고 생각하는 선택지를 모두 고르세요.</p>
+                  ) : null}
                   {(question.choices ?? []).map((choice, index) => (
                     <label key={`${question.id}-${index}`} className="flex items-center gap-2 text-sm">
                       <input
-                        type="radio"
+                        type={question.multiple_select ? "checkbox" : "radio"}
                         name={`question-${question.id}`}
-                        checked={answers[question.id]?.selected_choice_index === index}
-                        onChange={() => setChoiceAnswer(question.id, index)}
+                        checked={selectedChoiceIndexes.includes(index)}
+                        onChange={() => toggleChoiceAnswer(question.id, index, Boolean(question.multiple_select))}
                         disabled={loading || isExpired}
                       />
                       <span>{choice}</span>
@@ -376,8 +419,9 @@ export function ExamTaker({
                   </pre>
                 </div>
               )}
-            </article>
-          ))}
+              </article>
+            );
+          })}
 
           {displayError ? <p className="text-sm text-destructive">{displayError}</p> : null}
           {success ? <p className="text-sm text-emerald-700">{success}</p> : null}

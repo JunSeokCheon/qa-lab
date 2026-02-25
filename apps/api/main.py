@@ -352,17 +352,42 @@ def _sanitize_exam_question_choices(question_type: str, choices: list[str] | Non
     return normalized_choices
 
 
-def _sanitize_exam_correct_choice_index(
-    question_type: str, choices: list[str] | None, correct_choice_index: int | None
-) -> int | None:
+def _normalize_choice_indexes(raw_indexes: list[int] | None) -> list[int]:
+    seen: set[int] = set()
+    normalized: list[int] = []
+    for raw_index in list(raw_indexes or []):
+        index = int(raw_index)
+        if index in seen:
+            continue
+        seen.add(index)
+        normalized.append(index)
+    return normalized
+
+
+def _sanitize_exam_correct_choice_indexes(
+    *,
+    question_type: str,
+    choices: list[str] | None,
+    correct_choice_index: int | None,
+    correct_choice_indexes: list[int] | None,
+) -> list[int]:
     if question_type != "multiple_choice":
-        return None
-    if correct_choice_index is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 정답 번호가 필요합니다.")
+        return []
+
+    if correct_choice_indexes is not None:
+        normalized = _normalize_choice_indexes(correct_choice_indexes)
+    elif correct_choice_index is not None:
+        normalized = [int(correct_choice_index)]
+    else:
+        normalized = []
+
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 정답 번호가 1개 이상 필요합니다.")
+
     choice_count = len(choices or [])
-    if correct_choice_index < 0 or correct_choice_index >= choice_count:
+    if any(index < 0 or index >= choice_count for index in normalized):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 정답 번호가 선택지 범위를 벗어났습니다.")
-    return correct_choice_index
+    return normalized
 
 
 def _sanitize_exam_answer_key_text(question_type: str, answer_key_text: str | None) -> str | None:
@@ -427,14 +452,38 @@ def _extract_exam_question_image_resource_ids(question: ExamQuestion) -> list[in
     return []
 
 
+def _extract_exam_question_correct_choice_indexes(question: ExamQuestion) -> list[int]:
+    normalized = _normalize_choice_indexes(
+        [value for value in list(question.correct_choice_indexes_json or []) if isinstance(value, int)]
+    )
+    if normalized:
+        return normalized
+    if question.correct_choice_index is not None:
+        return [int(question.correct_choice_index)]
+    return []
+
+
+def _extract_exam_answer_selected_choice_indexes(answer: ExamAnswer) -> list[int]:
+    normalized = _normalize_choice_indexes(
+        [value for value in list(answer.selected_choice_indexes_json or []) if isinstance(value, int)]
+    )
+    if normalized:
+        return normalized
+    if answer.selected_choice_index is not None:
+        return [int(answer.selected_choice_index)]
+    return []
+
+
 def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
     image_resource_ids = _extract_exam_question_image_resource_ids(question)
+    correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
     return ExamQuestionSummary(
         id=question.id,
         order_index=question.order_index,
         type=question.type,
         prompt_md=question.prompt_md,
         required=question.required,
+        multiple_select=len(correct_choice_indexes) > 1,
         choices=list(question.choices_json or []) if question.choices_json is not None else None,
         image_resource_id=image_resource_ids[0] if image_resource_ids else None,
         image_resource_ids=image_resource_ids,
@@ -442,9 +491,11 @@ def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
 
 
 def _to_admin_exam_question_summary(question: ExamQuestion) -> AdminExamQuestionSummary:
+    correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
     return AdminExamQuestionSummary(
         **_to_exam_question_summary(question).model_dump(),
-        correct_choice_index=question.correct_choice_index,
+        correct_choice_index=correct_choice_indexes[0] if correct_choice_indexes else None,
+        correct_choice_indexes=correct_choice_indexes,
         answer_key_text=question.answer_key_text,
     )
 
@@ -612,9 +663,11 @@ def _feedback_bool(feedback_json: dict[str, Any] | None, key: str) -> bool:
 
 def _resolve_me_question_verdict(answer: ExamAnswer, question: ExamQuestion) -> str:
     if question.type == "multiple_choice":
-        if question.correct_choice_index is None or answer.selected_choice_index is None:
+        correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
+        selected_choice_indexes = _extract_exam_answer_selected_choice_indexes(answer)
+        if not correct_choice_indexes or not selected_choice_indexes:
             return "pending"
-        if answer.selected_choice_index == question.correct_choice_index:
+        if set(selected_choice_indexes) == set(correct_choice_indexes):
             return "correct"
         return "incorrect"
 
@@ -1529,6 +1582,12 @@ async def _create_exam_with_questions(
         if not prompt_md:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{index}번 문항의 내용이 비어 있습니다.")
         choices = _sanitize_exam_question_choices(question_type, question_payload.choices)
+        correct_choice_indexes = _sanitize_exam_correct_choice_indexes(
+            question_type=question_type,
+            choices=choices,
+            correct_choice_index=question_payload.correct_choice_index,
+            correct_choice_indexes=question_payload.correct_choice_indexes,
+        )
         question = ExamQuestion(
             exam_id=exam.id,
             order_index=index,
@@ -1538,9 +1597,8 @@ async def _create_exam_with_questions(
             prompt_md=prompt_md,
             required=bool(question_payload.required),
             choices_json=choices,
-            correct_choice_index=_sanitize_exam_correct_choice_index(
-                question_type, choices, question_payload.correct_choice_index
-            ),
+            correct_choice_index=correct_choice_indexes[0] if correct_choice_indexes else None,
+            correct_choice_indexes_json=correct_choice_indexes if correct_choice_indexes else None,
             answer_key_text=_sanitize_exam_answer_key_text(question_type, question_payload.answer_key_text),
         )
         session.add(question)
@@ -2127,6 +2185,8 @@ async def list_admin_exam_submissions(
             question = question_map.get(answer.exam_question_id)
             if question is None:
                 continue
+            correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
+            selected_choice_indexes = _extract_exam_answer_selected_choice_indexes(answer)
             answers.append(
                 AdminExamSubmissionAnswer(
                     question_id=question.id,
@@ -2136,10 +2196,12 @@ async def list_admin_exam_submissions(
                     choices=list(question.choices_json or []) if question.choices_json is not None else None,
                     image_resource_id=question.image_resource_id,
                     image_resource_ids=_extract_exam_question_image_resource_ids(question),
-                    correct_choice_index=question.correct_choice_index,
+                    correct_choice_index=correct_choice_indexes[0] if correct_choice_indexes else None,
+                    correct_choice_indexes=correct_choice_indexes,
                     answer_key_text=question.answer_key_text,
                     answer_text=answer.answer_text,
-                    selected_choice_index=answer.selected_choice_index,
+                    selected_choice_index=selected_choice_indexes[0] if selected_choice_indexes else None,
+                    selected_choice_indexes=selected_choice_indexes,
                     grading_status=answer.grading_status,
                     grading_score=answer.grading_score,
                     grading_max_score=answer.grading_max_score,
@@ -2487,6 +2549,7 @@ async def submit_exam(
         answer_by_question[answer.question_id] = {
             "answer_text": answer.answer_text.strip() if answer.answer_text else None,
             "selected_choice_index": answer.selected_choice_index,
+            "selected_choice_indexes": _normalize_choice_indexes(answer.selected_choice_indexes),
         }
 
     has_llm_target_question = any(
@@ -2507,6 +2570,7 @@ async def submit_exam(
     for question in questions:
         submitted = answer_by_question.get(question.id)
         selected_choice_index: int | None = None
+        selected_choice_indexes: list[int] = []
         answer_text: str | None = None
         grading_status: str | None = None
         grading_score: int | None = None
@@ -2516,12 +2580,20 @@ async def submit_exam(
 
         if question.type == "multiple_choice":
             if submitted is not None:
-                selected_choice_index = submitted["selected_choice_index"]
+                selected_choice_indexes = _normalize_choice_indexes(submitted["selected_choice_indexes"])
+                if not selected_choice_indexes and submitted["selected_choice_index"] is not None:
+                    selected_choice_indexes = [int(submitted["selected_choice_index"])]
             choices = list(question.choices_json or [])
-            if question.required and selected_choice_index is None:
+            if question.required and not selected_choice_indexes:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{question.order_index}번 문항 답변이 필요합니다.")
-            if selected_choice_index is not None and (selected_choice_index < 0 or selected_choice_index >= len(choices)):
+            if any(index < 0 or index >= len(choices) for index in selected_choice_indexes):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{question.order_index}번 문항 선택지 번호가 올바르지 않습니다.")
+            if len(_extract_exam_question_correct_choice_indexes(question)) <= 1 and len(selected_choice_indexes) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{question.order_index}번 문항은 선택지를 1개만 고를 수 있습니다.",
+                )
+            selected_choice_index = selected_choice_indexes[0] if selected_choice_indexes else None
         else:
             if submitted is not None:
                 answer_text = submitted["answer_text"]
@@ -2537,6 +2609,7 @@ async def submit_exam(
                 exam_question_id=question.id,
                 answer_text=answer_text,
                 selected_choice_index=selected_choice_index,
+                selected_choice_indexes_json=selected_choice_indexes if selected_choice_indexes else None,
                 grading_status=grading_status,
                 grading_score=grading_score,
                 grading_max_score=grading_max_score,
@@ -2581,27 +2654,32 @@ async def get_my_exam_submission_detail(
         )
     ).all()
 
-    answers = [
-        MeExamSubmissionAnswer(
-            question_id=question.id,
-            question_order=question.order_index,
-            question_type=question.type,
-            prompt_md=question.prompt_md,
-            choices=list(question.choices_json or []) if question.choices_json is not None else None,
-            image_resource_id=question.image_resource_id,
-            image_resource_ids=_extract_exam_question_image_resource_ids(question),
-            correct_choice_index=question.correct_choice_index,
-            answer_key_text=question.answer_key_text,
-            answer_text=answer.answer_text,
-            selected_choice_index=answer.selected_choice_index,
-            grading_status=answer.grading_status,
-            grading_score=answer.grading_score,
-            grading_max_score=answer.grading_max_score,
-            grading_feedback_json=answer.grading_feedback_json,
-            graded_at=answer.graded_at,
+    answers: list[MeExamSubmissionAnswer] = []
+    for answer, question in answer_rows:
+        correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
+        selected_choice_indexes = _extract_exam_answer_selected_choice_indexes(answer)
+        answers.append(
+            MeExamSubmissionAnswer(
+                question_id=question.id,
+                question_order=question.order_index,
+                question_type=question.type,
+                prompt_md=question.prompt_md,
+                choices=list(question.choices_json or []) if question.choices_json is not None else None,
+                image_resource_id=question.image_resource_id,
+                image_resource_ids=_extract_exam_question_image_resource_ids(question),
+                correct_choice_index=correct_choice_indexes[0] if correct_choice_indexes else None,
+                correct_choice_indexes=correct_choice_indexes,
+                answer_key_text=question.answer_key_text,
+                answer_text=answer.answer_text,
+                selected_choice_index=selected_choice_indexes[0] if selected_choice_indexes else None,
+                selected_choice_indexes=selected_choice_indexes,
+                grading_status=answer.grading_status,
+                grading_score=answer.grading_score,
+                grading_max_score=answer.grading_max_score,
+                grading_feedback_json=answer.grading_feedback_json,
+                graded_at=answer.graded_at,
+            )
         )
-        for answer, question in answer_rows
-    ]
 
     results_published, results_published_at, _ = _resolve_submission_result_visibility(exam, submission)
 
@@ -2731,14 +2809,16 @@ async def get_my_exam_results(
                 overall_pending += 1
 
             if question.type == "multiple_choice":
-                if question.correct_choice_index is None:
+                correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
+                if not correct_choice_indexes:
                     continue
+                selected_choice_indexes = _extract_exam_answer_selected_choice_indexes(answer)
                 objective_total += 1
-                if answer.selected_choice_index is not None:
+                if selected_choice_indexes:
                     objective_answered += 1
-                if answer.selected_choice_index == question.correct_choice_index:
+                if set(selected_choice_indexes) == set(correct_choice_indexes):
                     objective_correct += 1
-                elif answer.selected_choice_index is None:
+                elif not selected_choice_indexes:
                     objective_pending += 1
                 else:
                     objective_incorrect += 1

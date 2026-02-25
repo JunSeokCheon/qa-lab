@@ -13,6 +13,7 @@ type ExamQuestion = {
   type: string;
   prompt_md: string;
   required: boolean;
+  multiple_select?: boolean;
   choices: string[] | null;
   image_resource_id: number | null;
   image_resource_ids?: number[];

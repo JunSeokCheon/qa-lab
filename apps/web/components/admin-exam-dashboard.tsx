@@ -24,9 +24,11 @@ type ExamSubmissionAnswer = {
   prompt_md: string;
   choices: string[] | null;
   correct_choice_index: number | null;
+  correct_choice_indexes?: number[];
   answer_key_text: string | null;
   answer_text: string | null;
   selected_choice_index: number | null;
+  selected_choice_indexes?: number[];
   grading_status: string | null;
   grading_score: number | null;
   grading_max_score: number | null;
@@ -52,7 +54,7 @@ type ChoiceStat = {
   questionOrder: number;
   prompt: string;
   choices: string[];
-  correctChoiceIndex: number | null;
+  correctChoiceIndexes: number[];
   counts: number[];
   respondents: string[][];
   unansweredUsers: string[];
@@ -113,6 +115,48 @@ function isNonObjectiveAnswer(answer: ExamSubmissionAnswer): boolean {
   return !isObjectiveAnswer(answer);
 }
 
+function normalizeChoiceIndexes(rawIndexes: number[] | undefined | null): number[] {
+  if (!Array.isArray(rawIndexes)) return [];
+  const deduped = Array.from(new Set(rawIndexes.filter((value) => Number.isInteger(value))));
+  return deduped.sort((a, b) => a - b);
+}
+
+function extractSelectedChoiceIndexes(answer: ExamSubmissionAnswer): number[] {
+  if (Array.isArray(answer.selected_choice_indexes) && answer.selected_choice_indexes.length > 0) {
+    return normalizeChoiceIndexes(answer.selected_choice_indexes);
+  }
+  if (typeof answer.selected_choice_index === "number") {
+    return [answer.selected_choice_index];
+  }
+  return [];
+}
+
+function extractCorrectChoiceIndexes(answer: ExamSubmissionAnswer): number[] {
+  if (Array.isArray(answer.correct_choice_indexes) && answer.correct_choice_indexes.length > 0) {
+    return normalizeChoiceIndexes(answer.correct_choice_indexes);
+  }
+  if (typeof answer.correct_choice_index === "number") {
+    return [answer.correct_choice_index];
+  }
+  return [];
+}
+
+function isSameChoiceIndexes(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function formatChoiceSummary(indexes: number[], choices: string[] | null): string {
+  if (indexes.length === 0) return "-";
+  const safeChoices = choices ?? [];
+  return indexes
+    .map((index) => {
+      const choice = safeChoices[index];
+      return typeof choice === "string" ? `${index + 1}번 (${choice})` : `${index + 1}번`;
+    })
+    .join(", ");
+}
+
 function isGradingFinished(answer: ExamSubmissionAnswer): boolean {
   return answer.grading_status === "GRADED" || answer.grading_status === "FAILED";
 }
@@ -158,10 +202,12 @@ function collectNonObjectiveAnswers(rows: ExamSubmission[]): NonObjectiveAnswerI
 
 function resolveAnswerVerdict(answer: ExamSubmissionAnswer): AnswerVerdict {
   if (isObjectiveAnswer(answer)) {
-    if (answer.selected_choice_index === null || answer.correct_choice_index === null) {
+    const selectedChoiceIndexes = extractSelectedChoiceIndexes(answer);
+    const correctChoiceIndexes = extractCorrectChoiceIndexes(answer);
+    if (selectedChoiceIndexes.length === 0 || correctChoiceIndexes.length === 0) {
       return { label: "미응답", className: "bg-muted text-muted-foreground" };
     }
-    if (answer.selected_choice_index === answer.correct_choice_index) {
+    if (isSameChoiceIndexes(selectedChoiceIndexes, correctChoiceIndexes)) {
       return { label: "정답", className: "bg-emerald-100 text-emerald-800" };
     }
     return { label: "오답", className: "bg-rose-100 text-rose-800" };
@@ -188,11 +234,9 @@ type ExportRow = Record<string, ExportCell>;
 
 function isFullyCorrect(answer: ExamSubmissionAnswer): boolean {
   if (isObjectiveAnswer(answer)) {
-    return (
-      answer.correct_choice_index !== null &&
-      answer.selected_choice_index !== null &&
-      answer.correct_choice_index === answer.selected_choice_index
-    );
+    const selectedChoiceIndexes = extractSelectedChoiceIndexes(answer);
+    const correctChoiceIndexes = extractCorrectChoiceIndexes(answer);
+    return selectedChoiceIndexes.length > 0 && isSameChoiceIndexes(selectedChoiceIndexes, correctChoiceIndexes);
   }
 
   return (
@@ -508,7 +552,7 @@ export function AdminExamDashboard({
             questionOrder: answer.question_order,
             prompt: answer.prompt_md,
             choices,
-            correctChoiceIndex: answer.correct_choice_index,
+            correctChoiceIndexes: extractCorrectChoiceIndexes(answer),
             counts: choices.map(() => 0),
             respondents: choices.map(() => [] as string[]),
             unansweredUsers: [],
@@ -518,14 +562,21 @@ export function AdminExamDashboard({
 
         const stat = byQuestion.get(answer.question_id);
         if (!stat) continue;
-        const selected = answer.selected_choice_index;
+        if (stat.correctChoiceIndexes.length === 0) {
+          stat.correctChoiceIndexes = extractCorrectChoiceIndexes(answer);
+        }
+        const selectedIndexes = extractSelectedChoiceIndexes(answer).filter(
+          (index) => index >= 0 && index < stat.choices.length
+        );
         const userName = row.user_name;
-        if (selected === null || selected < 0 || selected >= stat.choices.length) {
+        if (selectedIndexes.length === 0) {
           stat.unansweredUsers.push(userName);
           continue;
         }
-        stat.counts[selected] += 1;
-        stat.respondents[selected].push(userName);
+        for (const selected of selectedIndexes) {
+          stat.counts[selected] += 1;
+          stat.respondents[selected].push(userName);
+        }
         stat.totalResponses += 1;
       }
     }
@@ -1037,7 +1088,7 @@ export function AdminExamDashboard({
                         <div className="flex items-center justify-between gap-2">
                           <p>
                             {index + 1}번 {choice}
-                            {stat.correctChoiceIndex === index ? " (정답)" : ""}
+                            {stat.correctChoiceIndexes.includes(index) ? " (정답)" : ""}
                           </p>
                           <p className="text-muted-foreground">
                             {count}명 ({ratio.toFixed(1)}%)
@@ -1111,11 +1162,13 @@ export function AdminExamDashboard({
                           </p>
                           {answer.question_type === "multiple_choice" ? (
                             <p className="mt-1 text-muted-foreground">
-                              제출 답: {answer.selected_choice_index === null ? "-" : `${answer.selected_choice_index + 1}번`}
+                              제출 답: {formatChoiceSummary(extractSelectedChoiceIndexes(answer), answer.choices)}
                             </p>
                           ) : null}
-                          {answer.question_type === "multiple_choice" && answer.correct_choice_index !== null ? (
-                            <p className="mt-1 text-muted-foreground">정답: {answer.correct_choice_index + 1}번</p>
+                          {answer.question_type === "multiple_choice" ? (
+                            <p className="mt-1 text-muted-foreground">
+                              정답: {formatChoiceSummary(extractCorrectChoiceIndexes(answer), answer.choices)}
+                            </p>
                           ) : null}
                           {answer.question_type !== "multiple_choice" ? (
                             <p className="mt-1 text-muted-foreground">

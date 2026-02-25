@@ -180,6 +180,7 @@ class ExamQuestionCreate(BaseModel):
     required: bool = True
     choices: list[str] | None = None
     correct_choice_index: int | None = None
+    correct_choice_indexes: list[int] | None = None
     answer_key_text: str | None = None
     image_resource_id: int | None = None
     image_resource_ids: list[int] | None = None
@@ -227,6 +228,7 @@ class ExamQuestionSummary(BaseModel):
     type: str
     prompt_md: str
     required: bool
+    multiple_select: bool = False
     choices: list[str] | None = None
     image_resource_id: int | None = None
     image_resource_ids: list[int] = Field(default_factory=list)
@@ -276,6 +278,7 @@ class ExamDetail(ExamSummary):
 
 class AdminExamQuestionSummary(ExamQuestionSummary):
     correct_choice_index: int | None = None
+    correct_choice_indexes: list[int] = Field(default_factory=list)
     answer_key_text: str | None = None
 
 
@@ -287,6 +290,7 @@ class ExamAnswerInput(BaseModel):
     question_id: int
     answer_text: str | None = None
     selected_choice_index: int | None = None
+    selected_choice_indexes: list[int] | None = None
 
 
 class ExamSubmitRequest(BaseModel):
@@ -309,9 +313,11 @@ class MeExamSubmissionAnswer(BaseModel):
     image_resource_id: int | None = None
     image_resource_ids: list[int] = Field(default_factory=list)
     correct_choice_index: int | None = None
+    correct_choice_indexes: list[int] = Field(default_factory=list)
     answer_key_text: str | None = None
     answer_text: str | None = None
     selected_choice_index: int | None = None
+    selected_choice_indexes: list[int] = Field(default_factory=list)
     grading_status: str | None = None
     grading_score: int | None = None
     grading_max_score: int | None = None
@@ -400,9 +406,11 @@ class AdminExamSubmissionAnswer(BaseModel):
     image_resource_id: int | None = None
     image_resource_ids: list[int] = Field(default_factory=list)
     correct_choice_index: int | None = None
+    correct_choice_indexes: list[int] = Field(default_factory=list)
     answer_key_text: str | None = None
     answer_text: str | None = None
     selected_choice_index: int | None = None
+    selected_choice_indexes: list[int] = Field(default_factory=list)
     grading_status: str | None = None
     grading_score: int | None = None
     grading_max_score: int | None = None

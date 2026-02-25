@@ -14,6 +14,8 @@ type ExamItem = {
   submitted: boolean;
 };
 
+const ALL_CATEGORY = "__all__";
+
 function examKindLabel(examKind: string): string {
   if (examKind === "quiz") return "퀴즈";
   if (examKind === "assessment") return "성취도 평가";
@@ -25,21 +27,30 @@ export function ExamCategoryBrowser({ items }: { items: ExamItem[] }) {
     return Array.from(new Set(items.map((item) => item.folder_path).filter(Boolean))) as string[];
   }, [items]);
 
-  const [activeCategory, setActiveCategory] = useState<string>(categories[0] ?? "");
+  const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY);
+  const effectiveCategory =
+    activeCategory === ALL_CATEGORY || categories.includes(activeCategory) ? activeCategory : ALL_CATEGORY;
 
   const filtered = useMemo(() => {
-    if (!activeCategory) return items;
-    return items.filter((item) => item.folder_path === activeCategory);
-  }, [activeCategory, items]);
+    if (effectiveCategory === ALL_CATEGORY) return items;
+    return items.filter((item) => item.folder_path === effectiveCategory);
+  }, [effectiveCategory, items]);
 
   return (
     <section className="qa-card space-y-4">
       <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={effectiveCategory === ALL_CATEGORY ? "default" : "outline"}
+          onClick={() => setActiveCategory(ALL_CATEGORY)}
+        >
+          전체
+        </Button>
         {categories.map((category) => (
           <Button
             key={category}
             type="button"
-            variant={activeCategory === category ? "default" : "outline"}
+            variant={effectiveCategory === category ? "default" : "outline"}
             onClick={() => setActiveCategory(category)}
           >
             {category}
