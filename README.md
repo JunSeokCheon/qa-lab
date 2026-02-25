@@ -1,28 +1,19 @@
-﻿# QA Lab Monorepo
+# QA Lab Monorepo
 
-Next.js(App Router) + FastAPI + Docker Compose 기반 QA 서비스입니다.
+Next.js(App Router) + FastAPI + Docker Compose 기반의 시험/채점 서비스입니다.
 
-## 구성
-- `apps/web`: Next.js 프런트엔드
-- `apps/api`: FastAPI 백엔드
-- `infra/docker-compose.prod.yml`: Docker Compose 배포 구성
-- `grader-images/python/Dockerfile`: 코딩 자동채점 이미지
-- `docs/system-architecture.md`: 시스템 아키텍처/기술 스택/기능 문서
-- `docs/user-admin-guide.md`: 사용자/관리자(튜터) 사용 가이드
+## 한눈에 보기
+- 프론트: `apps/web` (Next.js)
+- 백엔드: `apps/api` (FastAPI)
+- 배포: `infra/docker-compose.prod.yml`
+- 자동채점 런타임 이미지: `grader-images/python/Dockerfile`
+- 문서:
+  - `docs/system-architecture.md`
+  - `docs/user-admin-guide.md`
 
-## 문서
-- 아키텍처 문서: `docs/system-architecture.md`
-- 사용자/관리자 가이드: `docs/user-admin-guide.md`
+## 로컬 개발 시작
 
-```bash
-# 문서 빠르게 열기(Windows PowerShell)
-start docs/system-architecture.md
-start docs/user-admin-guide.md
-```
-
-## 로컬 실행
-
-### 1) API
+### 1) API 실행
 ```bash
 cd apps/api
 python -m venv .venv
@@ -32,401 +23,126 @@ alembic upgrade head
 fastapi dev main.py
 ```
 
-### 2) Web (pnpm)
+### 2) Web 실행 (pnpm)
 ```bash
 cd apps/web
 pnpm install
 pnpm dev
 ```
 
-PowerShell 실행 정책으로 `pnpm.ps1`이 차단되면 아래처럼 실행합니다.
+PowerShell 정책 때문에 `pnpm.ps1` 실행이 막히면 `pnpm.cmd`를 사용하세요.
 ```bash
 pnpm.cmd --dir apps/web lint
 pnpm.cmd --dir apps/web build
 ```
 
-### 3) 접속
+### 3) 접속 주소
 - Web: `http://localhost:3000`
 - API Docs: `http://127.0.0.1:8000/docs`
 
-### 4) 변경사항 빠른 검증 명령
+## 로컬에서 자주 쓰는 점검 명령
 ```bash
-# API 마이그레이션(시험 시작 시각 starts_at 포함)
+# API 마이그레이션 최신화
 cd apps/api
 . .venv/Scripts/Activate.ps1
 alembic upgrade head
 
-# web 정적 검사/빌드
+# Web lint/build
 pnpm --dir apps/web lint
 pnpm --dir apps/web build
 
-# 시험 목록(/problems) 카테고리 탭 로컬 확인
+# 문제 목록 카테고리 탭 확인
 pnpm --dir apps/web dev
-# 브라우저에서 http://localhost:3000/problems 접속 후 "전체" 탭 동작 확인
-# 관리자 /admin/problems 또는 /admin/exams에서 객관식 정답 체크박스를 2개 이상 선택해 저장
-# 사용자 /problems/{examId}에서 체크박스(복수 선택) 응시 + 제출 후 결과/관리자 대시보드 반영 확인
+# http://localhost:3000/problems 에서 "전체" 탭 확인
 
-# 로컬 도커 최신 반영(web/api/worker)
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull web api worker
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --no-deps web api worker
+# 객관식 복수 정답 확인
+# 1) /admin/problems 또는 /admin/exams에서 정답 체크박스를 2개 이상 지정
+# 2) /problems/{examId}에서 복수 선택 제출
+# 3) /dashboard 통계/정오 판정 반영 확인
 ```
 
-## Docker 실행/갱신
-로컬 통합 테스트 기준:
+## Docker (로컬)
 ```bash
-# LLM 자동채점 사용 시 infra/.env.localtest의 OPENAI_API_KEY를 먼저 설정
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
-docker build -t qa-lab-grader-python -f grader-images/python/Dockerfile .
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
 ```
 
-web/api만 빠르게 최신 반영:
+`web/api/worker`만 빠르게 갱신할 때:
 ```bash
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull web api worker
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --no-deps web api worker
 docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
 ```
 
-프로덕션 기준:
-```bash
-# LLM 자동채점 사용 시 infra/.env.prod의 OPENAI_API_KEY를 반드시 설정
-bash scripts/deploy_prod.sh --env-file infra/.env.prod
-docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
-```
-
-## 외부 접근 배포(튜터/수강생 접속)
-다른 튜터/수강생이 접속할 수 있도록 `Caddy(HTTPS)` + `web/api/worker/postgres/redis` 구성으로 배포합니다.
+## 운영 배포
 
 사전 준비:
-1. 퍼블릭 서버(고정 IP) 1대 준비
-2. 도메인 DNS `A` 레코드를 서버 IP로 연결 (예: `qa.example.com`)
-3. 방화벽 인바운드 허용: `80/tcp`, `443/tcp`
-4. 서버에 Docker + Docker Compose 설치
+1. `infra/.env.prod` 설정 (`infra/.env.prod.example` 참고)
+2. 필수 값 확인: `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `OPENAI_API_KEY`, `APP_DOMAIN`, `ALLOWED_ORIGINS`
 
-환경 설정:
-1. `infra/.env.prod.example`를 복사해 `infra/.env.prod` 생성
-2. 아래 값 반드시 설정
-   - `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `OPENAI_API_KEY`
-   - `APP_DOMAIN` (예: `qa.example.com`)
-   - `ALLOWED_ORIGINS` (예: `https://qa.example.com`)
-   - `ACME_EMAIL` (인증서 발급용 이메일)
-
-배포 실행:
+배포:
 ```bash
 git fetch --all --prune
 git pull --ff-only origin main
 bash scripts/deploy_prod.sh --env-file infra/.env.prod
+docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml ps
 ```
-참고: `deploy_prod.sh`는 `postgres/redis`를 먼저 기동하고 준비 상태를 확인한 뒤 `api/worker/web/caddy`를 순차 재기동합니다.
 
 배포 후 점검:
 ```bash
 PUBLIC_BASE_URL="https://qa.example.com" bash scripts/ops_healthcheck.sh
 ```
 
-참고:
-- 외부 공개는 `Caddy`(80/443)가 담당합니다.
-- `web(3000)`/`api(8000)`는 `127.0.0.1`에만 바인딩되어 직접 외부 노출되지 않습니다.
-- 코딩 자동채점용 `GRADER_IMAGE`는 배포 스크립트에서 자동 빌드됩니다.
+## GitHub Actions
+- CI: `.github/workflows/ci.yml`
+- 배포: `.github/workflows/deploy-prod.yml` (`main` push 시 자동)
 
-## Git 최신화
-```bash
-git fetch --all --prune
-git pull --ff-only origin main
-```
-
-## GitHub Actions CI/CD
-이 저장소는 GitHub Actions로 `CI`와 `배포`를 자동 실행합니다(`main` push 기준).
-
-- `CI` (`.github/workflows/ci.yml`)
-  - 트리거: `push`, `pull_request`
-  - 수행: API 문법 검사, API/worker 기동 스모크, 웹 lint/build, 통합 점검(`scripts/full_system_check.mjs`)
-
-- `Deploy Production` (`.github/workflows/deploy-prod.yml`)
-  - 활성화 상태 (`main` push 시 자동 실행 + 수동 실행 가능)
-  - 동작: 운영 서버 SSH 접속 -> `git pull` -> `bash scripts/deploy_prod.sh --env-file infra/.env.prod` -> `ops_healthcheck`
-  - 안정장치: 배포/헬스체크 실패 시 직전 커밋으로 자동 롤백 시도 후 워크플로우 실패 알림
-
-- `Ops Backup` (`.github/workflows/ops-backup.yml`)
-  - 현재 비활성화 상태 (`if: false`, 스케줄 실행 없음)
-
-- `Ops Restore Drill` (`.github/workflows/ops-restore-drill.yml`)
-  - 현재 비활성화 상태 (`if: false`, 스케줄 실행 없음)
-
-배포 워크플로우 실행 전 GitHub `Secrets` 또는 `Variables`를 설정하세요.
-- 필수: `PROD_SSH_KEY` (개인키, 멀티라인 그대로)
-- 호환 키 이름도 지원: `SSH_PRIVATE_KEY`, `EC2_SSH_KEY`
-- 선택: `PROD_HOST`(없으면 `PROD_PUBLIC_URL`에서 추론), `PROD_PORT`(기본 22), `PROD_USER`(기본 `ubuntu`), `PROD_APP_DIR`(기본 `/home/ubuntu/qa-lab`), `PROD_PUBLIC_URL`(기본 `https://spartaqa.com`)
-
-### 로컬 개발 후 운영 반영 루틴
-권장(CI 검증 + 자동 배포):
-1. 로컬에서 개발/테스트 완료
-2. `git add -A && git commit -m "..." && git push origin main`
-3. GitHub Actions `CI`/`Deploy Production` 실행 확인
-4. 배포 후 `https://spartaqa.com` 접속 확인
-
-필요 시 GitHub Actions에서 `Deploy Production`을 수동 실행하거나 서버에서 직접 수동 배포도 가능합니다.
-
-수동(서버에서 직접):
-```bash
-git fetch --all --prune
-git pull --ff-only origin main
-bash scripts/deploy_prod.sh --env-file infra/.env.prod
-PUBLIC_BASE_URL="https://spartaqa.com" bash scripts/ops_healthcheck.sh
-```
+배포 워크플로우용 필수 시크릿:
+- `PROD_SSH_KEY` (또는 `SSH_PRIVATE_KEY`, `EC2_SSH_KEY`)
 
 ## 기본 계정
 - 관리자: `admin` / `admin1234`
 - 사용자: `user` / `user1234`
-- 로그인 화면은 기본 아이디/비밀번호 자동 입력이 없으며, `자동 로그인` 체크 시에만 장기 세션(remember me)이 적용됩니다.
-
-## 비밀번호 재설정
-- `/forgot-password`에서 아이디로 재설정 토큰을 발급받고, `/reset-password`에서 새 비밀번호로 변경합니다.
-- 현재는 이메일 발송 연동 대신 화면에 재설정 토큰을 직접 표시합니다.
-- 재설정이 성공하면 로그인 화면(`/login`)으로 자동 이동합니다.
 
 ## 주요 페이지
 - 사용자 시험 목록: `/problems`
 - 사용자 시험 응시: `/problems/{examId}`
 - 사용자 제출 이력: `/submissions`
+- 사용자 결과 대시보드: `/dashboard`
 - 관리자 허브: `/admin`
-- 관리자 시험지 관리: `/admin/problems`
-- 관리자 시험 목록 관리: `/admin/exams`
-- 관리자 시험 대시보드: `/dashboard`
-- 관리자 자동채점: `/admin/grading`
-- 관리자 사용자 관리: `/admin/users`
+- 관리자 시험 생성: `/admin/problems`
+- 관리자 시험 목록/재출제: `/admin/exams`
+- 관리자 채점 관리: `/admin/grading`
 - 관리자 감사 로그: `/admin/audit-logs`
 
-## 관리자 제출 확인 명령(배포 점검)
-```bash
-API_BASE_URL="http://127.0.0.1:8000"
-
-# 1) 로그인 토큰 발급
-TOKEN=$(curl -sS -X POST "${API_BASE_URL}/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin1234"}' | jq -r '.access_token')
-
-# 2) 시험별 제출 목록 확인 (관리자 대시보드 데이터 소스)
-curl -sS "${API_BASE_URL}/admin/exams/{examId}/submissions" \
-  -H "Authorization: Bearer ${TOKEN}" | jq
-
-# 3) 자동채점 관리 목록 확인
-curl -sS "${API_BASE_URL}/admin/grading/exam-submissions?coding_only=false&limit=200" \
-  -H "Authorization: Bearer ${TOKEN}" | jq
-```
-
-## 관리자 사용자 삭제 정책
-- 관리자 계정은 관리자 사용자 관리 페이지에서 삭제할 수 없습니다.
-- 삭제 가능한 대상은 수강생(`role=user`) 계정만입니다.
-
-## 시험 시간/제출 UX
-- 시험 생성/수정 시 `duration_minutes`(1~1440분)를 설정할 수 있습니다.
-- 시험 생성/수정/재출판 시 `starts_at`(시험 시작 일시, timezone 포함 datetime)을 설정할 수 있습니다.
-- 수강생은 `starts_at` 이전에는 해당 시험이 `/problems` 목록에 보이지 않으며, 상세/리소스/제출 접근도 차단됩니다.
-- 관리자 시험 생성/수정 화면에서 `시간 제한 없음` 체크 시 `duration_minutes=null`로 저장됩니다.
-- 시간 제한이 없는 시험은 사용자 시험 화면에서 시험 시간 배지가 표시되지 않습니다.
-- 관리자 시험 생성 시 `시험 생성` 버튼을 누르면 확인 모달(`시험을 생성하시겠습니까?`)이 먼저 표시됩니다.
-- 응시자가 시험 페이지에 진입하면 서버 기준으로 응시 시작 시각이 기록되고, 남은 시간이 내려갑니다.
-- 브라우저를 닫았다가 다시 열어도 타이머는 계속 흐릅니다.
-- 제출 버튼 클릭 시 확인 모달(`시험지를 제출하시겠습니까?`)이 표시되고, 확인 버튼으로 바로 이동할 수 있도록 스크롤/포커스가 맞춰집니다.
-- 제출 후 재응시는 차단되며 `/problems` 시험 목록으로 자동 이동합니다.
-- 제출된 시험은 목록에서 즉시 `제출 완료`/`응답 보기` 상태로 표시되고, `응답 보기`로 문항별 답안/정답 기준을 확인할 수 있습니다.
-- 시험 설명/문항 본문은 개행과 코드 블록(```` fenced code ````) 렌더링을 지원합니다.
+## 기능 메모
+- 객관식은 단일/복수 정답 모두 지원합니다.
+- 제출 후 재응시는 불가하며, 제출 답안 조회가 가능합니다.
+- 시험 시작 시각(`starts_at`)과 제한 시간(`duration_minutes`)을 설정할 수 있습니다.
+- 관리자 결과 공유 전에는 사용자 점수가 공개되지 않습니다.
 - 문항별 이미지 업로드를 지원합니다.
-  - 관리자 시험 생성 화면에서 각 문항 카드별로 이미지 파일을 여러 개 업로드할 수 있습니다.
-  - 이미지 선택 후 문항 미리보기에서 텍스트와 이미지가 함께 표시됩니다.
-  - 선택된 이미지 썸네일에 마우스를 올리면 우측 상단 `x` 버튼으로 개별 취소할 수 있습니다.
-  - 시험 생성 실패 사유(유효성/서버 오류)는 화면 최상단 에러 박스에 표시되고 자동 스크롤됩니다.
-  - 관리자 시험 재출판 화면에서 각 문항 카드의 `문항 이미지` 파일 입력으로 이미지 연결
-  - 사용자 시험 화면(`/problems/{examId}`)에서 문항 이미지 + 텍스트가 함께 렌더링
-- 제출 시각/채점 시각 표시는 `Asia/Seoul`(KST) 기준으로 통일됩니다.
-- API:
-  - `GET /exams` (요약 필드에 `starts_at` 포함)
-  - `GET /exams/{exam_id}` (타이머 필드 포함: `duration_minutes`, `remaining_seconds`, `starts_at`)
-  - `POST /exams/{exam_id}/submit`
-  - `GET /exams/{exam_id}/my-submission`
-  - `POST /admin/exams`, `PUT /admin/exams/{exam_id}`, `POST /admin/exams/{exam_id}/republish` (`starts_at` 입력 지원)
-  - `PUT /admin/exams/{exam_id}/questions/{question_id}/image` (문항 대표 이미지 1개 연결/해제, 하위호환)
-  - `PUT /admin/exams/{exam_id}/questions/{question_id}/images` (문항 이미지 다중 연결/교체)
 
-## 시험 결과 공유(관리자)
-- 관리자는 `/admin/exams`에서 시험별 `유저 공유` 버튼으로 결과 공개를 토글할 수 있습니다.
-- 결과가 공개되기 전에는 사용자 대시보드(`/dashboard`)에 점수가 표시되지 않습니다.
-- API:
-  - `POST /admin/exams/{exam_id}/results/share` with `{ "published": true|false }`
+## 자동채점 메모
+- 주관식/코딩은 문항의 `answer_key_text`를 기준으로 자동 채점됩니다.
+- `OPENAI_API_KEY`가 없거나 호출 실패 시 폴백 채점이 동작합니다.
+- 검토가 필요한 응답은 관리자 화면에서 필터링해 후속 처리할 수 있습니다.
 
-## 관리자 대시보드 CSV/엑셀 내보내기
-경로: `/dashboard` (admin 로그인)
-
-다운로드 컬럼 형식:
-- 행: 응시 수강생 이름
-- 열: 문제 번호(예: `1번`, `2번`, ...)
-- 값: 정답 `1`, 오답 `0`
-- 학생별 우측 컬럼: `합계`, `정답률(%)`
-- 하단 요약 행:
-  - `합계`: 문제별 정답자 수
-  - `정답률(%)`: 문제별 정답률
-  - `전체 평균 점수(100점)`: 전체 응시자 평균 점수
-
-## 자동채점(주관식/코딩) 규칙
-- 객관식은 정답 인덱스 목록(`correct_choice_indexes`)과 제출 인덱스 목록(`selected_choice_indexes`)이 완전히 일치할 때 정답으로 채점됩니다.
-- 주관식/코딩은 문항의 `정답/채점 기준(answer_key_text)`을 기준으로 LLM이 0~100점 자동채점합니다.
-- 주관식/코딩 자동채점은 제출 즉시 시작되지 않으며, 관리자 `/admin/grading`에서 `자동 채점 시작!` 승인 후 순차 실행됩니다.
-- `answer_key_text`가 비어 있으면 자동채점 대상에서 제외되고 수동 채점이 필요합니다.
-- LLM 자동채점을 사용하려면 `OPENAI_API_KEY`가 설정되어야 합니다.
-- LLM 채점 버전 고정:
-  - `EXAM_LLM_MODEL` (기본 `gpt-4.1-mini`)
-  - `EXAM_LLM_PROMPT_VERSION` (기본 `exam_answer_key_prompt_v2_2026-02-22`)
-  - `EXAM_LLM_SCHEMA_VERSION` (기본 `exam_grading_schema_v2`)
-- 채점 근거 구조화:
-  - `rationale.summary`, `matched_points`, `missing_points`, `deductions`, `confidence`를 저장합니다.
-- LLM 호출이 실패(예: 429 quota, timeout)하면 자동으로 `answer_key_fallback_v2` 폴백 채점이 수행되어 채점이 중단되지 않습니다.
-- quota(429) 등 폴백 시 `fallback_used`, `fallback_reason_code`, `fallback_notice`, `provider_error_redacted` 메타가 저장되어 친화적으로 사유를 확인할 수 있습니다.
-- 모델 미지원/쿼터 부족 상황에서도 폴백 채점으로 서비스는 계속 동작합니다.
-- 주관식/코딩 자동채점 결과가 경계 구간이면 `needs_review=true`, `verdict=AMBIGUOUS`로 저장됩니다.
-- 관리자 `/dashboard`, `/admin/grading`에서 `검토 필요` 배지와 `검토 필요만 보기` 필터로 대상만 빠르게 확인할 수 있습니다.
-- `검토 필요`가 남아 있는 제출/시험은 결과 공유가 차단되며, 수동 채점으로 확정하면 공유할 수 있습니다.
-- 리소스 파일 업로드 최대 용량은 파일당 500MB입니다.
-- 500MB를 초과하는 자료는 Google Drive 링크를 시험 설명/문항에 함께 첨부하는 방식을 권장합니다.
-
-## 이의제기 재채점 플로우
-- 관리자 `/dashboard`의 학생별 제출 상세에서 주관식/코딩 문항마다 `이의제기 재채점 요청`을 등록할 수 있습니다.
-- 재채점 요청 시 해당 제출은 `QUEUED`로 전환되고 자동 채점 큐에 등록됩니다.
-- 재채점 결과에는 모델/프롬프트/스키마 버전이 함께 남아 재현 가능한 비교가 가능합니다.
-
-## 자동채점 정답 키 입력
-- 관리자 시험 생성/재출판 화면에서 주관식 문항에 정답 키 텍스트를 입력할 수 있습니다.
-- 문항 카드의 `정답/채점 기준` 버튼으로 큰 모달 입력창을 열어 문항별 정답을 길게 입력할 수 있습니다.
-- 객관식은 해당 섹션의 체크박스로 정답 번호를 1개 이상 지정합니다(복수 정답 지원).
-- 문항 유형을 `subjective` 또는 `coding`으로 바꾸면 텍스트 기반 정답/채점 기준 입력 칸이 표시됩니다.
-- 주관식/코딩은 LLM이 정답 키 대비 의미/로직 일치도를 평가해 0~100점으로 채점합니다.
-- 객관식은 정답 번호 목록(`correct_choice_indexes`) 기준으로 채점됩니다.
-- 비개발자 튜터 UX:
-  - 코딩 정답 템플릿(입출력 예시 기반) 버튼 제공
-  - `채점기준 도우미` 버튼으로 문항별 채점 기준 초안 자동 생성
-  - 시험지 관리 화면에 문제-정답 작성 가이드 내장
-
-## 백업/복구 운영
-수동 실행:
+## 운영/점검 스크립트
 ```bash
-# 백업 생성
-bash scripts/backup_prod.sh --env-file infra/.env.prod --output-dir backups
-
-# 백업 보관 정책(최신 14개만 유지)
-bash scripts/prune_backups.sh --backup-root backups --keep-last 14
-
-# 복구 리허설(임시 Postgres 컨테이너에 복구 검증)
-bash scripts/backup_restore_drill.sh --env-file infra/.env.prod --output-dir backups
-```
-
-서버 크론 설치(선택):
-```bash
-bash scripts/install_backup_schedule.sh --app-dir "$(pwd)" --env-file infra/.env.prod --backup-root backups --keep-last 14
-```
-
-## 관리자 계정 추가
-- 기본 추가 관리자 계정: `admin_test` / `test1234`
-- 해당 계정은 마이그레이션 `0018_admin_audit_immutability_and_seed_admin_test`에서 생성/보정됩니다.
-
-## 감사 로그/권한 이력
-- 저장 위치: PostgreSQL `admin_audit_logs` 테이블
-- 조회 경로:
-  - API: `GET /admin/audit-logs`
-  - UI: `/admin/audit-logs`
-- 불변성: `admin_audit_logs`는 DB 트리거로 `UPDATE/DELETE`가 차단된 append-only 이력입니다.
-- 포함 액션 예시:
-  - 시험 수정/삭제/재발행
-  - 수동 채점/이의제기 재채점
-  - 사용자 삭제
-
-## 시험 리소스 보관 정책
-- 시험 리소스 파일은 기본 `7일` 보관 후 자동 정리됩니다.
-- 설정:
-  - `EXAM_RESOURCE_RETENTION_DAYS` (기본 `7`)
-  - `EXAM_RESOURCE_RETENTION_BATCH_LIMIT` (기본 `500`)
-- 관리자 수동 정리 API:
-  - `POST /admin/exam-resources/prune?retention_days=7`
-
-## 관리자 수동 채점
-- 경로: `/dashboard` (admin 로그인)
-- `학생별 제출 상세`에서 수강생의 문항별 제출 답안, 정답/오답/미채점 상태를 확인할 수 있습니다.
-- 주관식/코딩 문항에는 `수동 채점` 영역이 제공됩니다.
-  - 점수 직접 입력(`0~100`) 후 `점수 저장`
-  - 빠른 처리: `정답 처리(100)`, `오답 처리(0)`
-  - 메모 입력 후 저장 가능
-
-## 관리자/사용자 대시보드 UX
-- 관리자 `/admin/grading` 자동 채점 대상 목록의 액션에 `대시보드 이동` 버튼이 있어, 선택된 시험/학생 기준으로 `/dashboard`로 바로 이동할 수 있습니다.
-- 사용자 `/dashboard` 시험 결과 카드에서 객관식/주관식/코딩/전체 문항의 `정답 수 / 전체 수`를 확인할 수 있습니다.
-- 사용자 `/dashboard`에 문항별 정답 여부(정답/오답/미채점/검토 필요)가 표시됩니다.
-- 사용자 `/dashboard`에 해당 시험 기준 `강한 영역` / `보완이 필요한 영역` 키워드가 표시됩니다.
-- 사용자 `/dashboard`의 `최근 코딩 제출 10건` 섹션은 제거되었습니다.
-
-## 검증 명령
-```powershell
-# DB 스키마 최신화
-cd apps/api
-alembic upgrade head
-
-# 웹 타입/린트/빌드 확인
-cd ../..
-pnpm.cmd --filter web lint
-pnpm.cmd --filter web build
-
-# 웹 E2E 회귀 (텍스트 깨짐/핵심 버튼 플로우)
-# 기본: Next dev 3100, API 127.0.0.1:8000
-pnpm.cmd --dir apps/web test:e2e
-
-# API 문법 컴파일 점검 (Docker 실행 기준)
-docker exec infra-api-1 python -m compileall /app
-
-$env:API_BASE_URL="http://127.0.0.1:8000"
-$env:VIRTUAL_USERS="12"
+# 통합 점검
 node scripts/full_system_check.mjs
-# 참고: CI처럼 LLM 키가 없으면 fallback 채점이 동작하며, 이 경우 코딩 점수가 전원 100이어도 통합 점검은 PASS 처리됩니다.
 
-# 검토 필요(애매 판정) -> 공유 차단 -> 수동 확정 -> 공유 허용 플로우 점검
-$env:API_BASE_URL="http://127.0.0.1:8000"
+# 검토 필요 -> 수동 확정 플로우 점검
 node scripts/review_pending_flow_check.mjs
 
-bash scripts/smoke_grader.sh
+# 백업
+bash scripts/backup_prod.sh --env-file infra/.env.prod --output-dir backups
 ```
 
-## 비개발자 튜터 시나리오 30명 자동 시뮬레이션
-튜터가 테스트 코드를 직접 작성하지 않고 `정답/채점 기준(answer_key_text)`만 입력한다는 가정으로 시험 생성 + 30명 가상 응시 + 자동채점/강제 재채점을 수행합니다.
-첨부 파일(문제 PDF/모범답안 ipynb/데이터셋 zip)을 시험 리소스로 업로드합니다.
-
-```powershell
-# 1) 기존 테스트 기록 정리
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml exec -T postgres `
-  psql -U qa_lab -d qa_lab -c `
-  "BEGIN; DELETE FROM grade_runs; DELETE FROM grades; DELETE FROM submissions; DELETE FROM exam_answers; DELETE FROM exam_submissions; DELETE FROM exam_resources; DELETE FROM exam_questions; DELETE FROM exams; DELETE FROM problem_version_skills; DELETE FROM rubric_histories; DELETE FROM problem_versions; DELETE FROM problems; DELETE FROM users WHERE role <> 'admin'; COMMIT;"
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml exec -T redis redis-cli FLUSHALL
-
-# 2) 시험 생성 + 30명 시뮬레이션 실행
-$env:API_BASE_URL="http://127.0.0.1:8000"
-$env:VIRTUAL_USERS="30"
-$env:DATASET_ZIP_PATH="C:/Users/tlsdy/Downloads/seoul_real_estate_dataset.zip"
-$env:ASSIGNMENT_PDF_PATH="C:/Users/tlsdy/Downloads/개인 과제.pdf"
-$env:ANSWER_NOTEBOOK_PATH="C:/Users/tlsdy/Downloads/베이직반_과제_모범답안.ipynb"
-node scripts/nondev_tutor_exam_simulation.mjs
+## 문서 열기
+```bash
+start docs/system-architecture.md
+start docs/user-admin-guide.md
 ```
-
-스크립트 성공 시 JSON으로 아래를 출력합니다.
-- 생성된 시험 ID/문항 수/업로드 리소스 ID
-- 제출/채점 상태 요약
-- 점수대(구간) 분포
-- 코딩 문항별 최소/최대/평균/고유 점수
-- 샘플 채점 사유(reason) 및 강제 재채점 완료 여부
-
-## 수동 QA 점검 흐름
-1. `http://localhost:3000` 접속 후 `admin`, `user` 계정으로 각각 로그인합니다.
-2. 관리자 `시험지 관리`/`시험 목록 관리`에서 문항 카드의 `정답/채점 기준` 영역(객관식 정답 체크박스, 주관식 정답 키 입력)을 확인합니다.
-3. 관리자 `대시보드`에서 시험 선택 후 `학생별 제출 상세`의 문항별 정답/오답 표시와 `수동 채점` 동작(점수 저장, 정답/오답 빠른 처리)을 확인합니다.
-4. 관리자 `대시보드`에서 `CSV 다운로드`, `엑셀(.xls) 다운로드`를 실행합니다.
-5. 파일에서 문제별 `1/0`, 하단 `합계/정답률`, `전체 평균 점수(100점)`을 확인합니다.
-6. 사용자/관리자 화면 공통 텍스트와 헤더 컬러 통일 상태를 확인합니다.
-7. 비밀번호 재설정 화면에서 하단 `/login` 복귀 문구 제거 여부를 확인합니다.
-8. 관리자 시험 생성/재출판에서 문항 카드의 `문항 이미지`에 파일을 지정하고 사용자 `/problems/{examId}` 화면에서 이미지+텍스트가 함께 렌더링되는지 확인합니다.
