@@ -168,3 +168,31 @@ pnpm --dir apps/web dev
 # - Refresh/reconnect and verify answers are restored
 # - Verify exam timer keeps decreasing after draft save
 ```
+
+## Exam Appeal Flow (Local)
+```bash
+# 1) Run local servers
+cd apps/api
+. .venv/Scripts/Activate.ps1
+fastapi dev main.py
+
+# 2) Run web
+pnpm --dir apps/web dev
+
+# 3) Manual check
+# - Student: /dashboard -> per-question "정정 신청" 버튼으로 사유 전송
+# - Admin: /admin/appeals -> 시험/학생 필터로 신청 확인
+# - Admin: "재채점 요청" 또는 "완료 처리" 후 결과 공유
+# - Student: /dashboard 새로고침 후 정정 상태/결과 반영 확인
+```
+
+## Objective Manual Correction (Local)
+```bash
+# 1) Rebuild local docker services
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --build api web worker
+
+# 2) Manual check
+# - Admin: /admin/grading 상세에서 객관식 문항에도 "정답 처리/오답 처리" 버튼 노출 확인
+# - Admin: 객관식 정정 처리 후 상태 배지와 점수 반영 확인
+# - Student: /dashboard 결과에서 객관식 판정/집계가 정정 결과 기준으로 반영되는지 확인
+```

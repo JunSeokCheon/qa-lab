@@ -378,6 +378,11 @@ class MeExamQuestionResult(BaseModel):
     prompt_preview: str
     verdict: str
     skill_keywords: list[str] = Field(default_factory=list)
+    appeal_pending: bool = False
+    appeal_count: int = 0
+    latest_appeal_reason: str | None = None
+    latest_appeal_requested_at: datetime | None = None
+    latest_appeal_requested_by_user_id: int | None = None
 
 
 class MeExamResultSummary(BaseModel):
@@ -416,6 +421,21 @@ class MeExamResultSummary(BaseModel):
     strong_skill_keywords: list[str] = Field(default_factory=list)
     weak_skill_keywords: list[str] = Field(default_factory=list)
     question_results: list[MeExamQuestionResult] = Field(default_factory=list)
+
+
+class MeExamAppealRequest(BaseModel):
+    question_id: int
+    reason: str | None = None
+
+
+class MeExamAppealResponse(BaseModel):
+    submission_id: int
+    exam_id: int
+    question_id: int
+    appeal_pending: bool
+    appeal_count: int
+    requested_at: datetime
+    message: str
 
 
 class AdminExamResultPublishRequest(BaseModel):
@@ -515,6 +535,44 @@ class AdminAppealRegradeResponse(BaseModel):
     exam_id: int
     question_id: int
     queued: bool
+    status: str
+    message: str
+
+
+class AdminAppealSummary(BaseModel):
+    submission_id: int
+    exam_id: int
+    exam_title: str
+    user_id: int
+    user_name: str
+    username: str
+    question_id: int
+    question_order: int
+    question_type: str
+    prompt_preview: str
+    grading_status: str | None = None
+    grading_score: int | None = None
+    grading_max_score: int | None = None
+    verdict: str
+    appeal_pending: bool
+    appeal_count: int
+    latest_appeal_reason: str | None = None
+    latest_appeal_requested_at: datetime | None = None
+    latest_appeal_requested_by_user_id: int | None = None
+    results_published: bool
+    results_published_at: datetime | None = None
+
+
+class AdminAppealResolveRequest(BaseModel):
+    resolved: bool = True
+    note: str | None = None
+
+
+class AdminAppealResolveResponse(BaseModel):
+    submission_id: int
+    exam_id: int
+    question_id: int
+    appeal_pending: bool
     status: str
     message: str
 

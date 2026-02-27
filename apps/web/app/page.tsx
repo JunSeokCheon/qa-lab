@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { cookies } from "next/headers";
 
 import { LogoutButton } from "@/components/logout-button";
@@ -20,34 +20,36 @@ export default async function HomePage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
   const me = token ? await fetchMeWithToken(token) : null;
+
   const spotlightLinks: SpotlightLink[] = [
     {
       title: "내일배움캠프",
-      description: "AI 시대를 돌파할 취업 솔루션과 교육 트랙을 확인해 보세요.",
+      description: "AI 시대를 돌파할 취업 로드맵과 교육 트랙을 확인해 보세요.",
       href: "https://nbcamp.spartacodingclub.kr",
     },
     {
-      title: "팀스파르타 채용",
-      description: "운영/교육팀 채용 및 튜터 모집 소식을 확인할 수 있습니다.",
+      title: "스파르타 채용",
+      description: "운영/교육팀 채용 및 센터 모집 소식을 확인할 수 있습니다.",
       href: "https://career.spartaclub.kr/ko/home",
     },
     {
-      title: "팀 블로그",
-      description: "내배캠/교육 운영 관련 인사이트를 빠르게 확인할 수 있습니다.",
+      title: "스파르타 블로그",
+      description: "부트캠프 교육 운영과 인사이트를 빠르게 확인할 수 있습니다.",
       href: "https://blog.career.spartaclub.kr/",
     },
   ];
+
   const unauthHighlights: UnauthHighlight[] = [
     {
-      title: "튜터 운영 관점",
-      description: "시험지 생성, 자동 채점 승인, 학생별 제출 상세까지 한 화면 흐름으로 관리합니다.",
+      title: "센터 운영 관리",
+      description: "시험지 생성, 자동 채점 확인, 학생별 제출 상세까지 한 화면 흐름으로 관리합니다.",
     },
     {
-      title: "수강생 학습 관점",
-      description: "문항별 정오답과 코멘트를 빠르게 확인하고, 다시 학습할 근거를 남깁니다.",
+      title: "수강생 학습 관리",
+      description: "문항별 오답과 코멘트를 빠르게 확인하고, 다음 학습의 근거를 확보합니다.",
     },
     {
-      title: "내배캠 운영 기준",
+      title: "부트캠프 운영 기준",
       description: "트랙 기반 시험 운영, 관리자 승인형 자동 채점, 수동 채점 보정까지 지원합니다.",
     },
   ];
@@ -70,7 +72,7 @@ export default async function HomePage() {
     <div className="min-h-screen">
       <main className="qa-shell space-y-6">
         <section className="qa-card bg-hero text-hero-foreground">
-          <p className="qa-kicker text-hero-foreground/80">팀스파르타 내배캠 SpartaExam Studio</p>
+          <p className="qa-kicker text-hero-foreground/80">스파르타코딩클럽 SpartaExam Studio</p>
           <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">SpartaExam Studio</h1>
         </section>
 
@@ -94,6 +96,9 @@ export default async function HomePage() {
                     <>
                       <Link href="/admin/grading">
                         <Button variant="outline">자동채점 관리</Button>
+                      </Link>
+                      <Link href="/admin/appeals">
+                        <Button variant="outline">정정 신청 관리</Button>
                       </Link>
                       <Link href="/admin/problems">
                         <Button variant="outline">시험지 관리</Button>
@@ -128,10 +133,10 @@ export default async function HomePage() {
 
             <section className="qa-card">
               <div>
-                <p className="qa-kicker">팀스파르타 내배캠</p>
+                <p className="qa-kicker">스파르타코딩클럽</p>
                 <h2 className="mt-2 text-2xl font-bold">추천 바로가기</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  내배캠/팀스파르타 공식 채널로 빠르게 이동할 수 있습니다.
+                  부트캠프 및 스파르타 공식 채널로 빠르게 이동할 수 있습니다.
                 </p>
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-3">{renderSpotlightCards()}</div>
@@ -140,10 +145,10 @@ export default async function HomePage() {
         ) : (
           <>
             <section className="qa-card">
-              <p className="qa-kicker">팀스파르타 | 내일배움캠프</p>
+              <p className="qa-kicker">스파르타 | 내일배움캠프</p>
               <h2 className="mt-2 text-2xl font-bold">수업 운영에 맞춘 시험/채점 대시보드</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                로그인 후 수강생은 시험 응시, 튜터는 시험 생성부터 자동 채점 승인, 학생별 제출 상세 확인까지 바로 시작할 수 있습니다.
+                로그인 후 수강생은 시험 응시를, 튜터는 시험 생성부터 자동 채점과 학생 제출 상세 확인까지 바로 시작할 수 있습니다.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Link href="/login">
@@ -157,7 +162,7 @@ export default async function HomePage() {
 
             <section className="qa-card">
               <p className="qa-kicker">서비스 핵심</p>
-              <h2 className="mt-2 text-2xl font-bold">SpartaExam Studio에서 할 수 있는 일</h2>
+              <h2 className="mt-2 text-2xl font-bold">SpartaExam Studio에서 가능한 것</h2>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 {unauthHighlights.map((item) => (
                   <article key={item.title} className="rounded-2xl border border-border/70 bg-surface p-4">
@@ -169,7 +174,7 @@ export default async function HomePage() {
             </section>
 
             <section className="qa-card">
-              <p className="qa-kicker">팀스파르타 내배캠</p>
+              <p className="qa-kicker">스파르타코딩클럽</p>
               <h2 className="mt-2 text-2xl font-bold">추천 바로가기</h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 운영 공지, 채용, 캠프 정보를 빠르게 확인할 수 있습니다.

@@ -200,7 +200,23 @@ function collectNonObjectiveAnswers(rows: ExamSubmission[]): NonObjectiveAnswerI
   return items;
 }
 
+function extractManualOverrideIsCorrect(answer: ExamSubmissionAnswer): boolean | null {
+  const feedback = answer.grading_feedback_json;
+  if (!feedback || typeof feedback !== "object") return null;
+  const source = feedback.source;
+  if (source !== "manual") return null;
+  if (typeof feedback.is_correct === "boolean") return feedback.is_correct;
+  return null;
+}
+
 function resolveAnswerVerdict(answer: ExamSubmissionAnswer): AnswerVerdict {
+  const manualOverride = extractManualOverrideIsCorrect(answer);
+  if (manualOverride !== null) {
+    return manualOverride
+      ? { label: "\uC815\uB2F5", className: "bg-emerald-100 text-emerald-800" }
+      : { label: "\uC624\uB2F5", className: "bg-rose-100 text-rose-800" };
+  }
+
   if (isObjectiveAnswer(answer)) {
     const selectedChoiceIndexes = extractSelectedChoiceIndexes(answer);
     const correctChoiceIndexes = extractCorrectChoiceIndexes(answer);
@@ -233,6 +249,9 @@ type ExportCell = string | number | null | undefined;
 type ExportRow = Record<string, ExportCell>;
 
 function isFullyCorrect(answer: ExamSubmissionAnswer): boolean {
+  const manualOverride = extractManualOverrideIsCorrect(answer);
+  if (manualOverride !== null) return manualOverride;
+
   if (isObjectiveAnswer(answer)) {
     const selectedChoiceIndexes = extractSelectedChoiceIndexes(answer);
     const correctChoiceIndexes = extractCorrectChoiceIndexes(answer);
@@ -632,6 +651,9 @@ export function AdminExamDashboard({
     return allQuestionOptions.find((item) => item.questionId === questionId) ?? null;
   }, [allQuestionOptions, questionFilter]);
 
+  const needsReviewFilterActive =
+    needsReviewOnly && !(selectedQuestionOption && selectedQuestionOption.questionType === "multiple_choice");
+
   const filteredSubmissions = useMemo(() => {
     const keyword = studentSearchKeyword.trim().toLocaleLowerCase("ko");
     return submissions.filter((row) => {
@@ -640,7 +662,10 @@ export function AdminExamDashboard({
         questionFilter === "all"
           ? row.answers
           : row.answers.filter((answer) => answer.question_id === Number(questionFilter));
-      if (needsReviewOnly && !visibleAnswers.some((answer) => isNonObjectiveAnswer(answer) && feedbackNeedsReview(answer))) {
+      if (
+        needsReviewFilterActive &&
+        !visibleAnswers.some((answer) => isNonObjectiveAnswer(answer) && feedbackNeedsReview(answer))
+      ) {
         return false;
       }
       if (!keyword) return true;
@@ -649,7 +674,7 @@ export function AdminExamDashboard({
         row.username.toLocaleLowerCase("ko").includes(keyword)
       );
     });
-  }, [needsReviewOnly, questionFilter, studentFilter, studentSearchKeyword, submissions]);
+  }, [needsReviewFilterActive, questionFilter, studentFilter, studentSearchKeyword, submissions]);
 
   const totalQuestionCount = useMemo(() => {
     if (selectedExam?.question_count && selectedExam.question_count > 0) {
@@ -1018,7 +1043,7 @@ export function AdminExamDashboard({
           </div>
           <p className="text-xs text-muted-foreground">
             응시자 수: {submissions.length}명
-            {studentFilter !== "all" || studentSearchKeyword.trim().length > 0 || needsReviewOnly
+            {studentFilter !== "all" || studentSearchKeyword.trim().length > 0 || needsReviewFilterActive
               ? ` | 필터 적용: ${filteredSubmissions.length}명`
               : ""}
           </p>
@@ -1130,12 +1155,13 @@ export function AdminExamDashboard({
                   {submission.answers
                     .filter((answer) => (questionFilter === "all" ? true : answer.question_id === Number(questionFilter)))
                     .filter((answer) =>
-                      needsReviewOnly ? isNonObjectiveAnswer(answer) && feedbackNeedsReview(answer) : true
+                      needsReviewFilterActive ? isNonObjectiveAnswer(answer) && feedbackNeedsReview(answer) : true
                     )
                     .map((answer) => {
                       const key = manualGradeKey(submission.submission_id, answer.question_id);
                       const verdict = resolveAnswerVerdict(answer);
-                      const isManualTarget = answer.question_type !== "multiple_choice";
+                      const isManualTarget = true;
+                      const isAppealRegradeTarget = answer.question_type !== "multiple_choice";
                       const isManualRunning = manualRunningKeys.has(key);
                       const isAppealRunning = appealRunningKeys.has(key);
 
@@ -1256,41 +1282,43 @@ export function AdminExamDashboard({
                                 disabled={isManualRunning}
                               />
 
-                              <div className="mt-3 rounded-md border border-border/70 bg-surface-muted p-2">
-                                <p className="text-[11px] font-semibold">이의제기 재채점</p>
-                                <Textarea
-                                  className="mt-1 min-h-14"
-                                  placeholder="재채점 요청 사유(선택)"
-                                  value={appealReasonByKey[key] ?? ""}
-                                  onChange={(event) =>
-                                    setAppealReasonByKey((prev) => ({
-                                      ...prev,
-                                      [key]: event.target.value,
-                                    }))
-                                  }
-                                  disabled={isManualRunning || isAppealRunning}
-                                />
-                                <div className="mt-2 flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-8 px-2 text-xs"
-                                    onClick={() =>
-                                      void submitAppealRegrade(
-                                        submission.submission_id,
-                                        answer.question_id,
-                                        appealReasonByKey[key] ?? null
-                                      )
+                              {isAppealRegradeTarget ? (
+                                <div className="mt-3 rounded-md border border-border/70 bg-surface-muted p-2">
+                                  <p className="text-[11px] font-semibold">이의제기 재채점</p>
+                                  <Textarea
+                                    className="mt-1 min-h-14"
+                                    placeholder="재채점 요청 사유(선택)"
+                                    value={appealReasonByKey[key] ?? ""}
+                                    onChange={(event) =>
+                                      setAppealReasonByKey((prev) => ({
+                                        ...prev,
+                                        [key]: event.target.value,
+                                      }))
                                     }
                                     disabled={isManualRunning || isAppealRunning}
-                                  >
-                                    {isAppealRunning ? "재채점 등록 중..." : "이의제기 재채점 요청"}
-                                  </Button>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    해당 문항만 즉시 재채점하며, 이의제기는 다른 모델을 사용해서 처리합니다.
-                                  </p>
+                                  />
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 px-2 text-xs"
+                                      onClick={() =>
+                                        void submitAppealRegrade(
+                                          submission.submission_id,
+                                          answer.question_id,
+                                          appealReasonByKey[key] ?? null
+                                        )
+                                      }
+                                      disabled={isManualRunning || isAppealRunning}
+                                    >
+                                      {isAppealRunning ? "재채점 등록 중..." : "이의제기 재채점 요청"}
+                                    </Button>
+                                    <p className="text-[11px] text-muted-foreground">
+                                      해당 문항만 즉시 재채점하며, 이의제기는 다른 모델을 사용해서 처리합니다.
+                                    </p>
+                                  </div>
                                 </div>
-                              </div>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>

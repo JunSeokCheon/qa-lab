@@ -57,8 +57,11 @@ from app.models import (
 from app.observability import get_logger, log_event
 from app.queue import check_redis_connection, clear_rate_limit, grading_queue, increment_rate_limit
 from app.schemas import (
+    AdminAppealResolveRequest,
+    AdminAppealResolveResponse,
     AdminAppealRegradeRequest,
     AdminAppealRegradeResponse,
+    AdminAppealSummary,
     AdminAuditLogResponse,
     AdminExamDetail,
     AdminGradingEnqueueRequest,
@@ -99,6 +102,8 @@ from app.schemas import (
     MeExamResultSummary,
     MeExamSubmissionAnswer,
     MeExamSubmissionDetail,
+    MeExamAppealRequest,
+    MeExamAppealResponse,
     MeResponse,
     ProblemFolderCreate,
     ProblemFolderResponse,
@@ -767,7 +772,79 @@ def _feedback_bool(feedback_json: dict[str, Any] | None, key: str) -> bool:
     return False
 
 
+def _extract_feedback_appeals(feedback_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(feedback_json, dict):
+        return []
+    raw = feedback_json.get("appeals")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
+def _parse_feedback_appeal_requested_at(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _extract_latest_feedback_appeal(feedback_json: dict[str, Any] | None) -> dict[str, Any] | None:
+    appeals = _extract_feedback_appeals(feedback_json)
+    if not appeals:
+        return None
+    return appeals[-1]
+
+
+def _mark_latest_feedback_appeal_resolved(
+    feedback_json: dict[str, Any] | None,
+    *,
+    resolved_by_user_id: int,
+    note: str | None,
+    resolved: bool,
+) -> dict[str, Any]:
+    feedback = dict(feedback_json or {})
+    appeals = _extract_feedback_appeals(feedback)
+    if appeals:
+        latest = dict(appeals[-1])
+        latest["resolution"] = "resolved" if resolved else "rejected"
+        latest["resolved_at"] = datetime.now(timezone.utc).isoformat()
+        latest["resolved_by_user_id"] = resolved_by_user_id
+        latest["resolution_note"] = (note.strip() if note and note.strip() else None)
+        appeals[-1] = latest
+        feedback["appeals"] = appeals[-20:]
+
+    feedback["appeal_pending"] = False
+    if str(feedback.get("review_reason_code") or "").strip() == "appeal_pending":
+        feedback["needs_review"] = False
+        feedback["review_reason_code"] = None
+        feedback["review_reason_ko"] = None
+        verdict = str(feedback.get("verdict") or "").strip().upper()
+        if verdict == "AMBIGUOUS":
+            is_correct = bool(feedback.get("is_correct"))
+            feedback["verdict"] = "CORRECT" if is_correct else "INCORRECT"
+    return feedback
+
+
 def _resolve_me_question_verdict(answer: ExamAnswer, question: ExamQuestion) -> str:
+    feedback = answer.grading_feedback_json if isinstance(answer.grading_feedback_json, dict) else None
+    manual_is_correct = feedback.get("is_correct") if isinstance(feedback, dict) else None
+    if (
+        isinstance(feedback, dict)
+        and str(feedback.get("source") or "").strip().lower() == "manual"
+        and isinstance(manual_is_correct, bool)
+    ):
+        return "correct" if manual_is_correct else "incorrect"
+
     if question.type == "multiple_choice":
         correct_choice_indexes = _extract_exam_question_correct_choice_indexes(question)
         selected_choice_indexes = _extract_exam_answer_selected_choice_indexes(answer)
@@ -780,7 +857,6 @@ def _resolve_me_question_verdict(answer: ExamAnswer, question: ExamQuestion) -> 
     if answer.grading_status not in {"GRADED", "FAILED"}:
         return "pending"
 
-    feedback = answer.grading_feedback_json if isinstance(answer.grading_feedback_json, dict) else None
     if _feedback_bool(feedback, "needs_review"):
         return "review_pending"
 
@@ -3022,6 +3098,26 @@ async def get_my_exam_results(
         for answer, question in answers_by_submission.get(submission.id, []):
             verdict = _resolve_me_question_verdict(answer, question)
             skill_keywords = _extract_question_skill_keywords(question)
+            latest_appeal = _extract_latest_feedback_appeal(answer.grading_feedback_json)
+            latest_appeal_reason = (
+                latest_appeal.get("reason").strip()
+                if latest_appeal is not None
+                and isinstance(latest_appeal.get("reason"), str)
+                and latest_appeal.get("reason").strip()
+                else None
+            )
+            latest_appeal_requested_at = (
+                _parse_feedback_appeal_requested_at(latest_appeal.get("requested_at"))
+                if latest_appeal is not None
+                else None
+            )
+            latest_appeal_requested_by_user_id = (
+                int(latest_appeal.get("requested_by_user_id"))
+                if latest_appeal is not None and isinstance(latest_appeal.get("requested_by_user_id"), int)
+                else None
+            )
+            appeals = _extract_feedback_appeals(answer.grading_feedback_json)
+            appeal_pending = _feedback_bool(answer.grading_feedback_json, "appeal_pending")
             question_results.append(
                 MeExamQuestionResult(
                     question_id=question.id,
@@ -3030,6 +3126,11 @@ async def get_my_exam_results(
                     prompt_preview=_build_prompt_preview(question.prompt_md),
                     verdict=verdict,
                     skill_keywords=skill_keywords,
+                    appeal_pending=appeal_pending,
+                    appeal_count=len(appeals),
+                    latest_appeal_reason=latest_appeal_reason,
+                    latest_appeal_requested_at=latest_appeal_requested_at,
+                    latest_appeal_requested_by_user_id=latest_appeal_requested_by_user_id,
                 )
             )
 
@@ -3047,14 +3148,16 @@ async def get_my_exam_results(
                     continue
                 selected_choice_indexes = _extract_exam_answer_selected_choice_indexes(answer)
                 objective_total += 1
-                if selected_choice_indexes:
+                if selected_choice_indexes or verdict in {"correct", "incorrect"}:
                     objective_answered += 1
-                if set(selected_choice_indexes) == set(correct_choice_indexes):
+                if verdict == "correct":
                     objective_correct += 1
+                elif verdict == "incorrect":
+                    objective_incorrect += 1
                 elif not selected_choice_indexes:
                     objective_pending += 1
                 else:
-                    objective_incorrect += 1
+                    objective_pending += 1
                 continue
 
             if question.type == "coding":
@@ -3131,6 +3234,85 @@ async def get_my_exam_results(
             )
         )
     return payload
+
+
+@app.post("/me/exam-submissions/{submission_id}/appeals", response_model=MeExamAppealResponse)
+async def request_my_exam_submission_appeal(
+    submission_id: int,
+    payload: MeExamAppealRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> MeExamAppealResponse:
+    row = (
+        await session.execute(
+            select(ExamSubmission, Exam, ExamAnswer, ExamQuestion)
+            .join(Exam, Exam.id == ExamSubmission.exam_id)
+            .join(ExamAnswer, ExamAnswer.exam_submission_id == ExamSubmission.id)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(
+                ExamSubmission.id == submission_id,
+                ExamSubmission.user_id == user.id,
+                ExamQuestion.id == payload.question_id,
+            )
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="정정 요청 대상을 찾을 수 없습니다.")
+
+    submission, exam, answer, question = row
+    results_published, _, _ = _resolve_submission_result_visibility(exam, submission)
+    if not results_published:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="관리자가 결과를 공유한 이후에만 정정 요청할 수 있습니다.",
+        )
+
+    if _feedback_bool(answer.grading_feedback_json, "appeal_pending"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 처리 중인 정정 요청이 있습니다. 상태 확인 후 다시 시도해 주세요.",
+        )
+
+    reason = payload.reason.strip() if payload.reason and payload.reason.strip() else None
+    if reason is not None and len(reason) > 1000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="정정 요청 사유는 1000자 이하여야 합니다.",
+        )
+
+    model_override = (
+        _APPEAL_REGRADING_MODEL
+        if question.type in {"subjective", "coding"} and bool((question.answer_key_text or "").strip())
+        else None
+    )
+    answer.grading_feedback_json = _append_appeal_feedback(
+        answer.grading_feedback_json,
+        actor_user_id=user.id,
+        question_id=question.id,
+        reason=reason,
+        model_override=model_override,
+        previous_status=answer.grading_status,
+        previous_score=answer.grading_score,
+    )
+    await session.commit()
+
+    latest_appeal = _extract_latest_feedback_appeal(answer.grading_feedback_json)
+    requested_at = (
+        _parse_feedback_appeal_requested_at(latest_appeal.get("requested_at"))
+        if latest_appeal is not None
+        else None
+    ) or datetime.now(timezone.utc)
+    appeal_count = len(_extract_feedback_appeals(answer.grading_feedback_json))
+
+    return MeExamAppealResponse(
+        submission_id=submission.id,
+        exam_id=submission.exam_id,
+        question_id=question.id,
+        appeal_pending=_feedback_bool(answer.grading_feedback_json, "appeal_pending"),
+        appeal_count=appeal_count,
+        requested_at=requested_at,
+        message="정정 요청이 접수되었습니다. 튜터 확인 후 재채점 또는 수동채점이 진행됩니다.",
+    )
 
 
 @app.get("/admin/grading/exam-submissions", response_model=list[AdminGradingSubmissionSummary])
@@ -3235,6 +3417,101 @@ async def list_admin_grading_exam_submissions(
                 results_publish_scope=results_publish_scope,
             )
         )
+    return payload
+
+
+@app.get("/admin/appeals", response_model=list[AdminAppealSummary])
+async def list_admin_exam_appeals(
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    exam_id: Annotated[int | None, Query(ge=1)] = None,
+    student_keyword: str | None = Query(default=None),
+    status_filter: Annotated[str, Query(alias="status")] = "pending",
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> list[AdminAppealSummary]:
+    normalized_status = status_filter.strip().lower()
+    if normalized_status not in {"all", "pending", "resolved"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="상태 필터는 all, pending, resolved 중 하나여야 합니다.",
+        )
+
+    query = (
+        select(ExamSubmission, Exam, User, ExamAnswer, ExamQuestion)
+        .join(Exam, Exam.id == ExamSubmission.exam_id)
+        .join(User, User.id == ExamSubmission.user_id)
+        .join(ExamAnswer, ExamAnswer.exam_submission_id == ExamSubmission.id)
+        .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+        .where(ExamAnswer.grading_feedback_json.is_not(None))
+        .order_by(ExamSubmission.id.desc(), ExamQuestion.order_index.asc())
+    )
+    if exam_id is not None:
+        query = query.where(ExamSubmission.exam_id == exam_id)
+
+    trimmed_keyword = student_keyword.strip() if isinstance(student_keyword, str) else ""
+    if trimmed_keyword:
+        like_value = f"%{trimmed_keyword.lower()}%"
+        query = query.where(
+            func.lower(User.display_name).like(like_value) | func.lower(User.username).like(like_value)
+        )
+
+    rows = (await session.execute(query.limit(max(limit * 6, 300)))).all()
+    if not rows:
+        return []
+
+    payload: list[AdminAppealSummary] = []
+    for submission, exam, actor, answer, question in rows:
+        feedback_json = answer.grading_feedback_json if isinstance(answer.grading_feedback_json, dict) else None
+        appeals = _extract_feedback_appeals(feedback_json)
+        if not appeals:
+            continue
+        appeal_pending = _feedback_bool(feedback_json, "appeal_pending")
+        if normalized_status == "pending" and not appeal_pending:
+            continue
+        if normalized_status == "resolved" and appeal_pending:
+            continue
+
+        latest = appeals[-1]
+        latest_reason = (
+            latest.get("reason").strip()
+            if isinstance(latest.get("reason"), str) and latest.get("reason").strip()
+            else None
+        )
+        latest_requested_at = _parse_feedback_appeal_requested_at(latest.get("requested_at"))
+        latest_requested_by_user_id = (
+            int(latest.get("requested_by_user_id"))
+            if isinstance(latest.get("requested_by_user_id"), int)
+            else None
+        )
+        results_published, results_published_at, _ = _resolve_submission_result_visibility(exam, submission)
+
+        payload.append(
+            AdminAppealSummary(
+                submission_id=submission.id,
+                exam_id=exam.id,
+                exam_title=exam.title,
+                user_id=actor.id,
+                user_name=actor.display_name,
+                username=actor.username,
+                question_id=question.id,
+                question_order=question.order_index,
+                question_type=question.type,
+                prompt_preview=_build_prompt_preview(question.prompt_md),
+                grading_status=answer.grading_status,
+                grading_score=answer.grading_score,
+                grading_max_score=answer.grading_max_score,
+                verdict=_resolve_me_question_verdict(answer, question),
+                appeal_pending=appeal_pending,
+                appeal_count=len(appeals),
+                latest_appeal_reason=latest_reason,
+                latest_appeal_requested_at=latest_requested_at,
+                latest_appeal_requested_by_user_id=latest_requested_by_user_id,
+                results_published=results_published,
+                results_published_at=results_published_at,
+            )
+        )
+        if len(payload) >= limit:
+            break
     return payload
 
 
@@ -3482,6 +3759,84 @@ async def request_admin_exam_submission_appeal_regrade(
 
 
 @app.post(
+    "/admin/grading/exam-submissions/{submission_id}/answers/{question_id}/appeal-resolve",
+    response_model=AdminAppealResolveResponse,
+)
+async def resolve_admin_exam_submission_appeal(
+    submission_id: int,
+    question_id: int,
+    payload: AdminAppealResolveRequest,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> AdminAppealResolveResponse:
+    row = (
+        await session.execute(
+            select(ExamSubmission, ExamAnswer, ExamQuestion)
+            .join(ExamAnswer, ExamAnswer.exam_submission_id == ExamSubmission.id)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(
+                ExamSubmission.id == submission_id,
+                ExamQuestion.id == question_id,
+            )
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="정정 요청 대상을 찾을 수 없습니다.")
+
+    submission, answer, question = row
+    appeals = _extract_feedback_appeals(answer.grading_feedback_json)
+    if not appeals:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 문항의 접수된 정정 요청이 없습니다.")
+    if not _feedback_bool(answer.grading_feedback_json, "appeal_pending"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 처리 완료된 정정 요청입니다.")
+
+    answer.grading_feedback_json = _mark_latest_feedback_appeal_resolved(
+        answer.grading_feedback_json,
+        resolved_by_user_id=admin_user.id,
+        note=payload.note,
+        resolved=bool(payload.resolved),
+    )
+
+    all_rows = (
+        await session.execute(
+            select(ExamAnswer, ExamQuestion)
+            .join(ExamQuestion, ExamQuestion.id == ExamAnswer.exam_question_id)
+            .where(ExamAnswer.exam_submission_id == submission_id)
+            .order_by(ExamQuestion.order_index.asc())
+        )
+    ).all()
+    submission.status = _resolve_submission_status_from_answers(submission, all_rows)
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="exam_submission.appeal_resolve",
+        resource_type="exam_submission_answer",
+        resource_id=str(answer.id),
+        metadata={
+            "submission_id": submission.id,
+            "exam_id": submission.exam_id,
+            "question_id": question.id,
+            "question_type": question.type,
+            "resolved": bool(payload.resolved),
+            "note": payload.note.strip() if payload.note and payload.note.strip() else None,
+        },
+    )
+    await session.commit()
+
+    return AdminAppealResolveResponse(
+        submission_id=submission.id,
+        exam_id=submission.exam_id,
+        question_id=question.id,
+        appeal_pending=False,
+        status=submission.status,
+        message="정정 요청 상태를 처리 완료로 변경했습니다.",
+    )
+
+
+@app.post(
     "/admin/grading/exam-submissions/{submission_id}/answers/{question_id}/manual-grade",
     response_model=AdminManualGradeResponse,
 )
@@ -3518,13 +3873,12 @@ async def manual_grade_admin_exam_submission_answer(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="문항 답안을 찾을 수 없습니다.")
 
     answer, question = row
-    if question.type == "multiple_choice":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="객관식 문항은 수동 채점 대상이 아닙니다.")
+    existing_appeals = _extract_feedback_appeals(answer.grading_feedback_json)
 
     answer.grading_status = "GRADED"
     answer.grading_score = score
     answer.grading_max_score = 100
-    answer.grading_feedback_json = {
+    manual_feedback: dict[str, Any] = {
         "source": "manual",
         "is_correct": payload.is_correct,
         "reason": reason,
@@ -3534,6 +3888,18 @@ async def manual_grade_admin_exam_submission_answer(
         "review_reason_ko": None,
         "verdict": "CORRECT" if payload.is_correct else "INCORRECT",
     }
+    if existing_appeals:
+        manual_feedback["appeals"] = existing_appeals[-20:]
+        manual_feedback["appeal_pending"] = True
+        manual_feedback["review_reason_code"] = "appeal_pending"
+        answer.grading_feedback_json = _mark_latest_feedback_appeal_resolved(
+            manual_feedback,
+            resolved_by_user_id=admin_user.id,
+            note=payload.note,
+            resolved=True,
+        )
+    else:
+        answer.grading_feedback_json = manual_feedback
     answer.grading_logs = reason
     answer.graded_at = datetime.now(timezone.utc)
 

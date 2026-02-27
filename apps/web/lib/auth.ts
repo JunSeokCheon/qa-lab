@@ -78,6 +78,11 @@ export type MeExamQuestionResult = {
   prompt_preview: string;
   verdict: "correct" | "incorrect" | "pending" | "review_pending";
   skill_keywords: string[];
+  appeal_pending: boolean;
+  appeal_count: number;
+  latest_appeal_reason: string | null;
+  latest_appeal_requested_at: string | null;
+  latest_appeal_requested_by_user_id: number | null;
 };
 
 export async function fetchMeWithToken(token: string): Promise<MeResponse | null> {
