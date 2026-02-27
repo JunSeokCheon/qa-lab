@@ -150,3 +150,21 @@ start docs/system-architecture.md
 start docs/user-admin-guide.md
 ```
 
+
+
+## Exam Draft Save (Local)
+```bash
+# 1) Apply API migration (adds draft-save columns)
+cd apps/api
+. .venv/Scripts/Activate.ps1
+alembic upgrade head
+
+# 2) Run local servers
+fastapi dev main.py
+pnpm --dir apps/web dev
+
+# 3) Manual check
+# - Click the draft-save button next to submit at /problems/{examId}
+# - Refresh/reconnect and verify answers are restored
+# - Verify exam timer keeps decreasing after draft save
+```

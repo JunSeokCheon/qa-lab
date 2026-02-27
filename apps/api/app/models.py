@@ -235,6 +235,8 @@ class ExamAttempt(Base):
     exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     started_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    draft_answers_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    draft_saved_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     exam: Mapped["Exam"] = relationship(back_populates="attempts")
     user: Mapped["User"] = relationship(back_populates="exam_attempts")

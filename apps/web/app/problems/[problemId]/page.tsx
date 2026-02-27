@@ -29,6 +29,13 @@ type ExamDetail = {
   question_count: number;
   submitted: boolean;
   remaining_seconds: number | null;
+  draft_saved_at: string | null;
+  draft_answers: {
+    question_id: number;
+    answer_text: string | null;
+    selected_choice_index: number | null;
+    selected_choice_indexes: number[] | null;
+  }[];
   questions: ExamQuestion[];
 };
 
@@ -157,6 +164,8 @@ export default async function ProblemPage({ params }: Params) {
         submitted={exam.submitted}
         durationMinutes={exam.duration_minutes}
         initialRemainingSeconds={exam.remaining_seconds}
+        initialDraftAnswers={exam.draft_answers ?? []}
+        initialDraftSavedAt={exam.draft_saved_at}
         initialSubmission={mySubmission}
       />
     </main>

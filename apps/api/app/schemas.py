@@ -256,6 +256,13 @@ class ExamQuestionImagesUpdate(BaseModel):
     image_resource_ids: list[int] = Field(default_factory=list)
 
 
+class ExamDraftAnswer(BaseModel):
+    question_id: int
+    answer_text: str | None = None
+    selected_choice_index: int | None = None
+    selected_choice_indexes: list[int] | None = None
+
+
 class ExamSummary(BaseModel):
     id: int
     title: str
@@ -279,6 +286,8 @@ class ExamDetail(ExamSummary):
     attempt_started_at: datetime | None = None
     attempt_expires_at: datetime | None = None
     remaining_seconds: int | None = None
+    draft_saved_at: datetime | None = None
+    draft_answers: list[ExamDraftAnswer] = Field(default_factory=list)
     questions: list[ExamQuestionSummary]
 
 
@@ -301,6 +310,16 @@ class ExamAnswerInput(BaseModel):
 
 class ExamSubmitRequest(BaseModel):
     answers: list[ExamAnswerInput]
+
+
+class ExamDraftSaveRequest(BaseModel):
+    answers: list[ExamAnswerInput]
+
+
+class ExamDraftSaveResponse(BaseModel):
+    exam_id: int
+    saved_at: datetime | None = None
+    answer_count: int
 
 
 class ExamSubmitResponse(BaseModel):

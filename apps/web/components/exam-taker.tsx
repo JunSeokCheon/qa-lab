@@ -26,6 +26,13 @@ type AnswerState = {
   selected_choice_indexes?: number[];
 };
 
+export type DraftExamAnswerInput = {
+  question_id: number;
+  answer_text?: string | null;
+  selected_choice_index?: number | null;
+  selected_choice_indexes?: number[] | null;
+};
+
 export type MyExamSubmissionAnswer = {
   question_id: number;
   question_order: number;
@@ -57,6 +64,26 @@ export type MyExamSubmissionDetail = {
   results_published_at: string | null;
   answers: MyExamSubmissionAnswer[];
 };
+
+function buildInitialAnswerState(initialDraftAnswers: DraftExamAnswerInput[]): Record<number, AnswerState> {
+  const initialState: Record<number, AnswerState> = {};
+  for (const answer of initialDraftAnswers) {
+    const normalizedIndexes = normalizeChoiceIndexes(
+      Array.isArray(answer.selected_choice_indexes)
+        ? answer.selected_choice_indexes
+        : answer.selected_choice_index === null || answer.selected_choice_index === undefined
+          ? []
+          : [answer.selected_choice_index]
+    );
+    const answerText = typeof answer.answer_text === "string" ? answer.answer_text : "";
+    if (normalizedIndexes.length === 0 && !answerText.trim()) continue;
+    initialState[answer.question_id] = {
+      answer_text: answerText,
+      selected_choice_indexes: normalizedIndexes,
+    };
+  }
+  return initialState;
+}
 
 function formatTimer(totalSeconds: number): string {
   const safeSeconds = Math.max(0, totalSeconds);
@@ -147,6 +174,8 @@ export function ExamTaker({
   submitted,
   durationMinutes,
   initialRemainingSeconds,
+  initialDraftAnswers,
+  initialDraftSavedAt,
   initialSubmission,
 }: {
   examId: number;
@@ -154,13 +183,17 @@ export function ExamTaker({
   submitted: boolean;
   durationMinutes: number | null;
   initialRemainingSeconds: number | null;
+  initialDraftAnswers: DraftExamAnswerInput[];
+  initialDraftSavedAt: string | null;
   initialSubmission: MyExamSubmissionDetail | null;
 }) {
   const router = useRouter();
-  const [answers, setAnswers] = useState<Record<number, AnswerState>>({});
+  const [answers, setAnswers] = useState<Record<number, AnswerState>>(() => buildInitialAnswerState(initialDraftAnswers));
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(submitted ? "이미 제출한 시험입니다." : "");
   const [loading, setLoading] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(initialDraftSavedAt);
   const [isSubmitted, setIsSubmitted] = useState(submitted);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [answerEditorQuestionId, setAnswerEditorQuestionId] = useState<number | null>(null);
@@ -261,21 +294,60 @@ export function ExamTaker({
     setAnswerEditorQuestionId(questionId);
   };
 
+  const buildAnswerPayload = (trimText: boolean) => ({
+    answers: questions.map((question) => {
+      const selectedChoiceIndexes = normalizeChoiceIndexes(answers[question.id]?.selected_choice_indexes);
+      const rawAnswerText = answers[question.id]?.answer_text ?? "";
+      const answerText = trimText ? rawAnswerText.trim() : rawAnswerText;
+      return {
+        selected_choice_indexes: selectedChoiceIndexes,
+        question_id: question.id,
+        answer_text: answerText || undefined,
+        selected_choice_index: selectedChoiceIndexes[0],
+      };
+    }),
+  });
+
+  const saveDraft = async () => {
+    if (isSubmitted || isExpired || loading || draftSaving) return;
+    setDraftSaving(true);
+    setError("");
+    setSuccess("");
+
+    const response = await fetch(`/api/exams/${examId}/draft`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildAnswerPayload(false)),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+      message?: string;
+      saved_at?: string | null;
+      answer_count?: number;
+    };
+    if (!response.ok) {
+      setError(body.detail ?? body.message ?? "임시 저장에 실패했습니다.");
+      setDraftSaving(false);
+      return;
+    }
+
+    const answerCount = typeof body.answer_count === "number" ? body.answer_count : 0;
+    if (answerCount > 0) {
+      setDraftSavedAt(typeof body.saved_at === "string" ? body.saved_at : new Date().toISOString());
+      setSuccess("임시 저장되었습니다.");
+    } else {
+      setDraftSavedAt(null);
+      setSuccess("임시 저장 답안을 비웠습니다.");
+    }
+    setDraftSaving(false);
+  };
+
   const submitExam = async () => {
-    if (isSubmitted || isExpired) return;
+    if (isSubmitted || isExpired || draftSaving) return;
     setLoading(true);
     setError("");
     setSuccess("");
     setShowSubmitConfirm(false);
-
-    const payload = {
-      answers: questions.map((question) => ({
-        selected_choice_indexes: normalizeChoiceIndexes(answers[question.id]?.selected_choice_indexes),
-        question_id: question.id,
-        answer_text: answers[question.id]?.answer_text?.trim() || undefined,
-        selected_choice_index: normalizeChoiceIndexes(answers[question.id]?.selected_choice_indexes)[0],
-      })),
-    };
 
     await fetch("/api/auth/refresh", {
       method: "POST",
@@ -285,7 +357,7 @@ export function ExamTaker({
     const response = await fetch(`/api/exams/${examId}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(buildAnswerPayload(true)),
     });
     const body = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
     if (!response.ok) {
@@ -295,6 +367,7 @@ export function ExamTaker({
     }
 
     setSuccess("시험이 제출되었습니다. 시험 목록으로 이동합니다.");
+    setDraftSavedAt(null);
     setIsSubmitted(true);
     setAnswerEditorQuestionId(null);
     setLoading(false);
@@ -472,9 +545,17 @@ export function ExamTaker({
 
           {displayError ? <p className="text-sm text-destructive">{displayError}</p> : null}
           {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
-          <Button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={loading || isExpired}>
-            {loading ? "제출 중..." : "시험 제출"}
-          </Button>
+          {draftSavedAt ? (
+            <p className="text-xs text-muted-foreground">마지막 임시 저장: {formatDateTimeKST(draftSavedAt)}</p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => void saveDraft()} disabled={loading || draftSaving || isExpired}>
+              {draftSaving ? "임시 저장 중..." : "임시 저장"}
+            </Button>
+            <Button type="button" onClick={() => setShowSubmitConfirm(true)} disabled={loading || draftSaving || isExpired}>
+              {loading ? "제출 중..." : "시험 제출"}
+            </Button>
+          </div>
         </>
       ) : null}
 
@@ -488,10 +569,10 @@ export function ExamTaker({
             <p className="mt-2 text-sm text-muted-foreground">시험지를 제출하시겠습니까?</p>
             <p className="mt-1 text-xs text-muted-foreground">제출하면 다시 응시할 수 없습니다.</p>
             <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowSubmitConfirm(false)} disabled={loading}>
+              <Button type="button" variant="outline" onClick={() => setShowSubmitConfirm(false)} disabled={loading || draftSaving}>
                 취소
               </Button>
-              <Button ref={finalSubmitButtonRef} type="button" onClick={() => void submitExam()} disabled={loading}>
+              <Button ref={finalSubmitButtonRef} type="button" onClick={() => void submitExam()} disabled={loading || draftSaving}>
                 최종 제출
               </Button>
             </div>

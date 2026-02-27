@@ -83,6 +83,8 @@ from app.schemas import (
     ExamQuestionSummary,
     ExamResourceSummary,
     ExamResourcePruneResponse,
+    ExamDraftSaveRequest,
+    ExamDraftSaveResponse,
     ExamSubmitRequest,
     ExamSubmitResponse,
     ExamSubmissionSummary,
@@ -474,6 +476,108 @@ def _extract_exam_answer_selected_choice_indexes(answer: ExamAnswer) -> list[int
     if answer.selected_choice_index is not None:
         return [int(answer.selected_choice_index)]
     return []
+
+
+def _build_exam_draft_answers(
+    *,
+    payload: ExamDraftSaveRequest,
+    questions: list[ExamQuestion],
+) -> list[dict[str, Any]]:
+    question_by_id = {int(question.id): question for question in questions}
+    answers_by_question_id: dict[int, dict[str, Any]] = {}
+
+    for answer in payload.answers:
+        question = question_by_id.get(int(answer.question_id))
+        if question is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="시험 문항이 아닌 답안이 포함되어 있습니다.",
+            )
+
+        selected_choice_indexes = _normalize_choice_indexes(answer.selected_choice_indexes)
+        if not selected_choice_indexes and answer.selected_choice_index is not None:
+            selected_choice_indexes = [int(answer.selected_choice_index)]
+        answer_text = answer.answer_text if isinstance(answer.answer_text, str) else None
+
+        if question.type == "multiple_choice":
+            choices = list(question.choices_json or [])
+            if any(index < 0 or index >= len(choices) for index in selected_choice_indexes):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{question.order_index}번 문항 선택지 번호가 올바르지 않습니다.",
+                )
+            if len(_extract_exam_question_correct_choice_indexes(question)) <= 1 and len(selected_choice_indexes) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{question.order_index}번 문항은 선택지를 1개만 고를 수 있습니다.",
+                )
+            answer_text = None
+        else:
+            selected_choice_indexes = []
+
+        has_answer = bool(selected_choice_indexes) or bool((answer_text or "").strip())
+        if not has_answer:
+            answers_by_question_id.pop(question.id, None)
+            continue
+
+        answers_by_question_id[question.id] = {
+            "question_id": question.id,
+            "answer_text": answer_text,
+            "selected_choice_index": selected_choice_indexes[0] if selected_choice_indexes else None,
+            "selected_choice_indexes": selected_choice_indexes,
+        }
+
+    return [answers_by_question_id[question.id] for question in questions if question.id in answers_by_question_id]
+
+
+def _extract_exam_attempt_draft_answers(attempt: ExamAttempt | None, questions: list[ExamQuestion]) -> list[dict[str, Any]]:
+    if attempt is None or not isinstance(attempt.draft_answers_json, list):
+        return []
+
+    question_by_id = {int(question.id): question for question in questions}
+    draft_by_question_id: dict[int, dict[str, Any]] = {}
+
+    for raw_answer in attempt.draft_answers_json:
+        if not isinstance(raw_answer, dict):
+            continue
+        raw_question_id = raw_answer.get("question_id")
+        if not isinstance(raw_question_id, int):
+            continue
+        question = question_by_id.get(int(raw_question_id))
+        if question is None:
+            continue
+
+        raw_selected_indexes = raw_answer.get("selected_choice_indexes")
+        selected_choice_indexes = _normalize_choice_indexes(
+            [value for value in raw_selected_indexes if isinstance(value, int)] if isinstance(raw_selected_indexes, list) else []
+        )
+        raw_selected_index = raw_answer.get("selected_choice_index")
+        if not selected_choice_indexes and isinstance(raw_selected_index, int):
+            selected_choice_indexes = [raw_selected_index]
+
+        answer_text = raw_answer.get("answer_text") if isinstance(raw_answer.get("answer_text"), str) else None
+        if question.type == "multiple_choice":
+            choice_count = len(list(question.choices_json or []))
+            if any(index < 0 or index >= choice_count for index in selected_choice_indexes):
+                continue
+            if len(_extract_exam_question_correct_choice_indexes(question)) <= 1 and len(selected_choice_indexes) > 1:
+                continue
+            answer_text = None
+        else:
+            selected_choice_indexes = []
+
+        has_answer = bool(selected_choice_indexes) or bool((answer_text or "").strip())
+        if not has_answer:
+            continue
+
+        draft_by_question_id[question.id] = {
+            "question_id": question.id,
+            "answer_text": answer_text,
+            "selected_choice_index": selected_choice_indexes[0] if selected_choice_indexes else None,
+            "selected_choice_indexes": selected_choice_indexes,
+        }
+
+    return [draft_by_question_id[question.id] for question in questions if question.id in draft_by_question_id]
 
 
 def _to_exam_question_summary(question: ExamQuestion) -> ExamQuestionSummary:
@@ -2507,13 +2611,15 @@ async def get_exam(
     )
     submitted = existing_submission is not None
 
+    attempt: ExamAttempt | None = None
     attempt_started_at: datetime | None = None
     attempt_expires_at: datetime | None = None
     remaining_seconds: int | None = None
-    if user.role != "admin" and not submitted and exam.duration_minutes is not None:
+    if not submitted:
         attempt = await session.scalar(
             select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id)
         )
+    if user.role != "admin" and not submitted and exam.duration_minutes is not None:
         if attempt is None:
             attempt = ExamAttempt(exam_id=exam_id, user_id=user.id)
             session.add(attempt)
@@ -2534,6 +2640,8 @@ async def get_exam(
         attempt_started_at = attempt.started_at
         attempt_expires_at = attempt.started_at + timedelta(minutes=exam.duration_minutes)
         remaining_seconds = max(0, int((attempt_expires_at - datetime.now(timezone.utc)).total_seconds()))
+    draft_answers = _extract_exam_attempt_draft_answers(attempt, questions) if not submitted else []
+    draft_saved_at = attempt.draft_saved_at if not submitted and attempt is not None else None
 
     return ExamDetail(
         **_to_exam_summary(
@@ -2545,7 +2653,71 @@ async def get_exam(
         attempt_started_at=attempt_started_at,
         attempt_expires_at=attempt_expires_at,
         remaining_seconds=remaining_seconds,
+        draft_saved_at=draft_saved_at,
+        draft_answers=draft_answers,
         questions=[_to_exam_question_summary(question) for question in questions],
+    )
+
+
+@app.put("/exams/{exam_id}/draft", response_model=ExamDraftSaveResponse)
+async def save_exam_draft(
+    exam_id: int,
+    payload: ExamDraftSaveRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ExamDraftSaveResponse:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None or not _can_user_access_exam(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+    if not _is_exam_started_for_user(exam, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="시험을 찾을 수 없습니다.")
+
+    existing_submission = await session.scalar(
+        select(ExamSubmission).where(ExamSubmission.exam_id == exam_id, ExamSubmission.user_id == user.id)
+    )
+    if existing_submission is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 제출된 시험은 임시 저장할 수 없습니다.")
+
+    questions = (
+        await session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc()))
+    ).scalars().all()
+    if not questions:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험 문항이 없습니다.")
+
+    attempt = await session.scalar(select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id))
+    if attempt is None:
+        attempt = ExamAttempt(exam_id=exam_id, user_id=user.id)
+        session.add(attempt)
+        try:
+            await session.commit()
+            await session.refresh(attempt)
+        except IntegrityError:
+            await session.rollback()
+            attempt = await session.scalar(select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id))
+            if attempt is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="임시 저장 처리 중 충돌이 발생했습니다. 잠시 후 다시 시도해 주세요.",
+                )
+
+    if user.role != "admin" and exam.duration_minutes is not None:
+        expires_at = attempt.started_at + timedelta(minutes=exam.duration_minutes)
+        if datetime.now(timezone.utc) >= expires_at:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="시험 시간이 종료되어 임시 저장할 수 없습니다.",
+            )
+
+    draft_answers = _build_exam_draft_answers(payload=payload, questions=questions)
+    attempt.draft_answers_json = draft_answers if draft_answers else None
+    attempt.draft_saved_at = datetime.now(timezone.utc) if draft_answers else None
+    await session.commit()
+    await session.refresh(attempt)
+
+    return ExamDraftSaveResponse(
+        exam_id=exam.id,
+        saved_at=attempt.draft_saved_at,
+        answer_count=len(draft_answers),
     )
 
 
@@ -2568,10 +2740,8 @@ async def submit_exam(
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 제출한 시험입니다.")
 
+    attempt = await session.scalar(select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id))
     if user.role != "admin" and exam.duration_minutes is not None:
-        attempt = await session.scalar(
-            select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id)
-        )
         if attempt is None:
             attempt = ExamAttempt(exam_id=exam_id, user_id=user.id)
             session.add(attempt)
@@ -2674,6 +2844,12 @@ async def submit_exam(
                 graded_at=graded_at,
             )
         )
+
+    if attempt is None:
+        attempt = await session.scalar(select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == user.id))
+    if attempt is not None:
+        attempt.draft_answers_json = None
+        attempt.draft_saved_at = None
 
     await session.commit()
     await session.refresh(submission)
