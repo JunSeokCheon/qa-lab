@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import re
 import shutil
 import time
@@ -13,7 +15,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -314,6 +316,37 @@ def _sanitize_exam_duration_minutes(duration_minutes: int | None) -> int | None:
             detail="시험 시간은 1분 이상 1440분 이하로 설정해 주세요.",
         )
     return int(duration_minutes)
+
+
+def _sanitize_exam_performance_band_thresholds(
+    high_min_correct: int | None,
+    mid_min_correct: int | None,
+    *,
+    question_count: int,
+) -> tuple[int | None, int | None]:
+    high = int(high_min_correct) if high_min_correct is not None else None
+    mid = int(mid_min_correct) if mid_min_correct is not None else None
+
+    if question_count < 0:
+        question_count = 0
+
+    if high is not None and high > question_count:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"performance_high_min_correct must be <= total question count ({question_count}).",
+        )
+    if mid is not None and mid > question_count:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"performance_mid_min_correct must be <= total question count ({question_count}).",
+        )
+    if high is not None and mid is not None and high <= mid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="performance_high_min_correct must be greater than performance_mid_min_correct.",
+        )
+
+    return high, mid
 
 
 def _coerce_utc_datetime(value: datetime | None) -> datetime | None:
@@ -740,6 +773,8 @@ def _to_exam_summary(
         status=exam.status,
         starts_at=_coerce_utc_datetime(exam.starts_at),
         duration_minutes=exam.duration_minutes,
+        performance_high_min_correct=exam.performance_high_min_correct,
+        performance_mid_min_correct=exam.performance_mid_min_correct,
         results_published=bool(exam.results_published),
         results_published_at=exam.results_published_at,
         question_count=question_count,
@@ -875,6 +910,19 @@ def _resolve_me_question_verdict(answer: ExamAnswer, question: ExamQuestion) -> 
         return "correct" if answer.grading_score == answer.grading_max_score else "incorrect"
 
     return "incorrect" if answer.grading_status == "FAILED" else "pending"
+
+
+def _resolve_exam_performance_band_label(exam: Exam, correct_count: int) -> str:
+    high = exam.performance_high_min_correct
+    mid = exam.performance_mid_min_correct
+
+    if high is None and mid is None:
+        return "UNSET"
+    if high is not None and correct_count >= high:
+        return "HIGH"
+    if mid is not None and correct_count >= mid:
+        return "MID"
+    return "LOW"
 
 
 def _build_prompt_preview(prompt_md: str, max_chars: int = 96) -> str:
@@ -1786,11 +1834,19 @@ async def _create_exam_with_questions(
     if len(payload.questions) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="시험에는 최소 1개 이상의 문항이 필요합니다.")
 
+    question_count = len(payload.questions)
+
     folder_id = payload.folder_id
     if folder_id is not None:
         folder = await session.scalar(select(ProblemFolder).where(ProblemFolder.id == folder_id))
         if folder is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="카테고리(폴더)를 찾을 수 없습니다.")
+
+    performance_high_min_correct, performance_mid_min_correct = _sanitize_exam_performance_band_thresholds(
+        payload.performance_high_min_correct,
+        payload.performance_mid_min_correct,
+        question_count=question_count,
+    )
 
     exam = Exam(
         title=title,
@@ -1801,6 +1857,8 @@ async def _create_exam_with_questions(
         status=_sanitize_exam_status(payload.status),
         starts_at=_sanitize_exam_starts_at(payload.starts_at),
         duration_minutes=_sanitize_exam_duration_minutes(payload.duration_minutes),
+        performance_high_min_correct=performance_high_min_correct,
+        performance_mid_min_correct=performance_mid_min_correct,
     )
     session.add(exam)
     await session.flush()
@@ -1988,6 +2046,8 @@ async def create_exam(
             "target_track_name": exam.target_track_name,
             "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "duration_minutes": exam.duration_minutes,
+            "performance_high_min_correct": exam.performance_high_min_correct,
+            "performance_mid_min_correct": exam.performance_mid_min_correct,
         },
     )
     await session.commit()
@@ -2186,6 +2246,8 @@ async def republish_admin_exam(
             "target_track_name": new_exam.target_track_name,
             "starts_at": new_exam.starts_at.isoformat() if new_exam.starts_at else None,
             "duration_minutes": new_exam.duration_minutes,
+            "performance_high_min_correct": new_exam.performance_high_min_correct,
+            "performance_mid_min_correct": new_exam.performance_mid_min_correct,
         },
     )
     await session.commit()
@@ -2224,6 +2286,20 @@ async def update_admin_exam(
         if folder is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="카테고리(폴더)를 찾을 수 없습니다.")
 
+    question_count = int(
+        (
+            await session.scalar(
+                select(func.count(ExamQuestion.id)).where(ExamQuestion.exam_id == exam.id)
+            )
+        )
+        or 0
+    )
+    performance_high_min_correct, performance_mid_min_correct = _sanitize_exam_performance_band_thresholds(
+        payload.performance_high_min_correct,
+        payload.performance_mid_min_correct,
+        question_count=question_count,
+    )
+
     exam.title = title
     exam.description = payload.description.strip() if payload.description else None
     exam.folder_id = folder_id
@@ -2232,6 +2308,8 @@ async def update_admin_exam(
     exam.status = _sanitize_exam_status(payload.status)
     exam.starts_at = _sanitize_exam_starts_at(payload.starts_at)
     exam.duration_minutes = _sanitize_exam_duration_minutes(payload.duration_minutes)
+    exam.performance_high_min_correct = performance_high_min_correct
+    exam.performance_mid_min_correct = performance_mid_min_correct
 
     await _write_admin_audit_log(
         session=session,
@@ -2248,19 +2326,12 @@ async def update_admin_exam(
             "folder_id": exam.folder_id,
             "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "duration_minutes": exam.duration_minutes,
+            "performance_high_min_correct": exam.performance_high_min_correct,
+            "performance_mid_min_correct": exam.performance_mid_min_correct,
         },
     )
     await session.commit()
     await session.refresh(exam)
-
-    question_count = int(
-        (
-            await session.scalar(
-                select(func.count(ExamQuestion.id)).where(ExamQuestion.exam_id == exam.id)
-            )
-        )
-        or 0
-    )
     folder_path_map = await _load_folder_path_map(session)
     return _to_exam_summary(exam, folder_path_map=folder_path_map, question_count=question_count, submitted=False)
 
@@ -2461,6 +2532,103 @@ async def list_admin_exam_submissions(
             )
         )
     return payload
+
+
+@app.get("/admin/exams/{exam_id}/results/csv")
+async def download_admin_exam_results_csv(
+    exam_id: int,
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> Response:
+    exam = await session.scalar(select(Exam).where(Exam.id == exam_id))
+    if exam is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found.")
+
+    question_rows = (
+        await session.execute(
+            select(ExamQuestion).where(ExamQuestion.exam_id == exam_id).order_by(ExamQuestion.order_index.asc())
+        )
+    ).scalars().all()
+    question_map = {question.id: question for question in question_rows}
+    total_question_count = len(question_rows)
+
+    submission_rows = (
+        await session.execute(
+            select(ExamSubmission, User)
+            .join(User, User.id == ExamSubmission.user_id)
+            .where(ExamSubmission.exam_id == exam_id)
+            .order_by(ExamSubmission.id.asc())
+        )
+    ).all()
+
+    ungraded_count = sum(1 for submission, _ in submission_rows if submission.status != "GRADED")
+    if ungraded_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot export CSV before grading is complete. Remaining ungraded submissions: {ungraded_count}.",
+        )
+
+    submission_ids = [int(submission.id) for submission, _ in submission_rows]
+    answers_by_submission: defaultdict[int, list[ExamAnswer]] = defaultdict(list)
+    if submission_ids:
+        answer_rows = (
+            await session.execute(
+                select(ExamAnswer)
+                .where(ExamAnswer.exam_submission_id.in_(submission_ids))
+                .order_by(ExamAnswer.exam_submission_id.asc(), ExamAnswer.id.asc())
+            )
+        ).scalars().all()
+        for answer in answer_rows:
+            answers_by_submission[int(answer.exam_submission_id)].append(answer)
+
+    band_ko = {"HIGH": "\uc0c1", "MID": "\uc911", "LOW": "\ud558", "UNSET": "\ubbf8\uc124\uc815"}
+
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "유저 아이디",
+            "유저 이름",
+            "전체 문제 수",
+            "맞힌 문제 수",
+            "정확도",
+            "상/중/하 평가 정도",
+        ]
+    )
+
+    for submission, user in submission_rows:
+        answers = answers_by_submission.get(int(submission.id), [])
+        correct_count = 0
+        for answer in answers:
+            question = question_map.get(answer.exam_question_id)
+            if question is None:
+                continue
+            if _resolve_me_question_verdict(answer, question) == "correct":
+                correct_count += 1
+
+        accuracy = (correct_count / total_question_count * 100) if total_question_count > 0 else 0.0
+        band = _resolve_exam_performance_band_label(exam, correct_count)
+
+        writer.writerow(
+            [
+                user.username,
+                user.display_name,
+                total_question_count,
+                correct_count,
+                f"{accuracy:.2f}%",
+                band_ko.get(band, ""),
+            ]
+        )
+
+    file_title = re.sub(r"[^0-9A-Za-z_-]+", "_", exam.title).strip("_")[:40] or f"exam_{exam.id}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"{file_title}_results_{timestamp}.csv"
+    csv_body = f"\ufeff{buffer.getvalue()}"
+    return Response(
+        content=csv_body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/admin/exams/{exam_id}/resources", response_model=list[ExamResourceSummary])

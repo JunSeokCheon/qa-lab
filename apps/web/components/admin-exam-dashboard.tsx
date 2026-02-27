@@ -15,6 +15,8 @@ type ExamSummary = {
   exam_kind: string;
   target_track_name?: string | null;
   question_count: number;
+  performance_high_min_correct?: number | null;
+  performance_mid_min_correct?: number | null;
 };
 
 type ExamSubmissionAnswer = {
@@ -476,6 +478,20 @@ function downloadText(content: string, fileName: string, mimeType: string): void
   URL.revokeObjectURL(url);
 }
 
+function parseContentDispositionFileName(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded && encoded[1]) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      return encoded[1];
+    }
+  }
+  const plain = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  return plain?.[1] ?? null;
+}
+
 type AdminExamDashboardProps = {
   initialExams: ExamSummary[];
   initialExamId?: number;
@@ -508,7 +524,23 @@ export function AdminExamDashboard({
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [downloadingBandCsv, setDownloadingBandCsv] = useState(false);
   const selectedExam = useMemo(() => exams.find((item) => item.id === examId) ?? null, [examId, exams]);
+  const performanceCutSummary = useMemo(() => {
+    if (!selectedExam) return "";
+    const high = selectedExam.performance_high_min_correct;
+    const mid = selectedExam.performance_mid_min_correct;
+    if ((high === null || high === undefined) && (mid === null || mid === undefined)) {
+      return "unset";
+    }
+    if (high !== null && high !== undefined && mid !== null && mid !== undefined) {
+      return `high >= ${high}, mid >= ${mid}`;
+    }
+    if (high !== null && high !== undefined) {
+      return `high >= ${high}, mid unset`;
+    }
+    return `high unset, mid >= ${mid}`;
+  }, [selectedExam]);
 
   const loadSubmissions = useCallback(async (targetExamId: number) => {
     setLoading(true);
@@ -842,6 +874,38 @@ export function AdminExamDashboard({
     );
   };
 
+  const onDownloadBandCsv = async () => {
+    if (!selectedExam || downloadingBandCsv) return;
+
+    setActionError("");
+    setActionMessage("");
+    setDownloadingBandCsv(true);
+    try {
+      const response = await fetch(`/api/admin/exams/${selectedExam.id}/results/csv`, { cache: "no-store" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
+        setActionError(payload.detail ?? payload.message ?? "CSV 다운로드에 실패했습니다.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileName =
+        parseContentDispositionFileName(response.headers.get("content-disposition")) ??
+        `exam-${selectedExam.id}-results.csv`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setActionMessage("CSV 다운로드를 시작했습니다.");
+    } catch {
+      setActionError("CSV 다운로드 요청 중 네트워크 오류가 발생했습니다.");
+    } finally {
+      setDownloadingBandCsv(false);
+    }
+  };
+
   const submitManualGrade = async (
     submissionId: number,
     questionId: number,
@@ -1040,7 +1104,16 @@ export function AdminExamDashboard({
             <Button type="button" variant="outline" onClick={onDownloadExcel} disabled={loading || exportRows.length === 0}>
               엑셀(.xls) 다운로드
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void onDownloadBandCsv()}
+              disabled={loading || downloadingBandCsv}
+            >
+              {downloadingBandCsv ? "CSV 준비 중..." : "상중하 CSV 다운로드"}
+            </Button>
           </div>
+          <p className="text-xs text-muted-foreground">상/중/하 기준: {performanceCutSummary}</p>
           <p className="text-xs text-muted-foreground">
             응시자 수: {submissions.length}명
             {studentFilter !== "all" || studentSearchKeyword.trim().length > 0 || needsReviewFilterActive
@@ -1333,3 +1406,4 @@ export function AdminExamDashboard({
     </main>
   );
 }
+

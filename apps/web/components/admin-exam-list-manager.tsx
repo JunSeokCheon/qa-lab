@@ -22,6 +22,8 @@ type ExamSummary = {
   status: string;
   starts_at: string | null;
   duration_minutes: number | null;
+  performance_high_min_correct: number | null;
+  performance_mid_min_correct: number | null;
   results_published: boolean;
   results_published_at: string | null;
   question_count: number;
@@ -51,6 +53,8 @@ type ExamDetail = {
   status: string;
   starts_at: string | null;
   duration_minutes: number | null;
+  performance_high_min_correct: number | null;
+  performance_mid_min_correct: number | null;
   results_published: boolean;
   results_published_at: string | null;
   questions: ExamQuestionDetail[];
@@ -100,6 +104,14 @@ function formatChoiceIndexesLabel(rawIndexes: number[] | undefined | null): stri
   const indexes = normalizeChoiceIndexes(rawIndexes);
   if (indexes.length === 0) return "선택 없음";
   return indexes.map((index) => `${index + 1}번`).join(", ");
+}
+
+function parseOptionalMinCorrectCut(value: string): number | null | "invalid" {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) return "invalid";
+  return parsed;
 }
 
 function toDraftQuestion(question: ExamQuestionDetail): DraftQuestion {
@@ -173,6 +185,8 @@ export function AdminExamListManager({
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
+  const [performanceHighMinCorrect, setPerformanceHighMinCorrect] = useState("");
+  const [performanceMidMinCorrect, setPerformanceMidMinCorrect] = useState("");
   const [status, setStatus] = useState<"draft" | "published">("published");
   const [questions, setQuestions] = useState<DraftQuestion[]>([]);
   const [copyResources, setCopyResources] = useState(true);
@@ -233,6 +247,8 @@ export function AdminExamListManager({
       setQuestions([]);
       setResourceRows([]);
       setStartsAtLocal("");
+      setPerformanceHighMinCorrect("");
+      setPerformanceMidMinCorrect("");
       return;
     }
     setDetailLoading(true);
@@ -272,6 +288,16 @@ export function AdminExamListManager({
       setStartsAtLocal(toDatetimeLocalValue(detailPayload.starts_at ?? null));
       setDurationMinutes(String(detailPayload.duration_minutes ?? 60));
       setNoTimeLimit(detailPayload.duration_minutes === null);
+      setPerformanceHighMinCorrect(
+        detailPayload.performance_high_min_correct !== null && detailPayload.performance_high_min_correct !== undefined
+          ? String(detailPayload.performance_high_min_correct)
+          : ""
+      );
+      setPerformanceMidMinCorrect(
+        detailPayload.performance_mid_min_correct !== null && detailPayload.performance_mid_min_correct !== undefined
+          ? String(detailPayload.performance_mid_min_correct)
+          : ""
+      );
       setStatus((detailPayload.status as "draft" | "published") ?? "published");
       setQuestions(detailPayload.questions.map(toDraftQuestion));
       setUploadFile(null);
@@ -423,6 +449,38 @@ export function AdminExamListManager({
         return;
       }
     }
+    const parsedHighMinCorrect = parseOptionalMinCorrectCut(performanceHighMinCorrect);
+    if (parsedHighMinCorrect === "invalid") {
+      setError("상 기준은 0 이상의 정수로 입력해 주세요.");
+      setSavingMeta(false);
+      return;
+    }
+    const parsedMidMinCorrect = parseOptionalMinCorrectCut(performanceMidMinCorrect);
+    if (parsedMidMinCorrect === "invalid") {
+      setError("중 기준은 0 이상의 정수로 입력해 주세요.");
+      setSavingMeta(false);
+      return;
+    }
+    if (
+      parsedHighMinCorrect !== null &&
+      parsedMidMinCorrect !== null &&
+      parsedHighMinCorrect <= parsedMidMinCorrect
+    ) {
+      setError("상 기준은 중 기준보다 크게 입력해 주세요.");
+      setSavingMeta(false);
+      return;
+    }
+    if (parsedHighMinCorrect !== null && parsedHighMinCorrect > questions.length) {
+      setError(`상 기준은 총 문항 수(${questions.length}) 이하로 입력해 주세요.`);
+      setSavingMeta(false);
+      return;
+    }
+    if (parsedMidMinCorrect !== null && parsedMidMinCorrect > questions.length) {
+      setError(`중 기준은 총 문항 수(${questions.length}) 이하로 입력해 주세요.`);
+      setSavingMeta(false);
+      return;
+    }
+
     const response = await fetch(`/api/admin/exams/${selectedExam.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -434,6 +492,8 @@ export function AdminExamListManager({
         target_track_name: targetTrackName,
         starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
+        performance_high_min_correct: parsedHighMinCorrect,
+        performance_mid_min_correct: parsedMidMinCorrect,
         status,
       }),
     });
@@ -447,6 +507,8 @@ export function AdminExamListManager({
       target_track_name?: string | null;
       starts_at?: string | null;
       duration_minutes?: number | null;
+      performance_high_min_correct?: number | null;
+      performance_mid_min_correct?: number | null;
       results_published?: boolean;
       results_published_at?: string | null;
       status?: string;
@@ -478,6 +540,14 @@ export function AdminExamListManager({
               target_track_name: payload.target_track_name ?? row.target_track_name,
               starts_at: payload.starts_at ?? row.starts_at,
               duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : row.duration_minutes,
+              performance_high_min_correct:
+                payload.performance_high_min_correct !== undefined
+                  ? payload.performance_high_min_correct
+                  : row.performance_high_min_correct,
+              performance_mid_min_correct:
+                payload.performance_mid_min_correct !== undefined
+                  ? payload.performance_mid_min_correct
+                  : row.performance_mid_min_correct,
               results_published: payload.results_published ?? row.results_published,
               results_published_at: payload.results_published_at ?? row.results_published_at,
               status: payload.status ?? row.status,
@@ -522,6 +592,33 @@ export function AdminExamListManager({
         return;
       }
     }
+    const parsedHighMinCorrect = parseOptionalMinCorrectCut(performanceHighMinCorrect);
+    if (parsedHighMinCorrect === "invalid") {
+      setRepublishError("상 기준은 0 이상의 정수로 입력해 주세요.");
+      return;
+    }
+    const parsedMidMinCorrect = parseOptionalMinCorrectCut(performanceMidMinCorrect);
+    if (parsedMidMinCorrect === "invalid") {
+      setRepublishError("중 기준은 0 이상의 정수로 입력해 주세요.");
+      return;
+    }
+    if (
+      parsedHighMinCorrect !== null &&
+      parsedMidMinCorrect !== null &&
+      parsedHighMinCorrect <= parsedMidMinCorrect
+    ) {
+      setRepublishError("상 기준은 중 기준보다 크게 입력해 주세요.");
+      return;
+    }
+    if (parsedHighMinCorrect !== null && parsedHighMinCorrect > questions.length) {
+      setRepublishError(`상 기준은 총 문항 수(${questions.length}) 이하로 입력해 주세요.`);
+      return;
+    }
+    if (parsedMidMinCorrect !== null && parsedMidMinCorrect > questions.length) {
+      setRepublishError(`중 기준은 총 문항 수(${questions.length}) 이하로 입력해 주세요.`);
+      return;
+    }
+
     if (questions.length === 0) {
       setRepublishError("최소 1개 문항이 필요합니다.");
       return;
@@ -582,6 +679,8 @@ export function AdminExamListManager({
         target_track_name: targetTrackName,
         starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
+        performance_high_min_correct: parsedHighMinCorrect,
+        performance_mid_min_correct: parsedMidMinCorrect,
         status: "published",
         questions: normalizedQuestions,
         copy_resources: copyResources,
@@ -598,6 +697,8 @@ export function AdminExamListManager({
       target_track_name?: string | null;
       starts_at?: string | null;
       duration_minutes?: number | null;
+      performance_high_min_correct?: number | null;
+      performance_mid_min_correct?: number | null;
       results_published?: boolean;
       results_published_at?: string | null;
       status?: string;
@@ -625,6 +726,14 @@ export function AdminExamListManager({
       target_track_name: payload.target_track_name ?? targetTrackName,
       starts_at: payload.starts_at ?? parsedStartsAt,
       duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : parsedDuration,
+      performance_high_min_correct:
+        payload.performance_high_min_correct !== undefined
+          ? payload.performance_high_min_correct
+          : parsedHighMinCorrect,
+      performance_mid_min_correct:
+        payload.performance_mid_min_correct !== undefined
+          ? payload.performance_mid_min_correct
+          : parsedMidMinCorrect,
       results_published: payload.results_published ?? false,
       results_published_at: payload.results_published_at ?? null,
       status: payload.status ?? "published",
@@ -813,6 +922,29 @@ export function AdminExamListManager({
                       <option value="quiz">퀴즈</option>
                       <option value="assessment">성취도 평가</option>
                     </select>
+                  </div>
+
+                  <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+                    <p className="text-sm font-medium">상/중/하 기준 (선택)</p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={performanceHighMinCorrect}
+                        onChange={(event) => setPerformanceHighMinCorrect(event.target.value)}
+                        placeholder="상: 최소 정답 개수"
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        value={performanceMidMinCorrect}
+                        onChange={(event) => setPerformanceMidMinCorrect(event.target.value)}
+                        placeholder="중: 최소 정답 개수"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      비워두면 기준 미설정으로 저장됩니다. 상 기준은 중 기준보다 커야 하며, 둘 다 총 문항 수 이하여야 합니다.
+                    </p>
                   </div>
 
                   <select

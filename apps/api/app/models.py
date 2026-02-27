@@ -170,6 +170,8 @@ class Exam(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
     starts_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    performance_high_min_correct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    performance_mid_min_correct: Mapped[int | None] = mapped_column(Integer, nullable=True)
     results_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     results_published_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

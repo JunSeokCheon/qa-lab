@@ -136,6 +136,14 @@ function formatChoiceIndexesLabel(rawIndexes: number[] | undefined | null): stri
   return indexes.map((index) => `${index + 1}번`).join(", ");
 }
 
+function parseOptionalMinCorrectCut(value: string): number | null | "invalid" {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) return "invalid";
+  return parsed;
+}
+
 function buildRubricHelperText(question: DraftQuestion): string {
   const answerPreview = question.answerKeyText.trim() || "(정답/채점 기준을 먼저 간단히 작성해 주세요)";
   if (question.type === "coding") {
@@ -210,6 +218,8 @@ export function AdminExamBuilder({
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
+  const [performanceHighMinCorrect, setPerformanceHighMinCorrect] = useState("");
+  const [performanceMidMinCorrect, setPerformanceMidMinCorrect] = useState("");
   const [questions, setQuestions] = useState<DraftQuestion[]>([newQuestion(1, "multiple_choice")]);
   const [resourceFiles, setResourceFiles] = useState<File[]>([]);
   const [answerKeyModalQuestionKey, setAnswerKeyModalQuestionKey] = useState<number | null>(null);
@@ -525,6 +535,38 @@ export function AdminExamBuilder({
       }
     }
 
+    const parsedHighMinCorrect = parseOptionalMinCorrectCut(performanceHighMinCorrect);
+    if (parsedHighMinCorrect === "invalid") {
+      setCreateError("상 기준은 0 이상의 정수로 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+    const parsedMidMinCorrect = parseOptionalMinCorrectCut(performanceMidMinCorrect);
+    if (parsedMidMinCorrect === "invalid") {
+      setCreateError("중 기준은 0 이상의 정수로 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+    if (
+      parsedHighMinCorrect !== null &&
+      parsedMidMinCorrect !== null &&
+      parsedHighMinCorrect <= parsedMidMinCorrect
+    ) {
+      setCreateError("상 기준은 중 기준보다 크게 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+    if (parsedHighMinCorrect !== null && parsedHighMinCorrect > questions.length) {
+      setCreateError(`상 기준은 총 문항 수(${questions.length}) 이하로 입력해 주세요.`);
+      setLoading(false);
+      return;
+    }
+    if (parsedMidMinCorrect !== null && parsedMidMinCorrect > questions.length) {
+      setCreateError(`중 기준은 총 문항 수(${questions.length}) 이하로 입력해 주세요.`);
+      setLoading(false);
+      return;
+    }
+
     const normalizedQuestions = [];
     for (const question of questions) {
       if (!question.prompt_md.trim()) {
@@ -583,6 +625,8 @@ export function AdminExamBuilder({
           target_track_name: targetTrackName,
           starts_at: parsedStartsAt,
           duration_minutes: parsedDuration,
+          performance_high_min_correct: parsedHighMinCorrect,
+          performance_mid_min_correct: parsedMidMinCorrect,
           status: "published",
           questions: normalizedQuestions,
         }),
@@ -625,6 +669,8 @@ export function AdminExamBuilder({
       setStartsAtLocal("");
       setDurationMinutes("60");
       setNoTimeLimit(false);
+      setPerformanceHighMinCorrect("");
+      setPerformanceMidMinCorrect("");
       setQuestions([newQuestion(Date.now(), "multiple_choice")]);
       questionImageInputRefs.current = {};
       setResourceFiles([]);
@@ -760,6 +806,29 @@ export function AdminExamBuilder({
             placeholder="예: 60"
             disabled={noTimeLimit}
           />
+        </div>
+
+        <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+          <p className="text-sm font-medium">상/중/하 기준 (선택)</p>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              type="number"
+              min={0}
+              value={performanceHighMinCorrect}
+              onChange={(event) => setPerformanceHighMinCorrect(event.target.value)}
+              placeholder="상: 최소 정답 개수"
+            />
+            <Input
+              type="number"
+              min={0}
+              value={performanceMidMinCorrect}
+              onChange={(event) => setPerformanceMidMinCorrect(event.target.value)}
+              placeholder="중: 최소 정답 개수"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            비워두면 기준 미설정 상태로 저장됩니다. 상 기준은 중 기준보다 커야 하며, 둘 다 총 문항 수 이하여야 합니다.
+          </p>
         </div>
 
         <div className="space-y-3">

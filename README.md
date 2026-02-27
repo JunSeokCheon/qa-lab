@@ -196,3 +196,23 @@ docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml 
 # - Admin: 객관식 정정 처리 후 상태 배지와 점수 반영 확인
 # - Student: /dashboard 결과에서 객관식 판정/집계가 정정 결과 기준으로 반영되는지 확인
 ```
+
+## Exam Band CSV Export (Local)
+```bash
+# 1) Apply API migration (adds optional high/mid band thresholds)
+cd apps/api
+. .venv/Scripts/Activate.ps1
+alembic upgrade head
+
+# 2) Run API
+fastapi dev main.py
+
+# 3) Run Web (pnpm)
+pnpm --dir apps/web dev
+```
+
+Manual check:
+- Admin: `/admin/problems` or `/admin/exams`에서 시험 상/중 기준(선택) 입력
+- Admin: 응시 제출이 모두 `GRADED` 상태인지 확인
+- Admin dashboard(`/dashboard`): `상중하 CSV 다운로드` 클릭
+- CSV에서 `total_questions`, `correct_answers`, `performance_band_ko` 컬럼 확인

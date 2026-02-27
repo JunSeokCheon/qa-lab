@@ -16,6 +16,8 @@ type ExamSummary = {
   exam_kind: string;
   target_track_name?: string | null;
   question_count: number;
+  performance_high_min_correct?: number | null;
+  performance_mid_min_correct?: number | null;
 };
 
 type QueryValue = string | string[] | undefined;

@@ -16,6 +16,8 @@ type ExamSummary = {
   status: string;
   starts_at: string | null;
   duration_minutes: number | null;
+  performance_high_min_correct: number | null;
+  performance_mid_min_correct: number | null;
   results_published: boolean;
   results_published_at: string | null;
   question_count: number;
