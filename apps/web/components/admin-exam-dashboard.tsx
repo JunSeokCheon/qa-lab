@@ -745,25 +745,18 @@ export function AdminExamDashboard({
     [correctCountDistribution]
   );
 
-  const exportQuestions = useMemo(() => {
-    const byQuestion = new Map<number, { id: number; order: number; type: string }>();
-    for (const submission of submissions) {
-      for (const answer of submission.answers) {
-        if (answer.question_type !== "multiple_choice" && answer.question_type !== "coding") continue;
-        if (!byQuestion.has(answer.question_id)) {
-          byQuestion.set(answer.question_id, {
-            id: answer.question_id,
-            order: answer.question_order,
-            type: answer.question_type,
-          });
-        }
-      }
-    }
-    return [...byQuestion.values()].sort((a, b) => a.order - b.order);
-  }, [submissions]);
+  const exportQuestions = useMemo(
+    () =>
+      allQuestionOptions.map((item) => ({
+        id: item.questionId,
+        order: item.questionOrder,
+        type: item.questionType,
+      })),
+    [allQuestionOptions]
+  );
 
   const exportQuestionHeaders = useMemo(
-    () => exportQuestions.map((question) => `${question.order}번`),
+    () => exportQuestions.map((question) => `${question.order}번(${questionTypeLabel(question.type)})`),
     [exportQuestions]
   );
 

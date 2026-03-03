@@ -236,3 +236,21 @@ Manual check:
 - Signup `/signup`: verify the new track appears in the track selector
 - Admin `/admin/problems`, `/admin/exams`: verify the new track appears in exam target track selectors
 - Login with a user in the new track and verify target exams are visible in `/problems`
+
+## Admin CSV/Excel Full Question Export (Local)
+```bash
+# 1) Refresh local docker stack
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
+
+# 2) Web check (PowerShell)
+pnpm.cmd --dir apps/web lint
+pnpm.cmd --dir apps/web build
+```
+
+Manual check:
+- Admin dashboard(`/dashboard`)에서 CSV/엑셀 다운로드 실행
+- 컬럼 헤더가 `1번(주관식)`, `2번(객관식)`, `3번(코딩)`처럼 문항 타입을 표시하는지 확인
+- 주관식/코딩/객관식이 모두 내보내기 집계에 포함되는지 확인
