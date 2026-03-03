@@ -80,8 +80,6 @@ type ExamResource = {
   created_at: string;
 };
 
-const TRACK_OPTIONS = ["데이터 분석 11기", "QAQC 4기"] as const;
-
 function examKindLabel(kind: string): string {
   if (kind === "quiz") return "퀴즈";
   if (kind === "assessment") return "성취도 평가";
@@ -154,12 +152,15 @@ function newDraftQuestion(type: QuestionType): DraftQuestion {
 export function AdminExamListManager({
   initialFolders,
   initialExams,
+  initialTracks,
 }: {
   initialFolders: Folder[];
   initialExams: ExamSummary[];
+  initialTracks: string[];
 }) {
   const router = useRouter();
   const [folders] = useState(initialFolders);
+  const [tracks, setTracks] = useState(initialTracks);
   const [exams, setExams] = useState(initialExams);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(initialExams[0]?.id ?? null);
   const selectedExam = useMemo(
@@ -181,7 +182,7 @@ export function AdminExamListManager({
   const [description, setDescription] = useState("");
   const [folderId, setFolderId] = useState("");
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
-  const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
+  const [targetTrackName, setTargetTrackName] = useState<string>(initialTracks[0] ?? "");
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
@@ -231,6 +232,25 @@ export function AdminExamListManager({
     if (questions.some((question) => question.key === answerKeyModalQuestionKey)) return;
     setAnswerKeyModalQuestionKey(null);
   }, [questions, answerKeyModalQuestionKey]);
+
+  useEffect(() => {
+    if (tracks.length > 0) return;
+    void (async () => {
+      const response = await fetch("/api/admin/tracks", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json().catch(() => [])) as string[];
+      const nextTracks = payload.map((track) => track.trim()).filter((track) => track.length > 0);
+      if (nextTracks.length === 0) return;
+      setTracks(nextTracks);
+      setTargetTrackName((current) => (current ? current : nextTracks[0]));
+    })();
+  }, [tracks.length]);
+
+  useEffect(() => {
+    if (tracks.length === 0) return;
+    if (tracks.includes(targetTrackName)) return;
+    setTargetTrackName(tracks[0]);
+  }, [targetTrackName, tracks]);
 
   const loadResources = async (examId: number) => {
     const response = await fetch(`/api/admin/exams/${examId}/resources`, { cache: "no-store" });
@@ -284,7 +304,7 @@ export function AdminExamListManager({
       setDescription(detailPayload.description ?? "");
       setFolderId(detailPayload.folder_id ? String(detailPayload.folder_id) : "");
       setExamKind((detailPayload.exam_kind as "quiz" | "assessment") ?? "quiz");
-      setTargetTrackName(detailPayload.target_track_name ?? TRACK_OPTIONS[0]);
+      setTargetTrackName(detailPayload.target_track_name ?? "");
       setStartsAtLocal(toDatetimeLocalValue(detailPayload.starts_at ?? null));
       setDurationMinutes(String(detailPayload.duration_minutes ?? 60));
       setNoTimeLimit(detailPayload.duration_minutes === null);
@@ -951,8 +971,10 @@ export function AdminExamListManager({
                     className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
                     value={targetTrackName}
                     onChange={(event) => setTargetTrackName(event.target.value)}
+                    disabled={tracks.length === 0}
                   >
-                    {TRACK_OPTIONS.map((track) => (
+                    <option value="">{tracks.length === 0 ? "등록된 트랙이 없습니다" : "응시 대상 트랙 선택"}</option>
+                    {tracks.map((track) => (
                       <option key={track} value={track}>
                         응시 대상: {track}
                       </option>

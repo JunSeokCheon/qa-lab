@@ -109,6 +109,9 @@ export default async function HomePage() {
                       <Link href="/admin/users">
                         <Button variant="outline">사용자 관리</Button>
                       </Link>
+                      <Link href="/admin/tracks">
+                        <Button variant="outline">트랙 관리</Button>
+                      </Link>
                       <Link href="/dashboard">
                         <Button variant="outline">대시보드</Button>
                       </Link>
@@ -187,3 +190,8 @@ export default async function HomePage() {
     </div>
   );
 }
+
+
+
+
+

@@ -30,7 +30,6 @@ type DraftQuestion = {
   imageFiles: DraftQuestionImage[];
 };
 
-const TRACK_OPTIONS = ["데이터 분석 11기", "QAQC 4기"] as const;
 const TEMPLATE_PANDAS_HEAD = "pandas_head";
 const TEMPLATE_FUNCTION_IO = "function_io";
 const TEMPLATE_VISUAL_STATS = "visual_stats";
@@ -198,12 +197,15 @@ function buildRubricHelperText(question: DraftQuestion): string {
 
 export function AdminExamBuilder({
   initialFolders,
+  initialTracks,
 }: {
   initialFolders: Folder[];
+  initialTracks: string[];
 }) {
   const router = useRouter();
   const [existingExamTitles, setExistingExamTitles] = useState<string[]>([]);
   const [folders, setFolders] = useState(initialFolders);
+  const [tracks, setTracks] = useState<string[]>(initialTracks);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -214,7 +216,7 @@ export function AdminExamBuilder({
   const [description, setDescription] = useState("");
   const [folderId, setFolderId] = useState(initialFolders[0] ? String(initialFolders[0].id) : "");
   const [examKind, setExamKind] = useState<"quiz" | "assessment">("quiz");
-  const [targetTrackName, setTargetTrackName] = useState<string>(TRACK_OPTIONS[0]);
+  const [targetTrackName, setTargetTrackName] = useState<string>(initialTracks[0] ?? "");
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
@@ -250,6 +252,25 @@ export function AdminExamBuilder({
       setFolderId(String(payload[0].id));
     })();
   }, [folders.length]);
+
+  useEffect(() => {
+    if (tracks.length > 0) return;
+    void (async () => {
+      const response = await fetch("/api/admin/tracks", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json().catch(() => [])) as string[];
+      const nextTracks = payload.map((track) => track.trim()).filter((track) => track.length > 0);
+      if (nextTracks.length === 0) return;
+      setTracks(nextTracks);
+      setTargetTrackName((current) => (current ? current : nextTracks[0]));
+    })();
+  }, [tracks.length]);
+
+  useEffect(() => {
+    if (tracks.length === 0) return;
+    if (tracks.includes(targetTrackName)) return;
+    setTargetTrackName(tracks[0]);
+  }, [targetTrackName, tracks]);
 
   useEffect(() => {
     void (async () => {
@@ -665,7 +686,7 @@ export function AdminExamBuilder({
       }
       setTitle("");
       setDescription("");
-      setTargetTrackName(TRACK_OPTIONS[0]);
+      setTargetTrackName(tracks[0] ?? "");
       setStartsAtLocal("");
       setDurationMinutes("60");
       setNoTimeLimit(false);
@@ -767,8 +788,10 @@ export function AdminExamBuilder({
           className="h-11 w-full rounded-xl border border-border/70 bg-background/80 px-3 text-sm"
           value={targetTrackName}
           onChange={(event) => setTargetTrackName(event.target.value)}
+          disabled={tracks.length === 0}
         >
-          {TRACK_OPTIONS.map((track) => (
+          <option value="">{tracks.length === 0 ? "등록된 트랙이 없습니다" : "응시 대상 트랙 선택"}</option>
+          {tracks.map((track) => (
             <option key={track} value={track}>
               응시 대상: {track}
             </option>

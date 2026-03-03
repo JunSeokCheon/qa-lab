@@ -52,6 +52,7 @@ from app.models import (
     ProblemFolder,
     ProblemVersion,
     ProblemVersionSkill,
+    Track,
     Skill,
     Submission,
     User,
@@ -115,6 +116,8 @@ from app.schemas import (
     ProgressTrendPoint,
     RegisterRequest,
     RefreshTokenRequest,
+    TrackCreateRequest,
+    TrackResponse,
     SkillCreate,
     SkillResponse,
     SkillUpdate,
@@ -151,10 +154,7 @@ _EXAM_KIND_ALIASES = {
     "성취도평가": "assessment",
     "성취도 평가": "assessment",
 }
-_TRACK_OPTIONS = {
-    "데이터 분석 11기",
-    "QAQC 4기",
-}
+_TRACK_HEX_ESCAPE_RE = re.compile(r"\\(?:u)?([0-9A-Fa-f]{4})")
 _EXAM_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 _APPEAL_REGRADING_MODEL = "gpt-5-mini"
 _EXAM_SKILL_KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -296,15 +296,94 @@ def _sanitize_exam_status(raw_status: str) -> str:
     return status_value
 
 
-def _sanitize_exam_target_track_name(raw_track_name: str) -> str:
-    track_name = raw_track_name.strip()
-    if track_name not in _TRACK_OPTIONS:
-        options = ", ".join(sorted(_TRACK_OPTIONS))
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"시험 대상 반은 다음 중 하나여야 합니다: {options}",
-        )
+def _canonicalize_track_name(raw_track_name: str) -> str:
+    normalized = _TRACK_HEX_ESCAPE_RE.sub(
+        lambda match: chr(int(match.group(1), 16)),
+        raw_track_name.strip(),
+    )
+    return normalized.strip()
+
+
+def _sanitize_track_name(raw_track_name: str, *, label: str = "트랙") -> str:
+    track_name = _canonicalize_track_name(raw_track_name)
+    if not track_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{label}을(를) 입력해 주세요.")
+    if len(track_name) > 100:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{label}명은 100자 이하여야 합니다.")
     return track_name
+
+
+async def _load_track_names(session: AsyncSession) -> list[str]:
+    rows = await session.execute(select(Track.name).order_by(func.lower(Track.name).asc(), Track.name.asc()))
+    by_key: dict[str, str] = {}
+    for raw_name in rows.scalars().all():
+        value = _canonicalize_track_name(str(raw_name))
+        if not value:
+            continue
+        key = value.casefold()
+        if key not in by_key:
+            by_key[key] = value
+    return sorted(by_key.values(), key=lambda value: value.casefold())
+
+
+async def _load_available_track_names(session: AsyncSession) -> list[str]:
+    by_key: dict[str, str] = {}
+
+    def add_track_name(raw_name: str | None) -> None:
+        if raw_name is None:
+            return
+        value = _canonicalize_track_name(str(raw_name))
+        if not value:
+            return
+        key = value.casefold()
+        if key not in by_key:
+            by_key[key] = value
+
+    for track_name in await _load_track_names(session):
+        add_track_name(track_name)
+
+    user_rows = await session.execute(select(User.track_name).distinct())
+    for track_name in user_rows.scalars().all():
+        add_track_name(track_name)
+
+    exam_rows = await session.execute(select(Exam.target_track_name).where(Exam.target_track_name.is_not(None)).distinct())
+    for track_name in exam_rows.scalars().all():
+        add_track_name(track_name)
+
+    return sorted(by_key.values(), key=lambda value: value.casefold())
+
+
+async def _resolve_track_name(
+    session: AsyncSession,
+    raw_track_name: str,
+    *,
+    label: str,
+    not_found_detail: str,
+) -> str:
+    normalized_track_name = _sanitize_track_name(raw_track_name, label=label)
+    for track_name in await _load_track_names(session):
+        if track_name.casefold() == normalized_track_name.casefold():
+            return track_name
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=not_found_detail)
+
+
+async def _sanitize_user_track_name(session: AsyncSession, raw_track_name: str) -> str:
+    return await _resolve_track_name(
+        session,
+        raw_track_name,
+        label="트랙",
+        not_found_detail="선택한 트랙이 존재하지 않습니다. 관리자에게 트랙 생성 요청 후 다시 시도해 주세요.",
+    )
+
+
+async def _sanitize_exam_target_track_name(session: AsyncSession, raw_track_name: str) -> str:
+    return await _resolve_track_name(
+        session,
+        raw_track_name,
+        label="시험 대상 트랙",
+        not_found_detail="시험 대상 트랙이 존재하지 않습니다. 관리자에서 트랙을 먼저 생성해 주세요.",
+    )
 
 
 def _sanitize_exam_duration_minutes(duration_minutes: int | None) -> int | None:
@@ -1259,12 +1338,7 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이름은 2자 이상이어야 합니다.")
     if len(display_name) > 100:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이름은 100자 이하여야 합니다.")
-    track_name = payload.track_name.strip()
-    if track_name not in _TRACK_OPTIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="트랙은 데이터 분석 11기, QAQC 4기 중 하나여야 합니다.",
-        )
+    track_name = await _sanitize_user_track_name(session, payload.track_name)
     if len(payload.password) < 8:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="비밀번호는 8자 이상이어야 합니다.")
 
@@ -1502,15 +1576,113 @@ async def admin_health(_: Annotated[User, Depends(require_admin)]) -> dict[str, 
     return {"admin": "ok"}
 
 
+@app.get("/tracks", response_model=list[str])
+async def list_tracks(
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[str]:
+    return await _load_track_names(session)
+
+
+@app.get("/admin/tracks", response_model=list[str])
+async def list_admin_tracks(
+    _: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> list[str]:
+    return await _load_track_names(session)
+
+
+@app.post("/admin/tracks", response_model=TrackResponse, status_code=status.HTTP_201_CREATED)
+async def create_admin_track(
+    payload: TrackCreateRequest,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> TrackResponse:
+    track_name = _sanitize_track_name(payload.name, label="트랙")
+    existing_track_names = await _load_track_names(session)
+    if any(existing_name.casefold() == track_name.casefold() for existing_name in existing_track_names):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 존재하는 트랙입니다.")
+
+    track = Track(name=track_name)
+    session.add(track)
+    await session.flush()
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="track.create",
+        resource_type="track",
+        resource_id=str(track.id),
+        metadata={"name": track.name},
+    )
+    await session.commit()
+    await session.refresh(track)
+    return TrackResponse(id=track.id, name=track.name, created_at=track.created_at)
+
+
+@app.delete("/admin/tracks/{track_name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin_track(
+    track_name: str,
+    request: Request,
+    admin_user: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> None:
+    resolved_track_name = _sanitize_track_name(track_name, label="트랙")
+    tracks = (await session.execute(select(Track).order_by(Track.id.asc()))).scalars().all()
+    target = next(
+        (
+            track
+            for track in tracks
+            if _canonicalize_track_name(str(track.name)).casefold() == resolved_track_name.casefold()
+        ),
+        None,
+    )
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="트랙을 찾을 수 없습니다.")
+
+    affected_user_count = int(
+        (
+            await session.scalar(
+                select(func.count(User.id)).where(func.lower(User.track_name) == target.name.lower())
+            )
+        )
+        or 0
+    )
+    affected_exam_count = int(
+        (
+            await session.scalar(
+                select(func.count(Exam.id)).where(
+                    Exam.target_track_name.is_not(None),
+                    func.lower(Exam.target_track_name) == target.name.lower(),
+                )
+            )
+        )
+        or 0
+    )
+
+    await _write_admin_audit_log(
+        session=session,
+        request=request,
+        actor_user_id=admin_user.id,
+        action="track.delete",
+        resource_type="track",
+        resource_id=str(target.id),
+        metadata={
+            "name": target.name,
+            "affected_user_count": affected_user_count,
+            "affected_exam_count": affected_exam_count,
+        },
+    )
+    await session.delete(target)
+    await session.commit()
+
+
 @app.get("/admin/users/tracks", response_model=list[str])
 async def list_admin_user_tracks(
     _: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> list[str]:
-    rows = await session.execute(select(User.track_name).distinct().order_by(User.track_name.asc()))
-    db_tracks = [str(track).strip() for track in rows.scalars().all() if str(track).strip()]
-    merged = set(db_tracks) | set(_TRACK_OPTIONS)
-    return sorted(merged)
+    return await _load_available_track_names(session)
 
 
 @app.get("/admin/users", response_model=list[AdminUserSummary])
@@ -1853,7 +2025,7 @@ async def _create_exam_with_questions(
         description=payload.description.strip() if payload.description else None,
         folder_id=folder_id,
         exam_kind=_normalize_exam_kind(payload.exam_kind),
-        target_track_name=_sanitize_exam_target_track_name(payload.target_track_name),
+        target_track_name=await _sanitize_exam_target_track_name(session, payload.target_track_name),
         status=_sanitize_exam_status(payload.status),
         starts_at=_sanitize_exam_starts_at(payload.starts_at),
         duration_minutes=_sanitize_exam_duration_minutes(payload.duration_minutes),
@@ -2304,7 +2476,7 @@ async def update_admin_exam(
     exam.description = payload.description.strip() if payload.description else None
     exam.folder_id = folder_id
     exam.exam_kind = _normalize_exam_kind(payload.exam_kind)
-    exam.target_track_name = _sanitize_exam_target_track_name(payload.target_track_name)
+    exam.target_track_name = await _sanitize_exam_target_track_name(session, payload.target_track_name)
     exam.status = _sanitize_exam_status(payload.status)
     exam.starts_at = _sanitize_exam_starts_at(payload.starts_at)
     exam.duration_minutes = _sanitize_exam_duration_minutes(payload.duration_minutes)

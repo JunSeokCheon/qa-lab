@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const TRACK_OPTIONS = ["데이터 분석 11기", "QAQC 4기"] as const;
 type FieldKey = "username" | "name" | "trackName" | "password" | "confirm";
 
 function FieldStatus({ state }: { state: "idle" | "valid" | "invalid" }) {
@@ -32,6 +31,9 @@ export default function SignupPage() {
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [trackName, setTrackName] = useState("");
+  const [trackOptions, setTrackOptions] = useState<string[]>([]);
+  const [trackLoading, setTrackLoading] = useState(true);
+  const [trackLoadError, setTrackLoadError] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -65,6 +67,46 @@ export default function SignupPage() {
   const touchField = (field: FieldKey) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setTrackLoading(true);
+      setTrackLoadError("");
+      try {
+        const response = await fetch("/api/tracks", { cache: "no-store" });
+        const payload = (await response.json().catch(() => [])) as string[] | { detail?: string; message?: string };
+        if (!response.ok) {
+          if (cancelled) return;
+          const messagePayload = payload as { detail?: string; message?: string };
+          setTrackOptions([]);
+          setTrackLoadError(messagePayload.detail ?? messagePayload.message ?? "트랙 목록을 불러오지 못했습니다.");
+          return;
+        }
+
+        const nextTracks = Array.isArray(payload)
+          ? payload.map((track) => String(track).trim()).filter((track) => track.length > 0)
+          : [];
+        if (cancelled) return;
+        setTrackOptions(nextTracks);
+        if (nextTracks.length === 1) {
+          setTrackName((current) => (current ? current : nextTracks[0]));
+        }
+      } catch {
+        if (cancelled) return;
+        setTrackOptions([]);
+        setTrackLoadError("트랙 목록을 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) {
+          setTrackLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toErrorMessage = (payload: unknown): string => {
     if (!payload || typeof payload !== "object") return "회원가입에 실패했습니다.";
@@ -178,10 +220,13 @@ export default function SignupPage() {
                 value={trackName}
                 onChange={(e) => setTrackName(e.target.value)}
                 onBlur={() => touchField("trackName")}
+                disabled={trackLoading || trackOptions.length === 0}
                 required
               >
-                <option value="">본인 트랙 선택</option>
-                {TRACK_OPTIONS.map((option) => (
+                <option value="">
+                  {trackLoading ? "트랙 목록 불러오는 중..." : trackOptions.length === 0 ? "등록된 트랙이 없습니다" : "본인 트랙 선택"}
+                </option>
+                {trackOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -189,6 +234,7 @@ export default function SignupPage() {
               </select>
               <FieldStatus state={statusFor("trackName")} />
             </div>
+            {trackLoadError ? <p className="text-xs text-destructive">{trackLoadError}</p> : null}
 
             <div className="relative">
               <Input

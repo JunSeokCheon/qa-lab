@@ -48,6 +48,16 @@ class AdminUserSummary(BaseModel):
     created_at: datetime
 
 
+class TrackCreateRequest(BaseModel):
+    name: str
+
+
+class TrackResponse(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+
+
 class PasswordForgotRequest(BaseModel):
     username: str
 

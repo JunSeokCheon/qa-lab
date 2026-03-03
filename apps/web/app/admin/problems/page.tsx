@@ -43,6 +43,15 @@ async function ensureDefaultFolders(token: string): Promise<Folder[]> {
   return folders;
 }
 
+async function fetchTracks(token: string): Promise<string[]> {
+  const response = await fetch(`${FASTAPI_BASE_URL}/admin/tracks`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!response.ok) return [];
+  return (await response.json().catch(() => [])) as string[];
+}
+
 export default async function AdminProblemsPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
@@ -53,6 +62,6 @@ export default async function AdminProblemsPage() {
     redirect("/admin");
   }
 
-  const initialFolders = await ensureDefaultFolders(token);
-  return <AdminExamBuilder initialFolders={initialFolders} />;
+  const [initialFolders, initialTracks] = await Promise.all([ensureDefaultFolders(token), fetchTracks(token)]);
+  return <AdminExamBuilder initialFolders={initialFolders} initialTracks={initialTracks} />;
 }

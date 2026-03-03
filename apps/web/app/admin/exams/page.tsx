@@ -60,6 +60,15 @@ async function ensureDefaultFolders(token: string): Promise<Folder[]> {
   return folders;
 }
 
+async function fetchTracks(token: string): Promise<string[]> {
+  const response = await fetch(`${FASTAPI_BASE_URL}/admin/tracks`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!response.ok) return [];
+  return (await response.json().catch(() => [])) as string[];
+}
+
 export default async function AdminExamListPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
@@ -70,8 +79,9 @@ export default async function AdminExamListPage() {
     redirect("/admin");
   }
 
-  const [initialFolders, examsResponse] = await Promise.all([
+  const [initialFolders, initialTracks, examsResponse] = await Promise.all([
     ensureDefaultFolders(token),
+    fetchTracks(token),
     fetch(`${FASTAPI_BASE_URL}/admin/exams`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
@@ -79,5 +89,5 @@ export default async function AdminExamListPage() {
   ]);
   const initialExams = (await examsResponse.json().catch(() => [])) as ExamSummary[];
 
-  return <AdminExamListManager initialFolders={initialFolders} initialExams={initialExams} />;
+  return <AdminExamListManager initialFolders={initialFolders} initialExams={initialExams} initialTracks={initialTracks} />;
 }

@@ -216,3 +216,23 @@ Manual check:
 - Admin: 응시 제출이 모두 `GRADED` 상태인지 확인
 - Admin dashboard(`/dashboard`): `상중하 CSV 다운로드` 클릭
 - CSV에서 `total_questions`, `correct_answers`, `performance_band_ko` 컬럼 확인
+
+## Dynamic Track Management (Local)
+```bash
+# 1) Refresh local docker stack (includes alembic upgrade on API start)
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
+
+# 2) Run track-management smoke test
+node scripts/track_management_local_check.mjs
+# Optional: set a fixed track name for idempotent runs
+# TRACK_NAME=로컬트랙-테스트 node scripts/track_management_local_check.mjs
+```
+
+Manual check:
+- Admin `/admin/tracks`: create/delete tracks (delete requires confirmation modal)
+- Signup `/signup`: verify the new track appears in the track selector
+- Admin `/admin/problems`, `/admin/exams`: verify the new track appears in exam target track selectors
+- Login with a user in the new track and verify target exams are visible in `/problems`

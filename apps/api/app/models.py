@@ -21,6 +21,14 @@ class ProblemVersionStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class Track(Base):
+    __tablename__ = "tracks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class User(Base):
     __tablename__ = "users"
 
