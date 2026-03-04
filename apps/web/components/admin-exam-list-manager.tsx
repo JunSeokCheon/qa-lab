@@ -22,6 +22,9 @@ type ExamSummary = {
   status: string;
   starts_at: string | null;
   duration_minutes: number | null;
+  multiple_choice_score: number;
+  subjective_score: number;
+  coding_score: number;
   performance_high_min_correct: number | null;
   performance_mid_min_correct: number | null;
   results_published: boolean;
@@ -53,6 +56,9 @@ type ExamDetail = {
   status: string;
   starts_at: string | null;
   duration_minutes: number | null;
+  multiple_choice_score: number;
+  subjective_score: number;
+  coding_score: number;
   performance_high_min_correct: number | null;
   performance_mid_min_correct: number | null;
   results_published: boolean;
@@ -109,6 +115,13 @@ function parseOptionalMinCorrectCut(value: string): number | null | "invalid" {
   if (!trimmed) return null;
   const parsed = Number.parseInt(trimmed, 10);
   if (!Number.isInteger(parsed) || parsed < 0) return "invalid";
+  return parsed;
+}
+
+function parseScoreWeight(value: string): number | "invalid" {
+  const trimmed = value.trim();
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) return "invalid";
   return parsed;
 }
 
@@ -186,6 +199,9 @@ export function AdminExamListManager({
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
+  const [multipleChoiceScore, setMultipleChoiceScore] = useState("1");
+  const [subjectiveScore, setSubjectiveScore] = useState("3");
+  const [codingScore, setCodingScore] = useState("3");
   const [performanceHighMinCorrect, setPerformanceHighMinCorrect] = useState("");
   const [performanceMidMinCorrect, setPerformanceMidMinCorrect] = useState("");
   const [status, setStatus] = useState<"draft" | "published">("published");
@@ -267,6 +283,9 @@ export function AdminExamListManager({
       setQuestions([]);
       setResourceRows([]);
       setStartsAtLocal("");
+      setMultipleChoiceScore("1");
+      setSubjectiveScore("3");
+      setCodingScore("3");
       setPerformanceHighMinCorrect("");
       setPerformanceMidMinCorrect("");
       return;
@@ -308,6 +327,13 @@ export function AdminExamListManager({
       setStartsAtLocal(toDatetimeLocalValue(detailPayload.starts_at ?? null));
       setDurationMinutes(String(detailPayload.duration_minutes ?? 60));
       setNoTimeLimit(detailPayload.duration_minutes === null);
+      setMultipleChoiceScore(
+        Number.isInteger(detailPayload.multiple_choice_score) ? String(detailPayload.multiple_choice_score) : "1"
+      );
+      setSubjectiveScore(
+        Number.isInteger(detailPayload.subjective_score) ? String(detailPayload.subjective_score) : "3"
+      );
+      setCodingScore(Number.isInteger(detailPayload.coding_score) ? String(detailPayload.coding_score) : "3");
       setPerformanceHighMinCorrect(
         detailPayload.performance_high_min_correct !== null && detailPayload.performance_high_min_correct !== undefined
           ? String(detailPayload.performance_high_min_correct)
@@ -469,6 +495,24 @@ export function AdminExamListManager({
         return;
       }
     }
+    const parsedMultipleChoiceScore = parseScoreWeight(multipleChoiceScore);
+    if (parsedMultipleChoiceScore === "invalid") {
+      setError("객관식 점수는 1~100 사이의 정수로 입력해 주세요.");
+      setSavingMeta(false);
+      return;
+    }
+    const parsedSubjectiveScore = parseScoreWeight(subjectiveScore);
+    if (parsedSubjectiveScore === "invalid") {
+      setError("주관식 점수는 1~100 사이의 정수로 입력해 주세요.");
+      setSavingMeta(false);
+      return;
+    }
+    const parsedCodingScore = parseScoreWeight(codingScore);
+    if (parsedCodingScore === "invalid") {
+      setError("코딩 점수는 1~100 사이의 정수로 입력해 주세요.");
+      setSavingMeta(false);
+      return;
+    }
     const parsedHighMinCorrect = parseOptionalMinCorrectCut(performanceHighMinCorrect);
     if (parsedHighMinCorrect === "invalid") {
       setError("상 기준은 0 이상의 정수로 입력해 주세요.");
@@ -512,6 +556,9 @@ export function AdminExamListManager({
         target_track_name: targetTrackName,
         starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
+        multiple_choice_score: parsedMultipleChoiceScore,
+        subjective_score: parsedSubjectiveScore,
+        coding_score: parsedCodingScore,
         performance_high_min_correct: parsedHighMinCorrect,
         performance_mid_min_correct: parsedMidMinCorrect,
         status,
@@ -527,6 +574,9 @@ export function AdminExamListManager({
       target_track_name?: string | null;
       starts_at?: string | null;
       duration_minutes?: number | null;
+      multiple_choice_score?: number;
+      subjective_score?: number;
+      coding_score?: number;
       performance_high_min_correct?: number | null;
       performance_mid_min_correct?: number | null;
       results_published?: boolean;
@@ -560,6 +610,11 @@ export function AdminExamListManager({
               target_track_name: payload.target_track_name ?? row.target_track_name,
               starts_at: payload.starts_at ?? row.starts_at,
               duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : row.duration_minutes,
+              multiple_choice_score:
+                payload.multiple_choice_score !== undefined ? payload.multiple_choice_score : row.multiple_choice_score,
+              subjective_score:
+                payload.subjective_score !== undefined ? payload.subjective_score : row.subjective_score,
+              coding_score: payload.coding_score !== undefined ? payload.coding_score : row.coding_score,
               performance_high_min_correct:
                 payload.performance_high_min_correct !== undefined
                   ? payload.performance_high_min_correct
@@ -611,6 +666,21 @@ export function AdminExamListManager({
         setRepublishError("시험 시간은 1분 이상 1440분 이하로 입력해 주세요.");
         return;
       }
+    }
+    const parsedMultipleChoiceScore = parseScoreWeight(multipleChoiceScore);
+    if (parsedMultipleChoiceScore === "invalid") {
+      setRepublishError("객관식 점수는 1~100 사이의 정수로 입력해 주세요.");
+      return;
+    }
+    const parsedSubjectiveScore = parseScoreWeight(subjectiveScore);
+    if (parsedSubjectiveScore === "invalid") {
+      setRepublishError("주관식 점수는 1~100 사이의 정수로 입력해 주세요.");
+      return;
+    }
+    const parsedCodingScore = parseScoreWeight(codingScore);
+    if (parsedCodingScore === "invalid") {
+      setRepublishError("코딩 점수는 1~100 사이의 정수로 입력해 주세요.");
+      return;
     }
     const parsedHighMinCorrect = parseOptionalMinCorrectCut(performanceHighMinCorrect);
     if (parsedHighMinCorrect === "invalid") {
@@ -699,6 +769,9 @@ export function AdminExamListManager({
         target_track_name: targetTrackName,
         starts_at: parsedStartsAt,
         duration_minutes: parsedDuration,
+        multiple_choice_score: parsedMultipleChoiceScore,
+        subjective_score: parsedSubjectiveScore,
+        coding_score: parsedCodingScore,
         performance_high_min_correct: parsedHighMinCorrect,
         performance_mid_min_correct: parsedMidMinCorrect,
         status: "published",
@@ -717,6 +790,9 @@ export function AdminExamListManager({
       target_track_name?: string | null;
       starts_at?: string | null;
       duration_minutes?: number | null;
+      multiple_choice_score?: number;
+      subjective_score?: number;
+      coding_score?: number;
       performance_high_min_correct?: number | null;
       performance_mid_min_correct?: number | null;
       results_published?: boolean;
@@ -746,6 +822,10 @@ export function AdminExamListManager({
       target_track_name: payload.target_track_name ?? targetTrackName,
       starts_at: payload.starts_at ?? parsedStartsAt,
       duration_minutes: payload.duration_minutes !== undefined ? payload.duration_minutes : parsedDuration,
+      multiple_choice_score:
+        payload.multiple_choice_score !== undefined ? payload.multiple_choice_score : parsedMultipleChoiceScore,
+      subjective_score: payload.subjective_score !== undefined ? payload.subjective_score : parsedSubjectiveScore,
+      coding_score: payload.coding_score !== undefined ? payload.coding_score : parsedCodingScore,
       performance_high_min_correct:
         payload.performance_high_min_correct !== undefined
           ? payload.performance_high_min_correct
@@ -1012,6 +1092,39 @@ export function AdminExamListManager({
                       placeholder="예: 60"
                       disabled={noTimeLimit}
                     />
+                  </div>
+
+                  <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+                    <p className="text-sm font-medium">문항 배점</p>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={multipleChoiceScore}
+                        onChange={(event) => setMultipleChoiceScore(event.target.value)}
+                        placeholder="객관식 점수 (예: 1)"
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={subjectiveScore}
+                        onChange={(event) => setSubjectiveScore(event.target.value)}
+                        placeholder="주관식 점수 (예: 3)"
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={codingScore}
+                        onChange={(event) => setCodingScore(event.target.value)}
+                        placeholder="코딩 점수 (예: 3)"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      객관식/주관식/코딩 각각 독립 배점으로 환산됩니다.
+                    </p>
                   </div>
 
                   <select

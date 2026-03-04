@@ -197,26 +197,6 @@ docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml 
 # - Student: /dashboard 결과에서 객관식 판정/집계가 정정 결과 기준으로 반영되는지 확인
 ```
 
-## Exam Band CSV Export (Local)
-```bash
-# 1) Apply API migration (adds optional high/mid band thresholds)
-cd apps/api
-. .venv/Scripts/Activate.ps1
-alembic upgrade head
-
-# 2) Run API
-fastapi dev main.py
-
-# 3) Run Web (pnpm)
-pnpm --dir apps/web dev
-```
-
-Manual check:
-- Admin: `/admin/problems` or `/admin/exams`에서 시험 상/중 기준(선택) 입력
-- Admin: 응시 제출이 모두 `GRADED` 상태인지 확인
-- Admin dashboard(`/dashboard`): `상중하 CSV 다운로드` 클릭
-- CSV에서 `total_questions`, `correct_answers`, `performance_band_ko` 컬럼 확인
-
 ## Dynamic Track Management (Local)
 ```bash
 # 1) Refresh local docker stack (includes alembic upgrade on API start)
@@ -237,20 +217,54 @@ Manual check:
 - Admin `/admin/problems`, `/admin/exams`: verify the new track appears in exam target track selectors
 - Login with a user in the new track and verify target exams are visible in `/problems`
 
-## Admin CSV/Excel Full Question Export (Local)
+## Admin Unified CSV/XLSX Export (Local)
 ```bash
-# 1) Refresh local docker stack
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
-docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
+# 1) Apply API migration (adds exam coding_score weight)
+cd apps/api
+. .venv/Scripts/Activate.ps1
+alembic upgrade head
 
-# 2) Web check (PowerShell)
+# 2) Run API
+fastapi dev main.py
+
+# 3) Run Web (pnpm)
+pnpm --dir apps/web dev
+
+# 4) Web check (PowerShell)
 pnpm.cmd --dir apps/web lint
 pnpm.cmd --dir apps/web build
 ```
 
 Manual check:
-- Admin dashboard(`/dashboard`)에서 CSV/엑셀 다운로드 실행
-- 컬럼 헤더가 `1번(주관식)`, `2번(객관식)`, `3번(코딩)`처럼 문항 타입을 표시하는지 확인
-- 주관식/코딩/객관식이 모두 내보내기 집계에 포함되는지 확인
+- Admin `/admin/exams`에서 문항 배점을 `객관식/주관식/코딩` 3개로 입력/수정/재출제 반영 확인
+- Admin `/dashboard`에서 `CSV 다운로드`, `엑셀 다운로드` 2가지 동작 확인
+- 출력 파일이 동일 구조(상단 그룹 헤더/문항 타입 행/평균/합계/정답률/학생행)인지 확인
+- 학생 정렬이 `상 -> 중 -> 하 -> 미설정`, 각 그룹 내 `합산점수(100점 환산)` 내림차순인지 확인
+- 등급이 시험 컷(`performance_high_min_correct`, `performance_mid_min_correct`) 기준으로 산정되는지 확인
+- 문항 타입 색상(객관식 회색/주관식 주황/코딩 파랑) + 학생 등급 행 색상(상/중/하/미설정) 반영 확인
+- CSV는 순수 텍스트 구조만 포함하는지 확인(색상/병합 없음)
+- 점수식 확인
+  - `합산점수 = 객관식 정답*객관식배점 + 주관식 정답*주관식배점 + 코딩 정답*코딩배점`
+  - `합산점수(100점 환산) = 합산점수 / (객관식수*객관식배점 + 주관식수*주관식배점 + 코딩수*코딩배점)`
+
+E2E mixed test (10+ questions, 20 users):
+```bash
+node scripts/dashboard_export_mixed_e2e.mjs
+# Objective manual-correction flip 포함 검증(기본값 ON)
+# TEST_OBJECTIVE_FLIP=1 node scripts/dashboard_export_mixed_e2e.mjs
+# No-cut scenario (all grade = 미설정)
+TEST_DISABLE_CUT=1 node scripts/dashboard_export_mixed_e2e.mjs
+# Cleanup is ON by default (exam/users/track created by this test are deleted)
+# TEST_CLEANUP=0 node scripts/dashboard_export_mixed_e2e.mjs
+# Run against production API (use only test prefixes; cleanup keeps production data intact)
+# API_BASE_URL=https://spartaqa.com TEST_CLEANUP=1 node scripts/dashboard_export_mixed_e2e.mjs
+```
+
+## Admin Unified CSV/XLSX Export (Docker Local)
+```bash
+# Refresh local docker stack
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml build --pull
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml up -d --remove-orphans
+docker compose --env-file infra/.env.localtest -f infra/docker-compose.prod.yml ps
+```

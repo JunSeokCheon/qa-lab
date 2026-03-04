@@ -16,6 +16,9 @@ type ExamSummary = {
   exam_kind: string;
   target_track_name?: string | null;
   question_count: number;
+  multiple_choice_score?: number;
+  subjective_score?: number;
+  coding_score?: number;
   performance_high_min_correct?: number | null;
   performance_mid_min_correct?: number | null;
 };

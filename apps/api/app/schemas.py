@@ -211,6 +211,9 @@ class ExamCreate(BaseModel):
     status: str = "published"
     starts_at: datetime | None = None
     duration_minutes: int | None = Field(default=60, ge=1, le=1440)
+    multiple_choice_score: int = Field(default=1, ge=1, le=100)
+    subjective_score: int = Field(default=3, ge=1, le=100)
+    coding_score: int = Field(default=3, ge=1, le=100)
     performance_high_min_correct: int | None = Field(default=None, ge=0)
     performance_mid_min_correct: int | None = Field(default=None, ge=0)
     questions: list[ExamQuestionCreate]
@@ -225,6 +228,9 @@ class ExamUpdate(BaseModel):
     status: str = "published"
     starts_at: datetime | None = None
     duration_minutes: int | None = Field(default=None, ge=1, le=1440)
+    multiple_choice_score: int = Field(default=1, ge=1, le=100)
+    subjective_score: int = Field(default=3, ge=1, le=100)
+    coding_score: int = Field(default=3, ge=1, le=100)
     performance_high_min_correct: int | None = Field(default=None, ge=0)
     performance_mid_min_correct: int | None = Field(default=None, ge=0)
 
@@ -238,6 +244,9 @@ class ExamRepublish(BaseModel):
     status: str = "published"
     starts_at: datetime | None = None
     duration_minutes: int | None = Field(default=60, ge=1, le=1440)
+    multiple_choice_score: int = Field(default=1, ge=1, le=100)
+    subjective_score: int = Field(default=3, ge=1, le=100)
+    coding_score: int = Field(default=3, ge=1, le=100)
     performance_high_min_correct: int | None = Field(default=None, ge=0)
     performance_mid_min_correct: int | None = Field(default=None, ge=0)
     questions: list[ExamQuestionCreate]
@@ -290,6 +299,9 @@ class ExamSummary(BaseModel):
     status: str
     starts_at: datetime | None = None
     duration_minutes: int | None = None
+    multiple_choice_score: int = 1
+    subjective_score: int = 3
+    coding_score: int = 3
     performance_high_min_correct: int | None = None
     performance_mid_min_correct: int | None = None
     results_published: bool = False

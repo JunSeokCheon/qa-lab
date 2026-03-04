@@ -397,6 +397,28 @@ def _sanitize_exam_duration_minutes(duration_minutes: int | None) -> int | None:
     return int(duration_minutes)
 
 
+def _sanitize_exam_score_weight(value: int, *, label: str) -> int:
+    weight = int(value)
+    if weight < 1 or weight > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{label} score must be between 1 and 100.",
+        )
+    return weight
+
+
+def _sanitize_exam_scoring_weights(
+    multiple_choice_score: int,
+    subjective_score: int,
+    coding_score: int,
+) -> tuple[int, int, int]:
+    return (
+        _sanitize_exam_score_weight(multiple_choice_score, label="multiple_choice"),
+        _sanitize_exam_score_weight(subjective_score, label="subjective"),
+        _sanitize_exam_score_weight(coding_score, label="coding"),
+    )
+
+
 def _sanitize_exam_performance_band_thresholds(
     high_min_correct: int | None,
     mid_min_correct: int | None,
@@ -852,6 +874,9 @@ def _to_exam_summary(
         status=exam.status,
         starts_at=_coerce_utc_datetime(exam.starts_at),
         duration_minutes=exam.duration_minutes,
+        multiple_choice_score=exam.multiple_choice_score,
+        subjective_score=exam.subjective_score,
+        coding_score=exam.coding_score,
         performance_high_min_correct=exam.performance_high_min_correct,
         performance_mid_min_correct=exam.performance_mid_min_correct,
         results_published=bool(exam.results_published),
@@ -2019,6 +2044,11 @@ async def _create_exam_with_questions(
         payload.performance_mid_min_correct,
         question_count=question_count,
     )
+    multiple_choice_score, subjective_score, coding_score = _sanitize_exam_scoring_weights(
+        payload.multiple_choice_score,
+        payload.subjective_score,
+        payload.coding_score,
+    )
 
     exam = Exam(
         title=title,
@@ -2029,6 +2059,9 @@ async def _create_exam_with_questions(
         status=_sanitize_exam_status(payload.status),
         starts_at=_sanitize_exam_starts_at(payload.starts_at),
         duration_minutes=_sanitize_exam_duration_minutes(payload.duration_minutes),
+        multiple_choice_score=multiple_choice_score,
+        subjective_score=subjective_score,
+        coding_score=coding_score,
         performance_high_min_correct=performance_high_min_correct,
         performance_mid_min_correct=performance_mid_min_correct,
     )
@@ -2218,6 +2251,9 @@ async def create_exam(
             "target_track_name": exam.target_track_name,
             "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "duration_minutes": exam.duration_minutes,
+            "multiple_choice_score": exam.multiple_choice_score,
+            "subjective_score": exam.subjective_score,
+            "coding_score": exam.coding_score,
             "performance_high_min_correct": exam.performance_high_min_correct,
             "performance_mid_min_correct": exam.performance_mid_min_correct,
         },
@@ -2418,6 +2454,9 @@ async def republish_admin_exam(
             "target_track_name": new_exam.target_track_name,
             "starts_at": new_exam.starts_at.isoformat() if new_exam.starts_at else None,
             "duration_minutes": new_exam.duration_minutes,
+            "multiple_choice_score": new_exam.multiple_choice_score,
+            "subjective_score": new_exam.subjective_score,
+            "coding_score": new_exam.coding_score,
             "performance_high_min_correct": new_exam.performance_high_min_correct,
             "performance_mid_min_correct": new_exam.performance_mid_min_correct,
         },
@@ -2471,6 +2510,11 @@ async def update_admin_exam(
         payload.performance_mid_min_correct,
         question_count=question_count,
     )
+    multiple_choice_score, subjective_score, coding_score = _sanitize_exam_scoring_weights(
+        payload.multiple_choice_score,
+        payload.subjective_score,
+        payload.coding_score,
+    )
 
     exam.title = title
     exam.description = payload.description.strip() if payload.description else None
@@ -2480,6 +2524,9 @@ async def update_admin_exam(
     exam.status = _sanitize_exam_status(payload.status)
     exam.starts_at = _sanitize_exam_starts_at(payload.starts_at)
     exam.duration_minutes = _sanitize_exam_duration_minutes(payload.duration_minutes)
+    exam.multiple_choice_score = multiple_choice_score
+    exam.subjective_score = subjective_score
+    exam.coding_score = coding_score
     exam.performance_high_min_correct = performance_high_min_correct
     exam.performance_mid_min_correct = performance_mid_min_correct
 
@@ -2498,6 +2545,9 @@ async def update_admin_exam(
             "folder_id": exam.folder_id,
             "starts_at": exam.starts_at.isoformat() if exam.starts_at else None,
             "duration_minutes": exam.duration_minutes,
+            "multiple_choice_score": exam.multiple_choice_score,
+            "subjective_score": exam.subjective_score,
+            "coding_score": exam.coding_score,
             "performance_high_min_correct": exam.performance_high_min_correct,
             "performance_mid_min_correct": exam.performance_mid_min_correct,
         },

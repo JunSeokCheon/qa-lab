@@ -15,6 +15,9 @@ type ExamSummary = {
   exam_kind: string;
   target_track_name?: string | null;
   question_count: number;
+  multiple_choice_score?: number;
+  subjective_score?: number;
+  coding_score?: number;
   performance_high_min_correct?: number | null;
   performance_mid_min_correct?: number | null;
 };
@@ -248,7 +251,63 @@ function resolveAnswerVerdict(answer: ExamSubmissionAnswer): AnswerVerdict {
 }
 
 type ExportCell = string | number | null | undefined;
-type ExportRow = Record<string, ExportCell>;
+type ExportGrade = "상" | "중" | "하" | "미설정";
+type ExportQuestionType = "multiple_choice" | "subjective" | "coding";
+type ExportQuestion = {
+  id: number;
+  order: number;
+  type: ExportQuestionType;
+  score: number;
+};
+type StudentScoreRow = {
+  userName: string;
+  values: number[];
+  correctCount: number;
+  correctRate: number;
+  weightedScore: number;
+  normalizedScore: number;
+  grade: ExportGrade;
+};
+type ExportLayout = {
+  rows: ExportCell[][];
+  questions: ExportQuestion[];
+  studentRows: StudentScoreRow[];
+  studentStartRowIndex: number;
+  totalColumns: number;
+};
+
+const TOP_HEADER_COLOR = "#5C5C5C";
+const SUMMARY_ROW_COLOR = "#EEEEEE";
+const TYPE_HEADER_COLORS: Record<ExportQuestionType, string> = {
+  multiple_choice: "#D9D9D9",
+  subjective: "#F7B731",
+  coding: "#9CC3E6",
+};
+const GRADE_ROW_COLORS: Record<ExportGrade, string> = {
+  상: "#DDF1DD",
+  중: "#F6EAC8",
+  하: "#F7D8D8",
+  미설정: "#ECECEC",
+};
+const GRADE_ORDER: Record<ExportGrade, number> = {
+  상: 0,
+  중: 1,
+  하: 2,
+  미설정: 3,
+};
+
+type ExportCellStyle = {
+  backgroundColor: string;
+  textColor: string;
+  bold: boolean;
+  align: "left" | "center";
+};
+
+function normalizeExportQuestionType(type: string): ExportQuestionType {
+  if (type === "multiple_choice") return "multiple_choice";
+  if (type === "subjective") return "subjective";
+  return "coding";
+}
 
 function isFullyCorrect(answer: ExamSubmissionAnswer): boolean {
   const manualOverride = extractManualOverrideIsCorrect(answer);
@@ -415,61 +474,98 @@ function renderAnswerBlock(
   );
 }
 
-function formatPercent(value: number): string {
-  return value.toFixed(1);
+function roundNumber(value: number, digits = 10): number {
+  return Number(value.toFixed(digits));
+}
+
+function percentText(ratio: number, digits = 0): string {
+  const scaled = ratio * 100;
+  const rounded = digits > 0 ? roundNumber(scaled, digits) : Math.round(scaled);
+  return `${rounded}%`;
+}
+
+function numericSafe(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function stripCsvStyleHints(text: string): string {
+  // CSV is plain text only; remove legacy style hint suffixes if any stale values remain.
+  return text.replace(/\s*\[(회색|주황|파랑|연녹색|연베이지|연핑크|연회색)\]/g, "");
 }
 
 function csvCell(value: ExportCell): string {
-  const text = value === null || value === undefined ? "" : String(value);
+  const text = stripCsvStyleHints(value === null || value === undefined ? "" : String(value));
   if (text.includes('"') || text.includes(",") || text.includes("\n") || text.includes("\r")) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
 }
 
-function buildCsv(headers: string[], rows: ExportRow[]): string {
-  const lines: string[] = [headers.map((header) => csvCell(header)).join(",")];
-  for (const row of rows) {
-    lines.push(headers.map((header) => csvCell(row[header])).join(","));
-  }
+function buildCsv(rows: ExportCell[][]): string {
+  const lines = rows.map((row) => row.map((value) => csvCell(value)).join(","));
   return `\uFEFF${lines.join("\r\n")}`;
 }
 
-function htmlCell(value: ExportCell): string {
-  const text = value === null || value === undefined ? "" : String(value);
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function getExportCellStyle(layout: ExportLayout, rowIndex: number, colIndex: number): ExportCellStyle {
+  const isNameColumn = colIndex === 0;
+  const summaryStartCol = layout.questions.length + 1;
+  const studentRowOffset = rowIndex - layout.studentStartRowIndex;
+  const studentRow = studentRowOffset >= 0 ? layout.studentRows[studentRowOffset] : null;
+
+  if (rowIndex === 0 || rowIndex === 1) {
+    return {
+      backgroundColor: TOP_HEADER_COLOR,
+      textColor: "#FFFFFF",
+      bold: true,
+      align: isNameColumn ? "left" : "center",
+    };
+  }
+
+  if (rowIndex === 2) {
+    if (colIndex >= 1 && colIndex <= layout.questions.length) {
+      const questionType = layout.questions[colIndex - 1]?.type ?? "multiple_choice";
+      return {
+        backgroundColor: TYPE_HEADER_COLORS[questionType],
+        textColor: "#111111",
+        bold: true,
+        align: "center",
+      };
+    }
+    return {
+      backgroundColor: TOP_HEADER_COLOR,
+      textColor: "#FFFFFF",
+      bold: true,
+      align: colIndex >= summaryStartCol ? "center" : "left",
+    };
+  }
+
+  if (rowIndex >= 3 && rowIndex <= 5) {
+    return {
+      backgroundColor: SUMMARY_ROW_COLOR,
+      textColor: "#111111",
+      bold: true,
+      align: isNameColumn ? "left" : "center",
+    };
+  }
+
+  if (studentRow) {
+    return {
+      backgroundColor: GRADE_ROW_COLORS[studentRow.grade],
+      textColor: "#111111",
+      bold: colIndex === layout.totalColumns - 1,
+      align: isNameColumn ? "left" : "center",
+    };
+  }
+
+  return {
+    backgroundColor: "#FFFFFF",
+    textColor: "#111111",
+    bold: false,
+    align: isNameColumn ? "left" : "center",
+  };
 }
 
-function buildExcelHtml(headers: string[], rows: ExportRow[]): string {
-  const headerHtml = headers.map((header) => `<th>${htmlCell(header)}</th>`).join("");
-  const rowsHtml = rows
-    .map((row) => {
-      const cols = headers.map((header) => `<td>${htmlCell(row[header])}</td>`).join("");
-      return `<tr>${cols}</tr>`;
-    })
-    .join("");
-
-  return `
-<html>
-  <head>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    <table border="1">
-      <thead><tr>${headerHtml}</tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-  </body>
-</html>`;
-}
-
-function downloadText(content: string, fileName: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
+function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -478,18 +574,8 @@ function downloadText(content: string, fileName: string, mimeType: string): void
   URL.revokeObjectURL(url);
 }
 
-function parseContentDispositionFileName(disposition: string | null): string | null {
-  if (!disposition) return null;
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-  if (encoded && encoded[1]) {
-    try {
-      return decodeURIComponent(encoded[1]);
-    } catch {
-      return encoded[1];
-    }
-  }
-  const plain = disposition.match(/filename=\"?([^\";]+)\"?/i);
-  return plain?.[1] ?? null;
+function downloadText(content: string, fileName: string, mimeType: string): void {
+  downloadBlob(new Blob([content], { type: mimeType }), fileName);
 }
 
 type AdminExamDashboardProps = {
@@ -524,22 +610,16 @@ export function AdminExamDashboard({
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [downloadingBandCsv, setDownloadingBandCsv] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const selectedExam = useMemo(() => exams.find((item) => item.id === examId) ?? null, [examId, exams]);
   const performanceCutSummary = useMemo(() => {
     if (!selectedExam) return "";
     const high = selectedExam.performance_high_min_correct;
     const mid = selectedExam.performance_mid_min_correct;
-    if ((high === null || high === undefined) && (mid === null || mid === undefined)) {
-      return "unset";
+    if (!Number.isInteger(high) || !Number.isInteger(mid) || (high ?? 0) <= (mid ?? 0)) {
+      return "미설정";
     }
-    if (high !== null && high !== undefined && mid !== null && mid !== undefined) {
-      return `high >= ${high}, mid >= ${mid}`;
-    }
-    if (high !== null && high !== undefined) {
-      return `high >= ${high}, mid unset`;
-    }
-    return `high unset, mid >= ${mid}`;
+    return `상: ${high}개 이상, 중: ${mid}개 이상`;
   }, [selectedExam]);
 
   const loadSubmissions = useCallback(async (targetExamId: number) => {
@@ -745,157 +825,270 @@ export function AdminExamDashboard({
     [correctCountDistribution]
   );
 
-  const exportQuestions = useMemo(
-    () =>
-      allQuestionOptions.map((item) => ({
-        id: item.questionId,
-        order: item.questionOrder,
-        type: item.questionType,
-      })),
-    [allQuestionOptions]
+  const scoringWeights = useMemo(
+    () => ({
+      multipleChoice: Number.isInteger(selectedExam?.multiple_choice_score) ? (selectedExam?.multiple_choice_score ?? 1) : 1,
+      subjective: Number.isInteger(selectedExam?.subjective_score) ? (selectedExam?.subjective_score ?? 3) : 3,
+      coding: Number.isInteger(selectedExam?.coding_score) ? (selectedExam?.coding_score ?? 3) : 3,
+    }),
+    [selectedExam?.coding_score, selectedExam?.multiple_choice_score, selectedExam?.subjective_score]
   );
 
-  const exportQuestionHeaders = useMemo(
-    () => exportQuestions.map((question) => `${question.order}번(${questionTypeLabel(question.type)})`),
+  const exportQuestions = useMemo<ExportQuestion[]>(
+    () =>
+      allQuestionOptions.map((item) => {
+        const type = normalizeExportQuestionType(item.questionType);
+        const score =
+          type === "multiple_choice"
+            ? scoringWeights.multipleChoice
+            : type === "subjective"
+              ? scoringWeights.subjective
+              : scoringWeights.coding;
+        return {
+          id: item.questionId,
+          order: item.questionOrder,
+          type,
+          score,
+        };
+      }),
+    [allQuestionOptions, scoringWeights.coding, scoringWeights.multipleChoice, scoringWeights.subjective]
+  );
+
+  const totalWeightedMaxScore = useMemo(
+    () => exportQuestions.reduce((sum, question) => sum + question.score, 0),
     [exportQuestions]
   );
 
-  const exportHeaders = useMemo(() => {
-    return ["수강생", ...exportQuestionHeaders, "합계", "정답률(%)"];
-  }, [exportQuestionHeaders]);
+  const scoringCut = useMemo(() => {
+    const high = selectedExam?.performance_high_min_correct;
+    const mid = selectedExam?.performance_mid_min_correct;
+    if (!Number.isInteger(high) || !Number.isInteger(mid) || (high ?? 0) <= (mid ?? 0)) {
+      return null;
+    }
+    return {
+      high: high as number,
+      mid: mid as number,
+    };
+  }, [selectedExam?.performance_high_min_correct, selectedExam?.performance_mid_min_correct]);
 
-  const studentScoreRows = useMemo(() => {
+  const studentScoreRows = useMemo<StudentScoreRow[]>(() => {
     const questionCount = exportQuestions.length;
-    return submissions.map((submission) => {
+    const rows: StudentScoreRow[] = submissions.map((submission) => {
       const answerMap = new Map<number, ExamSubmissionAnswer>(
         submission.answers.map((answer) => [answer.question_id, answer])
       );
       const values = exportQuestions.map((question) => toBinaryCorrect(answerMap.get(question.id)));
-      const total = values.reduce((sum, value) => sum + value, 0);
-      const rate = questionCount > 0 ? (total / questionCount) * 100 : 0;
+      const correctCount = values.reduce((sum, value) => sum + value, 0);
+      const correctRate = questionCount > 0 ? correctCount / questionCount : 0;
+      const weightedScore = values.reduce((sum, value, index) => sum + value * (exportQuestions[index]?.score ?? 0), 0);
+      const normalizedScore = totalWeightedMaxScore > 0 ? weightedScore / totalWeightedMaxScore : 0;
+      const grade: ExportGrade = scoringCut
+        ? correctCount >= scoringCut.high
+          ? "상"
+          : correctCount >= scoringCut.mid
+            ? "중"
+            : "하"
+        : "미설정";
+
       return {
         userName: submission.user_name,
         values,
-        total,
-        rate,
+        correctCount,
+        correctRate,
+        weightedScore,
+        normalizedScore,
+        grade,
       };
     });
-  }, [exportQuestions, submissions]);
 
-  const questionSums = useMemo(() => {
-    const sums = new Array(exportQuestions.length).fill(0);
-    for (const row of studentScoreRows) {
-      row.values.forEach((value, index) => {
-        sums[index] += value;
+    return rows.sort((left, right) => {
+      const byGrade = GRADE_ORDER[left.grade] - GRADE_ORDER[right.grade];
+      if (byGrade !== 0) return byGrade;
+      if (left.normalizedScore !== right.normalizedScore) {
+        return right.normalizedScore - left.normalizedScore;
+      }
+      return left.userName.localeCompare(right.userName, "ko");
+    });
+  }, [exportQuestions, scoringCut, submissions, totalWeightedMaxScore]);
+
+  const exportLayout = useMemo<ExportLayout | null>(() => {
+    if (exportQuestions.length === 0) return null;
+
+    const questionCount = exportQuestions.length;
+    const totalColumns = questionCount + 6;
+    const questionSums = new Array(questionCount).fill(0);
+    for (const student of studentScoreRows) {
+      student.values.forEach((value, index) => {
+        questionSums[index] += value;
       });
     }
-    return sums;
-  }, [exportQuestions.length, studentScoreRows]);
+    const questionRates =
+      studentScoreRows.length > 0
+        ? questionSums.map((sum) => sum / studentScoreRows.length)
+        : questionSums.map(() => 0);
 
-  const questionRates = useMemo(() => {
-    if (studentScoreRows.length === 0) return questionSums.map(() => 0);
-    return questionSums.map((sum) => (sum / studentScoreRows.length) * 100);
-  }, [questionSums, studentScoreRows.length]);
+    const averageCorrectCount =
+      studentScoreRows.length > 0
+        ? roundNumber(
+            studentScoreRows.reduce((sum, row) => sum + row.correctCount, 0) / studentScoreRows.length,
+            1
+          )
+        : 0;
+    const averageCorrectRate =
+      studentScoreRows.length > 0
+        ? studentScoreRows.reduce((sum, row) => sum + row.correctRate, 0) / studentScoreRows.length
+        : 0;
+    const averageWeightedScore =
+      studentScoreRows.length > 0
+        ? roundNumber(
+            studentScoreRows.reduce((sum, row) => sum + row.weightedScore, 0) / studentScoreRows.length,
+            1
+          )
+        : 0;
+    const averageNormalizedScore =
+      studentScoreRows.length > 0
+        ? studentScoreRows.reduce((sum, row) => sum + row.normalizedScore, 0) / studentScoreRows.length
+        : 0;
 
-  const overallAverageScore = useMemo(() => {
-    if (studentScoreRows.length === 0) return 0;
-    const totalRate = studentScoreRows.reduce((sum, row) => sum + row.rate, 0);
-    return totalRate / studentScoreRows.length;
-  }, [studentScoreRows]);
+    const questionHeaders = exportQuestions.map((question) => `${question.order}번`);
+    const questionTypeHeaders = exportQuestions.map(
+      (question) => `${questionTypeLabel(question.type)}\n(${question.score}점)`
+    );
+    const topRow: ExportCell[] = new Array(totalColumns).fill("");
+    topRow[1] = "문항별 채점";
+    topRow[questionCount + 3] = "최종성적";
 
-  const exportRows = useMemo(() => {
-    const rows: ExportRow[] = studentScoreRows.map((student) => {
-      const row: ExportRow = {
-        수강생: student.userName,
-      };
-      exportQuestionHeaders.forEach((header, index) => {
-        row[header] = student.values[index];
-      });
-      row["합계"] = student.total;
-      row["정답률(%)"] = formatPercent(student.rate);
-      return row;
-    });
+    const rows: ExportCell[][] = [
+      topRow,
+      [
+        "수강생",
+        ...questionHeaders,
+        "합계",
+        "정답률",
+        "합산점수",
+        "합산점수(100점 환산)",
+        "등급",
+      ],
+      ["", ...questionTypeHeaders, "", "", "", "", ""],
+      [
+        "전체 평균 점수(100점 환산)",
+        ...new Array(questionCount).fill(""),
+        averageCorrectCount,
+        percentText(averageCorrectRate),
+        averageWeightedScore,
+        percentText(averageNormalizedScore),
+        "",
+      ],
+      ["합계", ...questionSums, "", "", "", "", ""],
+      ["정답률(%)", ...questionRates.map((ratio) => percentText(ratio)), "", "", "", "", ""],
+    ];
 
-    const sumRow: ExportRow = { 수강생: "합계" };
-    exportQuestionHeaders.forEach((header, index) => {
-      sumRow[header] = questionSums[index];
-    });
-    sumRow["합계"] = studentScoreRows.reduce((sum, student) => sum + student.total, 0);
-    sumRow["정답률(%)"] = "";
+    for (const student of studentScoreRows) {
+      rows.push([
+        student.userName,
+        ...student.values,
+        student.correctCount,
+        percentText(student.correctRate),
+        numericSafe(student.weightedScore),
+        percentText(student.normalizedScore),
+        student.grade,
+      ]);
+    }
 
-    const rateRow: ExportRow = { 수강생: "정답률(%)" };
-    exportQuestionHeaders.forEach((header, index) => {
-      rateRow[header] = formatPercent(questionRates[index]);
-    });
-    rateRow["합계"] = formatPercent(overallAverageScore);
-    rateRow["정답률(%)"] = formatPercent(overallAverageScore);
+    return {
+      rows,
+      questions: exportQuestions,
+      studentRows: studentScoreRows,
+      studentStartRowIndex: 6,
+      totalColumns,
+    };
+  }, [exportQuestions, studentScoreRows]);
 
-    const averageRow: ExportRow = { 수강생: "전체 평균 점수(100점)" };
-    exportQuestionHeaders.forEach((header) => {
-      averageRow[header] = "";
-    });
-    averageRow["합계"] = formatPercent(overallAverageScore);
-    averageRow["정답률(%)"] = formatPercent(overallAverageScore);
-
-    rows.push(sumRow, rateRow, averageRow);
-    return rows;
-  }, [exportQuestionHeaders, overallAverageScore, questionRates, questionSums, studentScoreRows]);
+  const buildExportFileBaseName = useCallback(() => {
+    if (!selectedExam) return "";
+    const fileTitle = selectedExam.title.replace(/[\/:*?"<>|]/g, "-").replace(/\s+/g, "_").slice(0, 40);
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    return `${fileTitle || `exam-${selectedExam.id}`}_응시결과_${timestamp}`;
+  }, [selectedExam]);
 
   const onDownloadCsv = () => {
-    if (!selectedExam || exportRows.length === 0) return;
-    const fileTitle = selectedExam.title
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .replace(/\s+/g, "_")
-      .slice(0, 40);
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const csv = buildCsv(exportHeaders, exportRows);
-    downloadText(csv, `${fileTitle || `exam-${selectedExam.id}`}_응시결과_${timestamp}.csv`, "text/csv;charset=utf-8;");
+    if (!selectedExam || !exportLayout) return;
+    const csv = buildCsv(exportLayout.rows);
+    downloadText(csv, `${buildExportFileBaseName()}.csv`, "text/csv;charset=utf-8;");
   };
 
-  const onDownloadExcel = () => {
-    if (!selectedExam || exportRows.length === 0) return;
-    const fileTitle = selectedExam.title
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .replace(/\s+/g, "_")
-      .slice(0, 40);
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const html = buildExcelHtml(exportHeaders, exportRows);
-    downloadText(
-      html,
-      `${fileTitle || `exam-${selectedExam.id}`}_응시결과_${timestamp}.xls`,
-      "application/vnd.ms-excel;charset=utf-8;"
-    );
-  };
-
-  const onDownloadBandCsv = async () => {
-    if (!selectedExam || downloadingBandCsv) return;
+  const onDownloadExcelXlsx = async () => {
+    if (!selectedExam || !exportLayout || downloadingXlsx) return;
 
     setActionError("");
     setActionMessage("");
-    setDownloadingBandCsv(true);
+    setDownloadingXlsx(true);
     try {
-      const response = await fetch(`/api/admin/exams/${selectedExam.id}/results/csv`, { cache: "no-store" });
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
-        setActionError(payload.detail ?? payload.message ?? "CSV 다운로드에 실패했습니다.");
-        return;
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("응시결과");
+
+      for (const row of exportLayout.rows) {
+        worksheet.addRow(row.map((cell) => (cell === null || cell === undefined ? "" : String(cell))));
       }
 
-      const blob = await response.blob();
-      const fileName =
-        parseContentDispositionFileName(response.headers.get("content-disposition")) ??
-        `exam-${selectedExam.id}-results.csv`;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setActionMessage("CSV 다운로드를 시작했습니다.");
+      const questionCount = exportLayout.questions.length;
+      worksheet.mergeCells(1, 2, 1, questionCount + 3);
+      worksheet.mergeCells(1, questionCount + 4, 1, exportLayout.totalColumns);
+      worksheet.views = [{ state: "frozen", ySplit: 6, xSplit: 1 }];
+
+      worksheet.getColumn(1).width = 16;
+      for (let index = 0; index < questionCount; index += 1) {
+        worksheet.getColumn(index + 2).width = 8;
+      }
+      worksheet.getColumn(questionCount + 2).width = 8;
+      worksheet.getColumn(questionCount + 3).width = 9;
+      worksheet.getColumn(questionCount + 4).width = 10;
+      worksheet.getColumn(questionCount + 5).width = 16;
+      worksheet.getColumn(questionCount + 6).width = 8;
+
+      for (let rowIndex = 0; rowIndex < exportLayout.rows.length; rowIndex += 1) {
+        for (let colIndex = 0; colIndex < exportLayout.totalColumns; colIndex += 1) {
+          const cell = worksheet.getCell(rowIndex + 1, colIndex + 1);
+          const style = getExportCellStyle(exportLayout, rowIndex, colIndex);
+          const fillColor = style.backgroundColor.replace("#", "").toUpperCase();
+          const textColor = style.textColor.replace("#", "").toUpperCase();
+
+          cell.font = {
+            bold: style.bold,
+            color: { argb: textColor.length === 6 ? `FF${textColor}` : "FF111111" },
+          };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: fillColor.length === 6 ? `FF${fillColor}` : "FFFFFFFF" },
+          };
+          cell.alignment = {
+            horizontal: style.align,
+            vertical: "middle",
+            wrapText: true,
+          };
+          cell.border = {
+            top: { style: "thin", color: { argb: "FF222222" } },
+            left: { style: "thin", color: { argb: "FF222222" } },
+            bottom: { style: "thin", color: { argb: "FF222222" } },
+            right: { style: "thin", color: { argb: "FF222222" } },
+          };
+        }
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      downloadBlob(
+        new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        `${buildExportFileBaseName()}.xlsx`
+      );
+      setActionMessage("엑셀(.xlsx) 다운로드를 시작했습니다.");
     } catch {
-      setActionError("CSV 다운로드 요청 중 네트워크 오류가 발생했습니다.");
+      setActionError("엑셀(.xlsx) 생성 중 오류가 발생했습니다.");
     } finally {
-      setDownloadingBandCsv(false);
+      setDownloadingXlsx(false);
     }
   };
 
@@ -1091,19 +1284,16 @@ export function AdminExamDashboard({
             </label>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={onDownloadCsv} disabled={loading || exportRows.length === 0}>
+            <Button type="button" variant="outline" onClick={onDownloadCsv} disabled={loading || !exportLayout}>
               CSV 다운로드
-            </Button>
-            <Button type="button" variant="outline" onClick={onDownloadExcel} disabled={loading || exportRows.length === 0}>
-              엑셀(.xls) 다운로드
             </Button>
             <Button
               type="button"
               variant="outline"
-              onClick={() => void onDownloadBandCsv()}
-              disabled={loading || downloadingBandCsv}
+              onClick={() => void onDownloadExcelXlsx()}
+              disabled={loading || !exportLayout || downloadingXlsx}
             >
-              {downloadingBandCsv ? "CSV 준비 중..." : "상중하 CSV 다운로드"}
+              {downloadingXlsx ? "엑셀 준비 중..." : "엑셀 다운로드"}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">상/중/하 기준: {performanceCutSummary}</p>
@@ -1114,7 +1304,10 @@ export function AdminExamDashboard({
               : ""}
           </p>
           <p className="text-xs text-muted-foreground">
-            다운로드 파일은 수강생 X 문항 1/0 매트릭스와 하단 합계/정답률/전체 평균 점수를 제공합니다.
+            배점: 객관식 {scoringWeights.multipleChoice}점 / 주관식 {scoringWeights.subjective}점 / 코딩 {scoringWeights.coding}점
+          </p>
+          <p className="text-xs text-muted-foreground">
+            CSV/엑셀 모두 동일한 텍스트 구조(문항별 채점 + 최종성적)를 제공합니다.
           </p>
           {loading ? <p className="text-sm text-muted-foreground">불러오는 중...</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

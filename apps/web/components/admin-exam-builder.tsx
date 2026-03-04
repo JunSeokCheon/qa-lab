@@ -143,6 +143,13 @@ function parseOptionalMinCorrectCut(value: string): number | null | "invalid" {
   return parsed;
 }
 
+function parseScoreWeight(value: string): number | "invalid" {
+  const trimmed = value.trim();
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) return "invalid";
+  return parsed;
+}
+
 function buildRubricHelperText(question: DraftQuestion): string {
   const answerPreview = question.answerKeyText.trim() || "(정답/채점 기준을 먼저 간단히 작성해 주세요)";
   if (question.type === "coding") {
@@ -220,6 +227,9 @@ export function AdminExamBuilder({
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
+  const [multipleChoiceScore, setMultipleChoiceScore] = useState("1");
+  const [subjectiveScore, setSubjectiveScore] = useState("3");
+  const [codingScore, setCodingScore] = useState("3");
   const [performanceHighMinCorrect, setPerformanceHighMinCorrect] = useState("");
   const [performanceMidMinCorrect, setPerformanceMidMinCorrect] = useState("");
   const [questions, setQuestions] = useState<DraftQuestion[]>([newQuestion(1, "multiple_choice")]);
@@ -555,6 +565,24 @@ export function AdminExamBuilder({
         return;
       }
     }
+    const parsedMultipleChoiceScore = parseScoreWeight(multipleChoiceScore);
+    if (parsedMultipleChoiceScore === "invalid") {
+      setCreateError("객관식 점수는 1~100 사이의 정수로 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+    const parsedSubjectiveScore = parseScoreWeight(subjectiveScore);
+    if (parsedSubjectiveScore === "invalid") {
+      setCreateError("주관식 점수는 1~100 사이의 정수로 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+    const parsedCodingScore = parseScoreWeight(codingScore);
+    if (parsedCodingScore === "invalid") {
+      setCreateError("코딩 점수는 1~100 사이의 정수로 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
 
     const parsedHighMinCorrect = parseOptionalMinCorrectCut(performanceHighMinCorrect);
     if (parsedHighMinCorrect === "invalid") {
@@ -646,6 +674,9 @@ export function AdminExamBuilder({
           target_track_name: targetTrackName,
           starts_at: parsedStartsAt,
           duration_minutes: parsedDuration,
+          multiple_choice_score: parsedMultipleChoiceScore,
+          subjective_score: parsedSubjectiveScore,
+          coding_score: parsedCodingScore,
           performance_high_min_correct: parsedHighMinCorrect,
           performance_mid_min_correct: parsedMidMinCorrect,
           status: "published",
@@ -690,6 +721,9 @@ export function AdminExamBuilder({
       setStartsAtLocal("");
       setDurationMinutes("60");
       setNoTimeLimit(false);
+      setMultipleChoiceScore("1");
+      setSubjectiveScore("3");
+      setCodingScore("3");
       setPerformanceHighMinCorrect("");
       setPerformanceMidMinCorrect("");
       setQuestions([newQuestion(Date.now(), "multiple_choice")]);
@@ -829,6 +863,39 @@ export function AdminExamBuilder({
             placeholder="예: 60"
             disabled={noTimeLimit}
           />
+        </div>
+
+        <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
+          <p className="text-sm font-medium">문항 배점</p>
+          <div className="grid gap-2 md:grid-cols-3">
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={multipleChoiceScore}
+              onChange={(event) => setMultipleChoiceScore(event.target.value)}
+              placeholder="객관식 점수 (예: 1)"
+            />
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={subjectiveScore}
+              onChange={(event) => setSubjectiveScore(event.target.value)}
+              placeholder="주관식 점수 (예: 3)"
+            />
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={codingScore}
+              onChange={(event) => setCodingScore(event.target.value)}
+              placeholder="코딩 점수 (예: 3)"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            객관식/주관식/코딩 각각 독립 배점으로 환산됩니다.
+          </p>
         </div>
 
         <div className="space-y-2 rounded-xl border border-border/70 bg-surface-muted p-3">
